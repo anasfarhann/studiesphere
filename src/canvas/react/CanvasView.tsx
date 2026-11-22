@@ -5,6 +5,7 @@ import { Editor } from "../editor";
 import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
 import { t } from "@/i18n/en";
+import { SelectionMenu } from "./SelectionMenu";
 import { INK_COLORS, PEN_SIZES, Toolbar } from "./Toolbar";
 
 declare global {
@@ -27,6 +28,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const editorRef = useRef<Editor | null>(null);
+  const [editor, setEditor] = useState<Editor | null>(null);
   const [color, setColor] = useState(INK_COLORS[0].value);
   const [tool, setTool] = useState<ToolId>("pen");
   const [size, setSize] = useState(PEN_SIZES[1].value);
@@ -42,6 +44,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
     if (!box || !canvas) return;
     const editor = new Editor(canvas, { elements: initial });
     editorRef.current = editor;
+    setEditor(editor);
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
     const syncHist = () => setHist({ canUndo: editor.canUndo(), canRedo: editor.canRedo() });
     const offHist = editor.onHistoryChange(syncHist);
@@ -92,6 +95,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
       editor.destroy();
       if (window.__editor === editor) delete window.__editor;
       editorRef.current = null;
+      setEditor(null);
     };
   }, [initial, attach]);
 
@@ -131,6 +135,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
             overscrollBehavior: "none",
           }}
         />
+        {editor ? <SelectionMenu editor={editor} /> : null}
       </div>
     </div>
   );

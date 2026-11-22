@@ -7,8 +7,11 @@ import type { Change } from "./model/history";
 import type { CanvasElement, StrokeEl } from "./model/types";
 import { EraserTool } from "./tools/eraser";
 import { HighlighterTool } from "./tools/highlighter";
+import { LassoTool } from "./tools/lasso";
 import { PenTool } from "./tools/pen";
 import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
+import { Selection } from "./selection";
+import type { Rect } from "./model/types";
 import { Camera } from "./view/camera";
 import { Renderer, type RendererOptions } from "./view/renderer";
 
@@ -54,6 +57,7 @@ export class Editor {
   readonly camera = new Camera();
   readonly router = new InputRouter();
   readonly history = new History();
+  readonly selection: Selection;
   private renderer: Renderer;
   private tools: Partial<Record<ToolId, Tool>>;
   private toolId: ToolId = "pen";
@@ -64,6 +68,7 @@ export class Editor {
   /** The pointer feeding the current tool, if any. */
   private drawing: { id: number; kind: InputKind; tool: Tool } | null = null;
   private tap: Tap | null = null;
+  private selectionListeners = new Set<() => void>();
   private spaceDown = false;
   private destroyed = false;
 
@@ -73,6 +78,13 @@ export class Editor {
   ) {
     this.scene = new Scene(opts.elements);
     this.renderer = new Renderer(canvas, this.scene, this.camera, opts.renderer);
+    this.selection = new Selection(this.scene);
+    this.selection.onChange(() => {
+      this.renderer.setSelection(this.selection.ids);
+      this.notifySelection();
+    });
+    // Elements removed elsewhere (eraser, undo, sync) drop out of the selection.
+    this.scene.onChange(() => this.selection.prune());
     const stroke = {
       scene: this.scene,
       style: () => ({ color: this.color, size: this.size }),
@@ -86,6 +98,12 @@ export class Editor {
         scene: this.scene,
         history: this.history,
         radius: () => ERASER_SCREEN_RADIUS / this.camera.zoom,
+      }),
+      lasso: new LassoTool({
+        scene: this.scene,
+        history: this.history,
+        selection: this.selection,
+        setLasso: (pts) => this.renderer.setLasso(pts),
       }),
       // Hand has no stroke of its own: while it is selected, drags pan (see onDown).
       hand: new HandTool(),
@@ -108,7 +126,32 @@ export class Editor {
   setTool(id: ToolId): void {
     if (!this.tools[id]) return;
     this.cancelStroke();
+    if (id !== "lasso") this.selection.clear();
     this.toolId = id;
+  }
+
+  /** Bounds of the current selection in world coordinates, or null. */
+  getSelectionBounds(): Rect | null {
+    return this.selection.bounds();
+  }
+
+  /** Fires when the selection (or its on-screen position) changes. Returns an unsubscribe. */
+  onSelectionChange(fn: () => void): () => void {
+    this.selectionListeners.add(fn);
+    return () => {
+      this.selectionListeners.delete(fn);
+    };
+  }
+
+  /** Deletes the selection as one undo step. */
+  deleteSelection(): void {
+    if (this.drawing || this.selection.ids.length === 0) return;
+    const c = this.selection.deleteAll();
+    if (c.before.length > 0) this.history.push(c);
+  }
+
+  private notifySelection(): void {
+    for (const fn of [...this.selectionListeners]) fn();
   }
 
   setColor(c: string): void {
@@ -121,11 +164,13 @@ export class Editor {
 
   undo(): void {
     if (this.drawing) return;
+    this.selection.clear();
     this.history.undo(this.scene);
   }
 
   redo(): void {
     if (this.drawing) return;
+    this.selection.clear();
     this.history.redo(this.scene);
   }
 
@@ -281,6 +326,7 @@ export class Editor {
     if (p.kind !== "touch") {
       this.camera.panBy(sx - p.lastX, sy - p.lastY);
       this.renderer.requestFrame();
+      this.notifySelection();
       return;
     }
     if (this.tap && this.tap.ids.includes(id)) this.tap.moved += Math.hypot(sx - p.lastX, sy - p.lastY);
@@ -301,6 +347,7 @@ export class Editor {
       return;
     }
     this.renderer.requestFrame();
+    this.notifySelection();
   }
 
   private onWheel = (e: WheelEvent): void => {
@@ -310,6 +357,7 @@ export class Editor {
     if (a.kind === "zoom") this.camera.zoomAt(e.clientX - r.left, e.clientY - r.top, a.factor);
     else this.camera.panBy(a.dx, a.dy);
     this.renderer.requestFrame();
+    this.notifySelection();
   };
 
   private onKey = (e: KeyboardEvent): void => {
@@ -318,6 +366,12 @@ export class Editor {
       e.preventDefault();
       if (e.shiftKey) this.redo();
       else this.undo();
+      return;
+    }
+    if (e.type === "keydown" && (e.key === "Delete" || e.key === "Backspace") && !isEditable(e.target)) {
+      if (this.selection.ids.length === 0) return;
+      e.preventDefault();
+      this.deleteSelection();
       return;
     }
     if (e.code !== "Space") return;

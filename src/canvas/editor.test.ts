@@ -7,7 +7,7 @@ function fakeCtx() {
   return {
     fillStyle: "", strokeStyle: "", globalAlpha: 1, lineWidth: 1, font: "", textBaseline: "",
     setTransform: noop, fillRect: noop, fill: noop, fillText: noop, strokeRect: noop, setLineDash: noop,
-    beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop,
+    beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop, moveTo: noop, lineTo: noop,
   };
 }
 
@@ -388,5 +388,67 @@ describe("Editor history and eraser", () => {
     drag(1, "mouse", [[10, 10], [60, 10]]);
     editor.undo();
     expect(seen).toEqual([[true, false], [false, true]]);
+  });
+
+  describe("lasso selection", () => {
+    const seed = (id: string, x: number): StrokeEl => ({
+      id, type: "stroke", tool: "pen", color: "#000", size: 2, z: 0, updatedAt: 1, simulatePressure: true,
+      points: [[x, 10, 0.5], [x + 10, 20, 0.5], [x + 20, 30, 0.5]],
+    });
+
+    function lassoAround() {
+      editor.scene.add(seed("a", 10));
+      editor.scene.add(seed("far", 400));
+      editor.setTool("lasso");
+      fire(canvas, "pointerdown", 1, "mouse", 0, 0);
+      fire(canvas, "pointermove", 1, "mouse", 100, 0);
+      fire(canvas, "pointermove", 1, "mouse", 100, 100);
+      fire(canvas, "pointermove", 1, "mouse", 0, 100);
+      fire(canvas, "pointerup", 1, "mouse", 0, 100, { buttons: 0 });
+    }
+
+    it("selects, moves as one undo step, and notifies the overlay", () => {
+      let n = 0;
+      editor.onSelectionChange(() => n++);
+      lassoAround();
+      expect(editor.selection.ids).toEqual(["a"]);
+      expect(editor.getSelectionBounds()).not.toBeNull();
+      expect(n).toBeGreaterThan(0);
+      fire(canvas, "pointerdown", 2, "mouse", 20, 20);
+      fire(canvas, "pointermove", 2, "mouse", 30, 20);
+      fire(canvas, "pointermove", 2, "mouse", 40, 25);
+      fire(canvas, "pointerup", 2, "mouse", 40, 25, { buttons: 0 });
+      expect((editor.scene.get("a") as StrokeEl).points[0]).toEqual([30, 15, 0.5]);
+      expect(editor.scene.all()).toHaveLength(2);
+      editor.undo();
+      expect((editor.scene.get("a") as StrokeEl).points[0]).toEqual([10, 10, 0.5]);
+      expect(editor.selection.ids).toEqual([]);
+    });
+
+    it("Delete key removes the selection in one undo step; ignored in inputs", () => {
+      lassoAround();
+      const input = document.createElement("input");
+      document.body.appendChild(input);
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+      expect(editor.scene.get("a")).toBeDefined();
+      input.remove();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace" }));
+      expect(editor.scene.get("a")).toBeUndefined();
+      expect(editor.selection.ids).toEqual([]);
+      editor.undo();
+      expect(editor.scene.get("a")).toBeDefined();
+    });
+
+    it("changing tool away from lasso clears the selection", () => {
+      lassoAround();
+      editor.setTool("pen");
+      expect(editor.selection.ids).toEqual([]);
+    });
+
+    it("selected elements erased elsewhere drop out of the selection", () => {
+      lassoAround();
+      editor.scene.remove("a");
+      expect(editor.selection.ids).toEqual([]);
+    });
   });
 });

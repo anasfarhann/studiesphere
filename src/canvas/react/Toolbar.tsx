@@ -67,6 +67,15 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
       </button>
       <button
         type="button"
+        aria-pressed={tool === "lasso"}
+        aria-label={t("toolLasso")}
+        onClick={() => onTool("lasso")}
+        className={`${btn} px-3 text-sm`}
+      >
+        {t("toolLasso")}
+      </button>
+      <button
+        type="button"
         aria-pressed={tool === "hand"}
         aria-label={t("toolHand")}
         onClick={() => onTool("hand")}
