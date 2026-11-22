@@ -29,3 +29,23 @@ test("page links apple touch icon, theme colour and viewport-fit=cover", async (
   await expect(page.locator('meta[name="viewport"]')).not.toHaveAttribute("content", /user-scalable|maximum-scale/);
   await expect(page.locator('meta[name="apple-mobile-web-app-capable"], meta[name="mobile-web-app-capable"]').first()).toHaveAttribute("content", "yes");
 });
+
+test("body padding respects safe-area insets", async ({ page }) => {
+  await page.goto("/");
+  const rules = await page.evaluate(() => {
+    const out: string[] = [];
+    const walk = (list: CSSRuleList) => {
+      for (const r of Array.from(list)) {
+        if ("cssRules" in r && (r as CSSGroupingRule).cssRules) walk((r as CSSGroupingRule).cssRules);
+        if (r instanceof CSSStyleRule && r.selectorText === "body") out.push(r.cssText);
+      }
+    };
+    for (const s of Array.from(document.styleSheets)) {
+      try { walk(s.cssRules); } catch { /* cross-origin sheet */ }
+    }
+    return out.join("\n");
+  });
+  for (const side of ["top", "right", "bottom", "left"]) {
+    expect(rules).toContain(`safe-area-inset-${side}`);
+  }
+});

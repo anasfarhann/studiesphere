@@ -9,7 +9,7 @@ export const metadata: Metadata = {
   icons: { apple: "/icons/apple-touch-icon.png" },
 };
 
-// Page zoom stays enabled (accessibility); the canvas route manages touch-action itself.
+// Page zoom stays enabled (accessibility). Safe-area insets are applied on <body> in globals.css.
 export const viewport: Viewport = {
   themeColor: "#2563eb",
   viewportFit: "cover",
