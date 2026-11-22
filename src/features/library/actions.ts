@@ -19,9 +19,10 @@ const text = (f: FormData, k: string) => String(f.get(k) ?? "");
 export async function createSubjectAction(_prev: FormState, form: FormData): Promise<FormState> {
   const color = text(form, "color");
   const valid = SUBJECT_COLORS.some((c) => c.hex === color) ? color : SUBJECT_COLORS[0].hex;
+  const r = await repo(); // auth redirect happens outside the try
   let id: string;
   try {
-    id = (await (await repo()).createSubject({ name: text(form, "name"), color: valid })).id;
+    id = (await r.createSubject({ name: text(form, "name"), color: valid })).id;
   } catch (e) {
     return toFormError(e);
   }
@@ -30,9 +31,10 @@ export async function createSubjectAction(_prev: FormState, form: FormData): Pro
 }
 
 export async function createNotebookAction(subjectId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const r = await repo(); // auth redirect happens outside the try
   let id: string;
   try {
-    id = (await (await repo()).createNotebook(subjectId, text(form, "title"))).id;
+    id = (await r.createNotebook(subjectId, text(form, "title"))).id;
   } catch (e) {
     return toFormError(e);
   }
@@ -40,9 +42,10 @@ export async function createNotebookAction(subjectId: string, _prev: FormState, 
 }
 
 export async function createPageAction(notebookId: string): Promise<FormState> {
+  const r = await repo(); // auth redirect happens outside the try
   let id: string;
   try {
-    id = (await (await repo()).createPage(notebookId)).id;
+    id = (await r.createPage(notebookId)).id;
   } catch (e) {
     return toFormError(e);
   }
