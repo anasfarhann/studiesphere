@@ -10,6 +10,7 @@ export const INK_COLORS: ReadonlyArray<{ value: string; label: keyof typeof en }
   { value: "#16a34a", label: "colorGreen" },
   { value: "#ea580c", label: "colorOrange" },
   { value: "#7c3aed", label: "colorPurple" },
+  { value: "#facc15", label: "colorYellow" },
 ];
 
 export const PEN_SIZES: ReadonlyArray<{ value: number; label: keyof typeof en }> = [
@@ -25,12 +26,16 @@ export interface ToolbarProps {
   size: number;
   onColor: (c: string) => void;
   onSize: (s: number) => void;
+  canUndo: boolean;
+  canRedo: boolean;
+  onUndo: () => void;
+  onRedo: () => void;
 }
 
 const btn =
   "inline-flex h-11 min-w-11 items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
 
-export function Toolbar({ tool, onTool, color, size, onColor, onSize }: ToolbarProps) {
+export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo }: ToolbarProps) {
   return (
     <div role="toolbar" aria-label={t("drawingTools")} className="flex flex-wrap items-center gap-2 border-b px-3 py-1">
       <button
@@ -44,12 +49,36 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize }: ToolbarP
       </button>
       <button
         type="button"
+        aria-pressed={tool === "highlighter"}
+        aria-label={t("toolHighlighter")}
+        onClick={() => onTool("highlighter")}
+        className={`${btn} px-3 text-sm`}
+      >
+        {t("toolHighlighter")}
+      </button>
+      <button
+        type="button"
+        aria-pressed={tool === "eraser"}
+        aria-label={t("toolEraser")}
+        onClick={() => onTool("eraser")}
+        className={`${btn} px-3 text-sm`}
+      >
+        {t("toolEraser")}
+      </button>
+      <button
+        type="button"
         aria-pressed={tool === "hand"}
         aria-label={t("toolHand")}
         onClick={() => onTool("hand")}
         className={`${btn} px-3 text-sm`}
       >
         {t("toolHand")}
+      </button>
+      <button type="button" aria-label={t("undo")} disabled={!canUndo} onClick={onUndo} className={`${btn} px-3 text-sm disabled:opacity-40`}>
+        {t("undo")}
+      </button>
+      <button type="button" aria-label={t("redo")} disabled={!canRedo} onClick={onRedo} className={`${btn} px-3 text-sm disabled:opacity-40`}>
+        {t("redo")}
       </button>
       <div role="group" aria-label={t("inkColors")} className="flex items-center gap-1">
         {INK_COLORS.map((c) => (

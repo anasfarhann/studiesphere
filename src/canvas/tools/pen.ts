@@ -1,3 +1,4 @@
+import type { Change } from "../model/history";
 import type { Scene } from "../model/scene";
 import type { StrokeEl } from "../model/types";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
@@ -8,18 +9,23 @@ export interface PenToolContext {
   style: () => { color: string; size: number };
   /** Shows (or clears, with null) the in-progress stroke. */
   setLive: (stroke: StrokeEl | null) => void;
+  /** Called with the undo step for each committed stroke. */
+  onCommit?: (c: Change) => void;
+  /** Which stroke kind to produce; defaults to "pen". */
+  strokeTool?: "pen" | "highlighter";
   newId?: () => string;
   now?: () => number;
 }
 
 /** Collects points between down and up and commits them as one StrokeEl. */
 export class PenTool implements Tool {
-  readonly id = "pen" as const;
+  readonly id: "pen" | "highlighter";
   private live: StrokeEl | null = null;
   private newId: () => string;
   private now: () => number;
 
   constructor(private ctx: PenToolContext) {
+    this.id = ctx.strokeTool ?? "pen";
     this.newId = ctx.newId ?? (() => crypto.randomUUID());
     this.now = ctx.now ?? (() => Date.now());
   }
@@ -31,7 +37,7 @@ export class PenTool implements Tool {
       z: 0,
       updatedAt: 0,
       type: "stroke",
-      tool: "pen",
+      tool: this.id,
       color,
       size,
       points: [p],
@@ -52,7 +58,9 @@ export class PenTool implements Tool {
     const stroke = this.live;
     if (!stroke) return;
     this.live = null;
-    this.ctx.scene.add({ ...stroke, z: this.ctx.scene.nextZ(), updatedAt: this.now() });
+    const committed: StrokeEl = { ...stroke, z: this.ctx.scene.nextZ(), updatedAt: this.now() };
+    this.ctx.scene.add(committed);
+    this.ctx.onCommit?.({ before: [], after: [committed] });
     this.ctx.setLive(null);
   }
 

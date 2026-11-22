@@ -30,6 +30,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
   const [color, setColor] = useState(INK_COLORS[0].value);
   const [tool, setTool] = useState<ToolId>("pen");
   const [size, setSize] = useState(PEN_SIZES[1].value);
+  const [hist, setHist] = useState({ canUndo: false, canRedo: false });
   // Elements seed the editor once; later prop changes are not re-applied (persistence owns that, Task 12).
   const [initial] = useState(elements);
   // The first callback wins, like the elements: re-creating the editor would drop its scene.
@@ -42,6 +43,8 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
     const editor = new Editor(canvas, { elements: initial });
     editorRef.current = editor;
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
+    const syncHist = () => setHist({ canUndo: editor.canUndo(), canRedo: editor.canRedo() });
+    const offHist = editor.onHistoryChange(syncHist);
     const detach = attach?.(editor);
 
     const fit = () => {
@@ -84,6 +87,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
       canvas.removeEventListener("gestureend", preventDefault);
       canvas.removeEventListener("dblclick", preventDefault);
       canvas.removeEventListener("contextmenu", preventDefault);
+      offHist();
       detach?.();
       editor.destroy();
       if (window.__editor === editor) delete window.__editor;
@@ -106,7 +110,12 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Toolbar tool={tool} onTool={pickTool} color={color} size={size} onColor={pickColor} onSize={pickSize} />
+      <Toolbar tool={tool} onTool={pickTool} color={color} size={size} onColor={pickColor} onSize={pickSize}
+        canUndo={hist.canUndo}
+        canRedo={hist.canRedo}
+        onUndo={() => editorRef.current?.undo()}
+        onRedo={() => editorRef.current?.redo()}
+      />
       <div ref={boxRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
           ref={canvasRef}

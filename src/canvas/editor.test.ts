@@ -279,3 +279,114 @@ describe("Editor pan and zoom gestures", () => {
     expect([editor.camera.x, editor.camera.y]).toEqual([-15, -35]);
   });
 });
+
+describe("Editor history and eraser", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+
+  beforeEach(() => {
+    canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [],
+      renderer: { raf: () => 1, caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+  });
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+  });
+
+  function drag(id: number, kind: Kind, pts: Array<[number, number]>, extra: Partial<PointerEventInit> = {}) {
+    fire(canvas, "pointerdown", id, kind, pts[0][0], pts[0][1], extra);
+    for (const [x, y] of pts.slice(1)) fire(canvas, "pointermove", id, kind, x, y, extra);
+    fire(canvas, "pointerup", id, kind, pts.at(-1)![0], pts.at(-1)![1], { buttons: 0 });
+  }
+
+  it("Ctrl+Z undoes a stroke and Shift+Ctrl+Z redoes it", () => {
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    expect(editor.scene.all()).toHaveLength(1);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    expect(editor.scene.all()).toHaveLength(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Z", ctrlKey: true, shiftKey: true, bubbles: true }));
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("Cmd+Z is ignored while typing in an input", () => {
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }));
+    expect(editor.scene.all()).toHaveLength(1);
+    input.remove();
+  });
+
+  it("the highlighter tool draws highlighter strokes", () => {
+    editor.setTool("highlighter");
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    expect((editor.scene.all()[0] as StrokeEl).tool).toBe("highlighter");
+  });
+
+  it("the eraser splits a stroke and one drag is one undo step", () => {
+    drag(1, "mouse", [[0, 10], [200, 10]]);
+    editor.setTool("eraser");
+    drag(2, "mouse", [[100, 0], [100, 10], [100, 20]]);
+    expect(editor.scene.all()).toHaveLength(2);
+    editor.undo();
+    expect(editor.scene.all()).toHaveLength(1);
+    editor.undo();
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("the pen eraser button erases whatever tool is selected", () => {
+    drag(1, "mouse", [[0, 10], [200, 10]]);
+    fire(canvas, "pointerdown", 2, "pen", 100, 10, { button: 5, buttons: 32 });
+    fire(canvas, "pointerup", 2, "pen", 100, 10, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(2);
+    expect(editor.scene.all().every((e) => e.id !== undefined)).toBe(true);
+    expect(editor.tool).toBe("pen");
+  });
+
+  it("a quick two-finger tap undoes", () => {
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    fire(canvas, "pointerdown", 5, "touch", 100, 100);
+    fire(canvas, "pointerdown", 6, "touch", 140, 100);
+    fire(canvas, "pointerup", 5, "touch", 100, 100, { buttons: 0 });
+    fire(canvas, "pointerup", 6, "touch", 140, 100, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("two fingers that move or pinch do not undo", () => {
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    fire(canvas, "pointerdown", 5, "touch", 100, 100);
+    fire(canvas, "pointerdown", 6, "touch", 140, 100);
+    fire(canvas, "pointermove", 6, "touch", 200, 100);
+    fire(canvas, "pointerup", 5, "touch", 100, 100, { buttons: 0 });
+    fire(canvas, "pointerup", 6, "touch", 200, 100, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("a slow two-finger touch does not undo", () => {
+    vi.useFakeTimers();
+    try {
+      drag(1, "mouse", [[10, 10], [60, 10]]);
+      fire(canvas, "pointerdown", 5, "touch", 100, 100);
+      fire(canvas, "pointerdown", 6, "touch", 140, 100);
+      vi.advanceTimersByTime(400);
+      fire(canvas, "pointerup", 5, "touch", 100, 100, { buttons: 0 });
+      fire(canvas, "pointerup", 6, "touch", 140, 100, { buttons: 0 });
+      expect(editor.scene.all()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("onHistoryChange fires with undo/redo availability", () => {
+    const seen: Array<[boolean, boolean]> = [];
+    editor.onHistoryChange(() => seen.push([editor.canUndo(), editor.canRedo()]));
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    editor.undo();
+    expect(seen).toEqual([[true, false], [false, true]]);
+  });
+});

@@ -1,8 +1,12 @@
 import { pinchUpdate } from "./input/pinch";
 import { InputRouter, type InputKind } from "./input/router";
 import { wheelAction } from "./input/wheel";
+import { History } from "./model/history";
 import { Scene } from "./model/scene";
-import type { CanvasElement } from "./model/types";
+import type { Change } from "./model/history";
+import type { CanvasElement, StrokeEl } from "./model/types";
+import { EraserTool } from "./tools/eraser";
+import { HighlighterTool } from "./tools/highlighter";
 import { PenTool } from "./tools/pen";
 import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
 import { Camera } from "./view/camera";
@@ -15,6 +19,14 @@ export interface EditorOptions {
 }
 
 type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number; lastY: number };
+
+/** A two-finger tap: both fingers down and up within this long, barely moving. */
+const TAP_MAX_MS = 250;
+const TAP_MAX_MOVE = 10;
+/** Eraser radius in screen pixels (converted to world units by the zoom). */
+const ERASER_SCREEN_RADIUS = 10;
+
+type Tap = { t0: number; ids: [number, number]; up: number; moved: number; zoom0: number };
 
 const DEFAULT_COLOR = "#111827";
 const DEFAULT_SIZE = 4;
@@ -41,6 +53,7 @@ export class Editor {
   readonly scene: Scene;
   readonly camera = new Camera();
   readonly router = new InputRouter();
+  readonly history = new History();
   private renderer: Renderer;
   private tools: Partial<Record<ToolId, Tool>>;
   private toolId: ToolId = "pen";
@@ -49,7 +62,8 @@ export class Editor {
   /** Every pointer currently down on the canvas, by pointerId. */
   private pointers = new Map<number, Active>();
   /** The pointer feeding the current tool, if any. */
-  private drawing: { id: number; kind: InputKind } | null = null;
+  private drawing: { id: number; kind: InputKind; tool: Tool } | null = null;
+  private tap: Tap | null = null;
   private spaceDown = false;
   private destroyed = false;
 
@@ -59,11 +73,19 @@ export class Editor {
   ) {
     this.scene = new Scene(opts.elements);
     this.renderer = new Renderer(canvas, this.scene, this.camera, opts.renderer);
+    const stroke = {
+      scene: this.scene,
+      style: () => ({ color: this.color, size: this.size }),
+      setLive: (s: StrokeEl | null) => this.renderer.setLive(s),
+      onCommit: (c: Change) => this.history.push(c),
+    };
     this.tools = {
-      pen: new PenTool({
+      pen: new PenTool(stroke),
+      highlighter: new HighlighterTool(stroke),
+      eraser: new EraserTool({
         scene: this.scene,
-        style: () => ({ color: this.color, size: this.size }),
-        setLive: (s) => this.renderer.setLive(s),
+        history: this.history,
+        radius: () => ERASER_SCREEN_RADIUS / this.camera.zoom,
       }),
       // Hand has no stroke of its own: while it is selected, drags pan (see onDown).
       hand: new HandTool(),
@@ -95,6 +117,29 @@ export class Editor {
 
   setSize(s: number): void {
     this.size = s;
+  }
+
+  undo(): void {
+    if (this.drawing) return;
+    this.history.undo(this.scene);
+  }
+
+  redo(): void {
+    if (this.drawing) return;
+    this.history.redo(this.scene);
+  }
+
+  canUndo(): boolean {
+    return this.history.canUndo();
+  }
+
+  canRedo(): boolean {
+    return this.history.canRedo();
+  }
+
+  /** Fires whenever undo/redo availability may have changed. Returns an unsubscribe. */
+  onHistoryChange(fn: () => void): () => void {
+    return this.history.onChange(fn);
   }
 
   resize(cssW: number, cssH: number, dpr: number): void {
@@ -148,8 +193,9 @@ export class Editor {
 
   private cancelStroke(): void {
     if (!this.drawing) return;
+    const { tool } = this.drawing;
     this.drawing = null;
-    this.activeTool?.cancel();
+    tool.cancel();
   }
 
   private capture(e: PointerEvent): void {
@@ -184,6 +230,7 @@ export class Editor {
       for (const p of this.pointers.values()) if (p.mode === "draw") p.mode = "pan";
     }
 
+    this.trackTapDown(e, kind, touches, gesture.kind);
     this.capture(e);
     if (!isTouch && (this.spaceDown || this.toolId === "hand")) {
       // Space held or hand tool: a mouse/pen drag pans. Resting palms must not join in.
@@ -191,14 +238,16 @@ export class Editor {
       this.pointers.set(e.pointerId, { kind, mode: "pan", lastX: sx, lastY: sy });
     } else if (gesture.kind === "draw") {
       this.cancelStroke();
-      const tool = this.activeTool;
+      // Pencil eraser end / barrel button erases for this stroke whatever tool is selected.
+      const erasing = kind === "pen" && (e.button === 5 || (e.buttons & 32) !== 0);
+      const tool = erasing ? this.tools.eraser : this.activeTool;
       if (!tool) return;
       if (!isTouch) {
         // Palm already resting when the Pencil (or mouse) lands: it must not pan or count as a finger.
         for (const p of this.pointers.values()) if (p.kind === "touch") p.mode = "ignore";
       }
       this.pointers.set(e.pointerId, { kind, mode: "draw", lastX: sx, lastY: sy });
-      this.drawing = { id: e.pointerId, kind };
+      this.drawing = { id: e.pointerId, kind, tool };
       tool.down(this.worldPoint(e, kind), this.info(e, kind));
     } else if (gesture.kind === "pan" || gesture.kind === "pinch") {
       this.pointers.set(e.pointerId, { kind, mode: "pan", lastX: sx, lastY: sy });
@@ -215,7 +264,7 @@ export class Editor {
     if (p.mode === "draw" && this.drawing?.id === e.pointerId) {
       const list = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [];
       const events = list.length > 0 ? list : [e];
-      this.activeTool?.move(
+      this.drawing.tool.move(
         events.map((ev) => this.worldPoint(ev, kind)),
         this.info(e, kind),
       );
@@ -234,6 +283,7 @@ export class Editor {
       this.renderer.requestFrame();
       return;
     }
+    if (this.tap && this.tap.ids.includes(id)) this.tap.moved += Math.hypot(sx - p.lastX, sy - p.lastY);
     const fingers: Array<[number, Active]> = [];
     for (const [pid, q] of this.pointers) if (q.kind === "touch" && q.mode === "pan") fingers.push([pid, q]);
     if (fingers.length === 1) {
@@ -263,6 +313,13 @@ export class Editor {
   };
 
   private onKey = (e: KeyboardEvent): void => {
+    if (e.type === "keydown" && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
+      if (isEditable(e.target)) return;
+      e.preventDefault();
+      if (e.shiftKey) this.redo();
+      else this.undo();
+      return;
+    }
     if (e.code !== "Space") return;
     if (e.type === "keydown" && isEditable(e.target)) return;
     this.spaceDown = e.type === "keydown";
@@ -277,14 +334,43 @@ export class Editor {
     if (!p) return;
     this.pointers.delete(e.pointerId);
     if (this.drawing?.id === e.pointerId) {
+      const { tool } = this.drawing;
       this.drawing = null;
-      this.activeTool?.up();
+      tool.up();
     }
+    this.trackTapUp(e);
   };
 
   private onCancel = (e: PointerEvent): void => {
     if (!this.pointers.has(e.pointerId)) return;
     this.pointers.delete(e.pointerId);
+    this.tap = null;
     if (this.drawing?.id === e.pointerId) this.cancelStroke();
   };
+
+  private trackTapDown(e: PointerEvent, kind: InputKind, touches: number, gesture: string): void {
+    if (kind !== "touch" || gesture === "ignore") {
+      this.tap = null;
+      return;
+    }
+    if (touches === 2) {
+      const first = [...this.pointers].find(([, p]) => p.kind === "touch" && p.mode !== "ignore");
+      this.tap = first
+        ? { t0: Date.now(), ids: [first[0], e.pointerId], up: 0, moved: 0, zoom0: this.camera.zoom }
+        : null;
+    } else {
+      this.tap = null;
+    }
+  }
+
+  private trackTapUp(e: PointerEvent): void {
+    const tap = this.tap;
+    if (!tap || !tap.ids.includes(e.pointerId)) return;
+    tap.up++;
+    if (tap.up < 2) return;
+    this.tap = null;
+    if (Date.now() - tap.t0 <= TAP_MAX_MS && tap.moved < TAP_MAX_MOVE && this.camera.zoom === tap.zoom0) {
+      this.undo();
+    }
+  }
 }
