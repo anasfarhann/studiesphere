@@ -1,0 +1,185 @@
+/*
+ * Hand-written to match supabase/migrations/0001_init.sql, in the shape of
+ * `supabase gen types typescript`. Regenerate once the Supabase project exists:
+ *   pnpm exec supabase gen types typescript --project-id <ref> > src/lib/supabase/types.ts
+ */
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[];
+
+export type Database = {
+  public: {
+    Tables: {
+      profiles: {
+        Row: {
+          id: string;
+          display_name: string | null;
+          plan: string;
+          created_at: string;
+        };
+        Insert: {
+          id: string;
+          display_name?: string | null;
+          plan?: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          display_name?: string | null;
+          plan?: string;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      subjects: {
+        Row: {
+          id: string;
+          owner_id: string;
+          name: string;
+          color: string;
+          sort_order: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id?: string;
+          name: string;
+          color: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          name?: string;
+          color?: string;
+          sort_order?: number;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      notebooks: {
+        Row: {
+          id: string;
+          owner_id: string;
+          subject_id: string;
+          title: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id?: string;
+          subject_id: string;
+          title: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          subject_id?: string;
+          title?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "notebooks_subject_id_fkey";
+            columns: ["subject_id"];
+            isOneToOne: false;
+            referencedRelation: "subjects";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      pages: {
+        Row: {
+          id: string;
+          owner_id: string;
+          notebook_id: string;
+          title: string;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id?: string;
+          notebook_id: string;
+          title?: string;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          notebook_id?: string;
+          title?: string;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "pages_notebook_id_fkey";
+            columns: ["notebook_id"];
+            isOneToOne: false;
+            referencedRelation: "notebooks";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      canvas_elements: {
+        Row: {
+          id: string;
+          owner_id: string;
+          page_id: string;
+          type: string;
+          data: Json;
+          z: number;
+          deleted: boolean;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          owner_id?: string;
+          page_id: string;
+          type: string;
+          data: Json;
+          z: number;
+          deleted?: boolean;
+          updated_at: string;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          page_id?: string;
+          type?: string;
+          data?: Json;
+          z?: number;
+          deleted?: boolean;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "canvas_elements_page_id_fkey";
+            columns: ["page_id"];
+            isOneToOne: false;
+            referencedRelation: "pages";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+    };
+    Views: { [_ in never]: never };
+    Functions: { [_ in never]: never };
+    Enums: { [_ in never]: never };
+    CompositeTypes: { [_ in never]: never };
+  };
+};
