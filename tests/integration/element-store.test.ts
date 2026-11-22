@@ -76,12 +76,25 @@ describe.skipIf(!configured)("SupabaseElementStore + save_elements", () => {
     const id = randomUUID();
     const far = Date.now() + 86_400_000; // a device clock ahead of the server
     await store.save(page, [stroke(id, far)], []);
-    await store.save(page, [], [id, randomUUID()]);
+    await store.save(page, [], [{ id, updatedAt: far + 1 }, { id: randomUUID(), updatedAt: far + 1 }]);
     expect(await store.load(page)).toEqual([]);
     await store.save(page, [stroke(id, far)], []); // the same batch replayed late
     expect(await store.load(page)).toEqual([]);
     const { data } = await client.from("canvas_elements").select("deleted").eq("id", id).single();
     expect(data?.deleted).toBe(true);
+  });
+
+  it("deletes are last-write-wins: an older tombstone does not hide a newer upsert", async () => {
+    const client = await signedInClient("a");
+    const store = new SupabaseElementStore(client);
+    const page = await newPage(client);
+    const id = randomUUID();
+    await store.save(page, [stroke(id, 2_000_000, "#newer")], []);
+    await store.save(page, [], [{ id, updatedAt: 1_000_000 }]);
+    expect(await store.load(page)).toHaveLength(1);
+    await store.save(page, [stroke(id, 3_000_000, "#restored")], []);
+    await store.save(page, [], [{ id, updatedAt: 2_500_000 }]);
+    expect((await store.load(page))[0]).toMatchObject({ color: "#restored" });
   });
 
   it("loads pages larger than one PostgREST response (1000 rows)", async () => {
@@ -101,7 +114,7 @@ describe.skipIf(!configured)("SupabaseElementStore + save_elements", () => {
     await new SupabaseElementStore(a).save(page, [stroke(id, 1_000_000, "#mine")], []);
     const bStore = new SupabaseElementStore(b);
     await expect(bStore.save(page, [stroke(randomUUID(), 1_000_000)], [])).rejects.toThrow();
-    await bStore.save(page, [], [id]).catch(() => undefined);
+    await bStore.save(page, [], [{ id, updatedAt: 9_000_000 }]).catch(() => undefined);
     await bStore.save(page, [stroke(id, 9_000_000, "#theirs")], []).catch(() => undefined);
     const mine = await new SupabaseElementStore(a).load(page);
     expect(mine).toHaveLength(1);

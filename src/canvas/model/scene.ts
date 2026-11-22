@@ -9,7 +9,9 @@ export class Scene {
   private entries = new Map<string, Entry>();
   private tree = new RBush<Entry>();
   private dirty = new Set<string>();
-  private deleted = new Set<string>();
+  private deleted = new Map<string, number>();
+  /** Last updatedAt handed out per id, removals included: one clock per author. */
+  private lastStamp = new Map<string, number>();
   private listeners = new Set<() => void>();
 
   constructor(elements: CanvasElement[] = []) {
@@ -30,7 +32,14 @@ export class Scene {
   }
 
   add(el: CanvasElement): void {
-    this.index(el);
+    let next = el;
+    const last = this.lastStamp.get(el.id);
+    // Re-adding a removed element: it must be newer than its own tombstone.
+    if (last !== undefined && !this.els.has(el.id)) {
+      next = { ...el, updatedAt: Math.max(el.updatedAt, Date.now(), last + 1) };
+    }
+    this.lastStamp.set(el.id, Math.max(next.updatedAt, last ?? 0));
+    this.index(next);
     this.dirty.add(el.id);
     this.deleted.delete(el.id);
     this.emit();
@@ -46,6 +55,7 @@ export class Scene {
       type: cur.type,
       updatedAt: patch.updatedAt ?? Math.max(Date.now(), cur.updatedAt + 1),
     } as CanvasElement;
+    this.lastStamp.set(id, Math.max(next.updatedAt, this.lastStamp.get(id) ?? 0));
     this.index(next);
     this.dirty.add(id);
     this.emit();
@@ -54,11 +64,13 @@ export class Scene {
   remove(id: string): void {
     const entry = this.entries.get(id);
     if (!entry) return;
+    const stamp = Math.max(Date.now(), (this.lastStamp.get(id) ?? 0) + 1, entry.el.updatedAt + 1);
+    this.lastStamp.set(id, stamp);
     this.tree.remove(entry);
     this.entries.delete(id);
     this.els.delete(id);
     this.dirty.delete(id);
-    this.deleted.add(id);
+    this.deleted.set(id, stamp);
     this.emit();
   }
 
@@ -83,13 +95,13 @@ export class Scene {
     return max + 1;
   }
 
-  takeDirty(): { upserts: CanvasElement[]; deletes: string[] } {
+  takeDirty(): { upserts: CanvasElement[]; deletes: { id: string; updatedAt: number }[] } {
     const upserts: CanvasElement[] = [];
     for (const id of this.dirty) {
       const el = this.els.get(id);
       if (el) upserts.push(el);
     }
-    const deletes = [...this.deleted];
+    const deletes = [...this.deleted].map(([id, updatedAt]) => ({ id, updatedAt }));
     this.dirty.clear();
     this.deleted.clear();
     return { upserts, deletes };

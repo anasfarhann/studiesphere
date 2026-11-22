@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { IdbOfflineQueue } from "./idb-queue";
 import type { SaveBatch } from "./store";
 
-const batch = (queuedAt: number, pageId = "p1"): SaveBatch => ({ id: `b${queuedAt}`, pageId, upserts: [], deletes: [`d${queuedAt}`], queuedAt });
+const batch = (queuedAt: number, pageId = "p1"): SaveBatch => ({ id: `b${queuedAt}`, pageId, upserts: [], deletes: [{ id: `d${queuedAt}`, updatedAt: queuedAt }], queuedAt });
 
 describe("IdbOfflineQueue", () => {
   it("keeps batches across instances (a reload) until removed, oldest first, per page", async () => {

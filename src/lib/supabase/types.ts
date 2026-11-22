@@ -1,5 +1,5 @@
 /*
- * Hand-written to match supabase/migrations/0001_init.sql and 0003_save_elements.sql, in the shape of
+ * Hand-written to match supabase/migrations/0001_init.sql and 0003_save_elements.sql and 0004_client_stamped_deletes.sql, in the shape of
  * `supabase gen types typescript`. Regenerate once the Supabase project exists:
  *   pnpm exec supabase gen types typescript --project-id <ref> > src/lib/supabase/types.ts
  */
@@ -180,7 +180,7 @@ export type Database = {
     Views: { [_ in never]: never };
     Functions: {
       save_elements: {
-        Args: { p_page: string; p_rows: Json; p_deleted: string[] };
+        Args: { p_page: string; p_rows: Json; p_deleted: Json };
         Returns: undefined;
       };
     };

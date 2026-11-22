@@ -1,20 +1,24 @@
 import type { CanvasElement } from "../model/types";
 
+/** A delete stamped by the client's clock, so it is ordered against upserts exactly like an edit. */
+export type Tombstone = { id: string; updatedAt: number };
+
 /** Row-level persistence for one page's elements. */
 export interface ElementStore {
   /** Live (deleted = false) elements of the page. */
   load(pageId: string): Promise<CanvasElement[]>;
   /**
-   * Row-level upsert; deletes set deleted = true. Per element the newer updatedAt wins:
-   * an older upsert never overwrites a newer row, and never undoes a delete.
+   * Row-level upsert; deletes set deleted = true. Per element the newer updatedAt wins (deletes carry
+   * their own stamp): an older upsert never overwrites a newer row or undoes a newer delete, and an
+   * older delete never hides a newer row.
    */
-  save(pageId: string, upserts: CanvasElement[], deletes: string[]): Promise<void>;
+  save(pageId: string, upserts: CanvasElement[], deletes: Tombstone[]): Promise<void>;
 }
 
 export type SaveState = "saved" | "saving" | "offline" | "error";
 
 /** `id` (random) identifies a batch in the queue; `queuedAt` only orders batches. */
-export type SaveBatch = { id: string; pageId: string; upserts: CanvasElement[]; deletes: string[]; queuedAt: number };
+export type SaveBatch = { id: string; pageId: string; upserts: CanvasElement[]; deletes: Tombstone[]; queuedAt: number };
 
 /**
  * Durable outbox of batches not yet confirmed by the server, scoped to one page.
@@ -70,7 +74,10 @@ export function applyBatches(elements: CanvasElement[], batches: SaveBatch[]): C
       const cur = byId.get(el.id);
       if (!cur || el.updatedAt >= cur.updatedAt) byId.set(el.id, el);
     }
-    for (const id of b.deletes) byId.delete(id);
+    for (const d of b.deletes) {
+      const cur = byId.get(d.id);
+      if (cur && cur.updatedAt <= d.updatedAt) byId.delete(d.id);
+    }
   }
   return [...byId.values()];
 }

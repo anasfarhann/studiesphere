@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
+import { History } from "../model/history";
 import { Scene } from "../model/scene";
 import type { CanvasElement, StrokeEl } from "../model/types";
 import { Autosave } from "./autosave";
@@ -227,7 +228,7 @@ describe("Autosave", () => {
     start(scene);
     scene.remove("a");
     await vi.advanceTimersByTimeAsync(1500);
-    expect(save.mock.calls.at(-1)?.[2]).toEqual(["a"]);
+    expect(save.mock.calls.at(-1)?.[2]).toEqual([{ id: "a", updatedAt: expect.any(Number) }]);
     expect(await store.load(PAGE)).toEqual([]);
   });
 
@@ -286,7 +287,7 @@ describe("MemoryElementStore (same merge rules as save_elements)", () => {
   it("an older upsert arriving after a delete does not resurrect the element", async () => {
     const s = new MemoryElementStore();
     await s.save(PAGE, [stroke("a", 2000)], []);
-    await s.save(PAGE, [], ["a", "never-saved"]);
+    await s.save(PAGE, [], [{ id: "a", updatedAt: 2001 }, { id: "never-saved", updatedAt: 2001 }]);
     await s.save(PAGE, [stroke("a", 2000)], []);
     expect(await s.load(PAGE)).toEqual([]);
   });
@@ -307,9 +308,109 @@ describe("applyBatches", () => {
   it("keeps the newer element and applies deletes", () => {
     const loaded = [stroke("a", 2000), stroke("b", 1000)];
     const out = applyBatches(loaded, [
-      { id: "b1", pageId: PAGE, upserts: [{ ...stroke("a", 1500), color: "#old" }, stroke("c", 1)], deletes: ["b"], queuedAt: 1 },
+      { id: "b1", pageId: PAGE, upserts: [{ ...stroke("a", 1500), color: "#old" }, stroke("c", 1)], deletes: [{ id: "b", updatedAt: 1001 }], queuedAt: 1 },
     ]);
     expect(out.map((e) => e.id).sort()).toEqual(["a", "c"]);
     expect(out.find((e) => e.id === "a")?.updatedAt).toBe(2000);
+  });
+});
+
+describe("undo/redo survive the server (client-stamped tombstones)", () => {
+  const T0 = 5_000_000;
+  let store: MemoryElementStore;
+  let scene: Scene;
+  let history: History;
+  let autosave: Autosave;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(T0);
+    store = new MemoryElementStore();
+    scene = new Scene();
+    history = new History();
+    autosave = new Autosave(scene, store, PAGE, { debounceMs: 1_000_000, maxWaitMs: 1_000_000 });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const ids = async () => (await store.load(PAGE)).map((e) => e.id).sort();
+
+  /** Erase stroke "A" into two pieces, as one history step. */
+  function erase() {
+    const a = scene.get("A") as StrokeEl;
+    scene.remove("A");
+    const p1 = stroke("P1", Date.now());
+    const p2 = stroke("P2", Date.now());
+    scene.add(p1);
+    scene.add(p2);
+    history.push({ before: [a], after: [p1, p2] });
+  }
+
+  it("erase, flush, undo later, flush: the stroke is back and the pieces are gone after reload", async () => {
+    scene.add(stroke("A", T0));
+    await autosave.flush();
+    erase();
+    await autosave.flush();
+    expect(await ids()).toEqual(["P1", "P2"]);
+    vi.setSystemTime(T0 + 3000);
+    history.undo(scene);
+    await autosave.flush();
+    expect(await ids()).toEqual(["A"]);
+    await autosave.dispose();
+  });
+
+  it("offline: both batches queued, replayed after reconnect, same result", async () => {
+    scene.add(stroke("A", T0));
+    await autosave.flush();
+    let online = false;
+    const real = store.save.bind(store);
+    vi.spyOn(store, "save").mockImplementation(async (...args) => {
+      if (!online) throw new ElementStoreError("Failed to fetch", true);
+      return real(...args);
+    });
+    erase();
+    await autosave.flush();
+    vi.setSystemTime(T0 + 2000);
+    history.undo(scene);
+    await autosave.flush();
+    expect(await ids()).toEqual(["A"]);
+    online = true;
+    vi.setSystemTime(T0 + 9000); // the server-side clock is long past the undo
+    await autosave.flush();
+    expect(await ids()).toEqual(["A"]);
+    await autosave.dispose();
+  });
+
+  it("draw, undo, redo offline: the stroke is present after reconnect", async () => {
+    let online = false;
+    const real = store.save.bind(store);
+    vi.spyOn(store, "save").mockImplementation(async (...args) => {
+      if (!online) throw new ElementStoreError("Failed to fetch", true);
+      return real(...args);
+    });
+    const a = stroke("A", T0);
+    scene.add(a);
+    history.push({ before: [], after: [a] });
+    await autosave.flush();
+    history.undo(scene);
+    await autosave.flush();
+    history.redo(scene);
+    await autosave.flush();
+    online = true;
+    await autosave.flush();
+    expect(await ids()).toEqual(["A"]);
+    await autosave.dispose();
+  });
+
+  it("an older tombstone does not hide a newer upsert from another device", async () => {
+    await store.save(PAGE, [stroke("A", T0 + 500)], []);
+    await store.save(PAGE, [], [{ id: "A", updatedAt: T0 }]);
+    expect(await ids()).toEqual(["A"]);
+    await store.save(PAGE, [], [{ id: "A", updatedAt: T0 + 600 }]);
+    expect(await ids()).toEqual([]);
+    expect(applyBatches([stroke("A", T0 + 500)], [
+      { id: "q", pageId: PAGE, upserts: [], deletes: [{ id: "A", updatedAt: T0 }], queuedAt: 1 },
+    ]).map((e) => e.id)).toEqual(["A"]);
   });
 });

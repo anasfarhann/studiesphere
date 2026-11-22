@@ -81,13 +81,23 @@ describe("Scene", () => {
     s.remove("a");
     expect(s.get("a")).toBeUndefined();
     expect(s.getVisible(view)).toEqual([]);
-    expect(s.takeDirty()).toEqual({ upserts: [], deletes: ["a"] });
+    expect(s.takeDirty()).toEqual({ upserts: [], deletes: [{ id: "a", updatedAt: expect.any(Number) }] });
   });
   it("add then remove before takeDirty appears only in deletes", () => {
     const s = new Scene();
     s.add(img("a", 0, 0));
     s.remove("a");
-    expect(s.takeDirty()).toEqual({ upserts: [], deletes: ["a"] });
+    expect(s.takeDirty()).toEqual({ upserts: [], deletes: [{ id: "a", updatedAt: expect.any(Number) }] });
+  });
+  it("tombstone stamps exceed the element's stamp and re-adding beats its own tombstone", () => {
+    const s = new Scene([{ ...img("a", 0, 0), updatedAt: Date.now() + 50_000 }]);
+    const old = s.get("a")!;
+    s.remove("a");
+    const [d] = s.takeDirty().deletes;
+    expect(d.updatedAt).toBeGreaterThan(old.updatedAt);
+    s.add(old);
+    expect(s.get("a")!.updatedAt).toBeGreaterThan(d.updatedAt);
+    expect(s.takeDirty().deletes).toEqual([]);
   });
   it("takeDirty returns each changed element once, then is empty", () => {
     const s = new Scene();

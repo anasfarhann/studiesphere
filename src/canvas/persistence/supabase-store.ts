@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/supabase/types";
 import type { CanvasElement } from "../model/types";
-import { ElementStoreError, type ElementStore } from "./store";
+import { ElementStoreError, type ElementStore, type Tombstone } from "./store";
 
 const ELEMENT_TYPES = new Set<string>(["stroke", "text", "image", "audio", "file"]);
 /** PostgREST caps a response at 1000 rows by default; pages can hold many more strokes. */
@@ -73,14 +73,14 @@ export class SupabaseElementStore implements ElementStore {
     return out;
   }
 
-  async save(pageId: string, upserts: CanvasElement[], deletes: string[]): Promise<void> {
+  async save(pageId: string, upserts: CanvasElement[], deletes: Tombstone[]): Promise<void> {
     if (upserts.length === 0 && deletes.length === 0) return;
     let res;
     try {
       res = await this.client.rpc("save_elements", {
         p_page: pageId,
         p_rows: upserts.map(rowFromElement),
-        p_deleted: deletes,
+        p_deleted: deletes.map((d) => ({ id: d.id, updated_at: new Date(d.updatedAt).toISOString() })),
       });
     } catch (e) {
       throw new ElementStoreError(e instanceof Error ? e.message : String(e), true);

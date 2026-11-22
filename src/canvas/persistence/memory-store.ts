@@ -1,13 +1,11 @@
 import type { CanvasElement } from "../model/types";
-import type { ElementStore, OfflineQueue, SaveBatch } from "./store";
+import type { ElementStore, OfflineQueue, SaveBatch, Tombstone } from "./store";
 
 type Row = { el: CanvasElement; deleted: boolean; updatedAt: number };
 
 /** In-memory store with the same per-element merge rules as the save_elements SQL function. */
 export class MemoryElementStore implements ElementStore {
   private pages = new Map<string, Map<string, Row>>();
-
-  constructor(private now: () => number = () => Date.now()) {}
 
   private rows(pageId: string): Map<string, Row> {
     let m = this.pages.get(pageId);
@@ -24,18 +22,19 @@ export class MemoryElementStore implements ElementStore {
     return out;
   }
 
-  async save(pageId: string, upserts: CanvasElement[], deletes: string[]): Promise<void> {
+  async save(pageId: string, upserts: CanvasElement[], deletes: Tombstone[]): Promise<void> {
     const rows = this.rows(pageId);
     for (const el of upserts) {
       const cur = rows.get(el.id);
       if (cur && el.updatedAt < cur.updatedAt) continue;
       rows.set(el.id, { el: structuredClone(el), deleted: false, updatedAt: el.updatedAt });
     }
-    for (const id of deletes) {
-      const cur = rows.get(id);
+    for (const d of deletes) {
+      const cur = rows.get(d.id);
       if (!cur) continue; // never saved: nothing to tombstone
+      if (d.updatedAt < cur.updatedAt) continue; // a newer write wins
       cur.deleted = true;
-      cur.updatedAt = Math.max(this.now(), cur.updatedAt + 1);
+      cur.updatedAt = d.updatedAt;
     }
   }
 }
