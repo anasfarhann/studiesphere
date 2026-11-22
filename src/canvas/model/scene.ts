@@ -44,7 +44,7 @@ export class Scene {
       ...patch,
       id: cur.id,
       type: cur.type,
-      updatedAt: patch.updatedAt ?? Date.now(),
+      updatedAt: patch.updatedAt ?? Math.max(Date.now(), cur.updatedAt + 1),
     } as CanvasElement;
     this.index(next);
     this.dirty.add(id);

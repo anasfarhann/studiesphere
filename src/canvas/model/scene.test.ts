@@ -53,6 +53,24 @@ describe("Scene", () => {
     s.update("a", { updatedAt: 42 });
     expect(s.get("a")!.updatedAt).toBe(42);
   });
+  it("updatedAt strictly increases even with a fixed clock or a future stamp", () => {
+    vi.spyOn(Date, "now").mockReturnValue(1000);
+    try {
+      const s = new Scene();
+      s.add({ ...img("a", 0, 0), updatedAt: 500 });
+      s.update("a", { x: 1 } as Partial<CanvasElement>);
+      const t1 = s.get("a")!.updatedAt;
+      s.update("a", { x: 2 } as Partial<CanvasElement>);
+      const t2 = s.get("a")!.updatedAt;
+      expect(t1).toBe(1000);
+      expect(t2).toBeGreaterThan(t1);
+      s.add({ ...img("f", 0, 0), updatedAt: 5000 });
+      s.update("f", { x: 1 } as Partial<CanvasElement>);
+      expect(s.get("f")!.updatedAt).toBeGreaterThan(5000);
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
   it("remove reports id in takeDirty deletes", () => {
     const s = new Scene([img("a", 0, 0)]);
     s.takeDirty();
