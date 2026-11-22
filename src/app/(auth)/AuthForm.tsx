@@ -22,27 +22,32 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     setBusy(true);
     setError(null);
     setNotice(null);
-    const supabase = createBrowserClient();
-    if (isLogin) {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setError(authErrorMessage(error));
-      else {
-        router.push("/app");
-        router.refresh();
+    try {
+      const supabase = createBrowserClient();
+      if (isLogin) {
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        if (error) setError(authErrorMessage(error));
+        else {
+          router.push("/app");
+          router.refresh();
+        }
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+        });
+        if (error) setError(authErrorMessage(error));
+        else if (data.session) {
+          router.push("/app");
+          router.refresh();
+        } else setNotice(t("checkYourEmail"));
       }
-    } else {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
-      });
-      if (error) setError(authErrorMessage(error));
-      else if (data.session) {
-        router.push("/app");
-        router.refresh();
-      } else setNotice(t("checkYourEmail"));
+    } catch (err) {
+      setError(authErrorMessage(err));
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
   }
 
   return (
