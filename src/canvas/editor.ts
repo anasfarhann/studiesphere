@@ -163,6 +163,10 @@ export class Editor {
       this.cancelStroke();
       const tool = this.activeTool;
       if (!tool) return;
+      if (!isTouch) {
+        // Palm already resting when the Pencil (or mouse) lands: it must not pan or count as a finger.
+        for (const p of this.pointers.values()) if (p.kind === "touch") p.mode = "ignore";
+      }
       this.pointers.set(e.pointerId, { kind, mode: "draw", lastX: sx, lastY: sy });
       this.drawing = { id: e.pointerId, kind };
       tool.down(this.worldPoint(e, kind), this.info(e, kind));

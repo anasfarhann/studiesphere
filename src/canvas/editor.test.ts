@@ -112,6 +112,22 @@ describe("Editor input wiring", () => {
     expect([editor.camera.x, editor.camera.y]).toEqual([0, 0]);
   });
 
+  it("a palm resting before the Pencil lands stops panning once the pen writes", () => {
+    fire(canvas, "pointerdown", 2, "pen", 0, 0);
+    fire(canvas, "pointerup", 2, "pen", 0, 0);
+    fire(canvas, "pointerdown", 40, "touch", 300, 300);
+    fire(canvas, "pointerdown", 3, "pen", 10, 10);
+    fire(canvas, "pointermove", 40, "touch", 320, 340);
+    fire(canvas, "pointermove", 3, "pen", 20, 20);
+    fire(canvas, "pointermove", 40, "touch", 340, 360);
+    fire(canvas, "pointerup", 3, "pen", 20, 20);
+    fire(canvas, "pointermove", 40, "touch", 360, 380);
+    fire(canvas, "pointerup", 40, "touch", 360, 380);
+    expect([editor.camera.x, editor.camera.y]).toEqual([0, 0]);
+    expect(editor.scene.all()).toHaveLength(2);
+    expect((editor.scene.all()[1] as StrokeEl).points.map(([x, y]) => [x, y])).toEqual([[10, 10], [20, 20]]);
+  });
+
   it("pointercancel discards the in-progress stroke", () => {
     fire(canvas, "pointerdown", 2, "pen", 0, 0);
     fire(canvas, "pointermove", 2, "pen", 10, 10);
