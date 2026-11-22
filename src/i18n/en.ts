@@ -47,6 +47,8 @@ export const en = {
   toolHand: "Hand (pan)",
   toolHighlighter: "Highlighter",
   toolEraser: "Eraser",
+  toolText: "Text",
+  textBoxLabel: "Text box",
   toolLasso: "Select (lasso)",
   deleteSelection: "Delete",
   selectionActions: "Selection actions",

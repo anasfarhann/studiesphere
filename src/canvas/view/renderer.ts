@@ -1,6 +1,7 @@
 import type { Scene } from "../model/scene";
 import type { CanvasElement, StrokeEl } from "../model/types";
-import { boundsOf } from "../model/bounds";
+import { boundsOf, TEXT_LINE_HEIGHT } from "../model/bounds";
+import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { outlineToPath, strokeOutline, type PathFactory } from "./stroke-path";
 
@@ -11,7 +12,6 @@ export interface RendererOptions {
 }
 
 const HIGHLIGHTER_ALPHA = 0.35;
-const LINE_HEIGHT = 1.4;
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -22,6 +22,7 @@ export class Renderer {
   private live: StrokeEl | null = null;
   private selection: string[] = [];
   private lasso: [number, number][] | null = null;
+  private hidden: string | null = null;
   private cache = new Map<string, { updatedAt: number; path: Path2D }>();
   private maybeRemoved = false;
   private unsubscribe: () => void;
@@ -76,6 +77,12 @@ export class Renderer {
     this.requestFrame();
   }
 
+  /** An element not to draw (the text box being edited in the overlay), or null. */
+  setHidden(id: string | null): void {
+    this.hidden = id;
+    this.requestFrame();
+  }
+
   /** The lasso path being drawn (world coordinates), or null. */
   setLasso(points: [number, number][] | null): void {
     this.lasso = points;
@@ -100,7 +107,9 @@ export class Renderer {
     const k = dpr * camera.zoom;
     ctx.setTransform(k, 0, 0, k, -camera.x * k, -camera.y * k);
 
-    for (const el of this.scene.getVisible(camera.viewRect(this.cssW, this.cssH))) this.drawElement(el);
+    for (const el of this.scene.getVisible(camera.viewRect(this.cssW, this.cssH))) {
+      if (el.id !== this.hidden) this.drawElement(el);
+    }
     if (this.live) this.drawStroke(this.live, this.createStrokePath(this.live));
     this.drawSelection();
     this.drawLasso();
@@ -151,7 +160,9 @@ export class Renderer {
       ctx.fillStyle = el.color;
       ctx.font = `${el.fontSize}px sans-serif`;
       ctx.textBaseline = "alphabetic";
-      el.text.split("\n").forEach((line, i) => ctx.fillText(line, el.x, el.y + el.fontSize * LINE_HEIGHT * (i + 1)));
+      const measure: Measure = typeof ctx.measureText === "function" ? (str) => ctx.measureText(str).width : approxMeasure;
+      const lines = wrapText(measure, el.text, el.w, el.fontSize);
+      lines.forEach((line, i) => ctx.fillText(line, el.x, el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1)));
     } else {
       const b = boundsOf(el);
       ctx.beginPath();

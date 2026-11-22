@@ -1,3 +1,4 @@
+import { DoubleTap } from "./input/double-tap";
 import { pinchUpdate } from "./input/pinch";
 import { InputRouter, type InputKind } from "./input/router";
 import { wheelAction } from "./input/wheel";
@@ -9,6 +10,7 @@ import { EraserTool } from "./tools/eraser";
 import { HighlighterTool } from "./tools/highlighter";
 import { LassoTool } from "./tools/lasso";
 import { PenTool } from "./tools/pen";
+import { TextEditing, TextTool, textAt } from "./tools/text";
 import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
 import { Selection } from "./selection";
 import type { Rect } from "./model/types";
@@ -58,6 +60,11 @@ export class Editor {
   readonly router = new InputRouter();
   readonly history = new History();
   readonly selection: Selection;
+  readonly text: TextEditing;
+  /** Two quick taps on a text box edit it, whatever tool is selected. */
+  private doubleTap = new DoubleTap();
+  /** A second tap that landed on a text box: edit it when that pointer lifts. */
+  private dbl: { pointerId: number; textId: string } | null = null;
   private renderer: Renderer;
   private tools: Partial<Record<ToolId, Tool>>;
   private toolId: ToolId = "pen";
@@ -84,6 +91,11 @@ export class Editor {
     this.caf = opts.renderer?.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.renderer = new Renderer(canvas, this.scene, this.camera, opts.renderer);
     this.selection = new Selection(this.scene);
+    this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.color });
+    this.text.onChange(() => {
+      this.renderer.setHidden(this.text.hiddenId);
+      this.notifySelection();
+    });
     this.selection.onChange(() => {
       this.renderer.setSelection(this.selection.ids);
       this.notifySelection();
@@ -110,6 +122,7 @@ export class Editor {
         selection: this.selection,
         setLasso: (pts) => this.renderer.setLasso(pts),
       }),
+      text: new TextTool({ scene: this.scene, editing: this.text, slop: () => 6 / this.camera.zoom }),
       // Hand has no stroke of its own: while it is selected, drags pan (see onDown).
       hand: new HandTool(),
     };
@@ -131,6 +144,7 @@ export class Editor {
   setTool(id: ToolId): void {
     if (!this.tools[id]) return;
     this.cancelStroke();
+    this.text.commit();
     if (id !== "lasso") this.selection.clear();
     this.toolId = id;
   }
@@ -207,6 +221,7 @@ export class Editor {
     if (this.selectionFrame !== null) this.caf(this.selectionFrame);
     this.selectionFrame = null;
     this.cancelStroke();
+    this.text.commit();
     const c = this.canvas;
     c.removeEventListener("pointerdown", this.onDown);
     c.removeEventListener("pointermove", this.onMove);
@@ -278,6 +293,11 @@ export class Editor {
       return;
     }
 
+    // Pressing the canvas ends any text being typed (blur does not reliably fire when pointerdown is cancelled).
+    this.text.commit();
+    this.doubleTap.down(e.pointerId, sx, sy);
+    if (this.detectDoubleTap(e, kind, sx, sy, touches)) return;
+
     const gesture = this.router.classify({ pointerType: kind, activeTouches: touches });
 
     // Anything else arriving mid finger-stroke (second finger, or the Pencil) cancels that stroke.
@@ -312,6 +332,18 @@ export class Editor {
       this.pointers.set(e.pointerId, { kind, mode: "ignore", lastX: sx, lastY: sy });
     }
   };
+
+  /** Second quick tap on a text box: claim the pointer (no stroke) and edit on pointer up. */
+  private detectDoubleTap(e: PointerEvent, kind: InputKind, sx: number, sy: number, touches: number): boolean {
+    if (touches > 1 || this.pointers.size > 0 || !this.doubleTap.isSecond(sx, sy)) return false;
+    const [wx, wy] = this.camera.screenToWorld(sx, sy);
+    const textId = textAt(this.scene, wx, wy);
+    if (!textId) return false;
+    this.capture(e);
+    this.dbl = { pointerId: e.pointerId, textId };
+    this.pointers.set(e.pointerId, { kind, mode: "ignore", lastX: sx, lastY: sy });
+    return true;
+  }
 
   private onMove = (e: PointerEvent): void => {
     const p = this.pointers.get(e.pointerId);
@@ -399,6 +431,7 @@ export class Editor {
     const p = this.pointers.get(e.pointerId);
     if (!p) return;
     this.pointers.delete(e.pointerId);
+    this.noteTap(e);
     if (this.drawing?.id === e.pointerId) {
       const { tool } = this.drawing;
       this.drawing = null;
@@ -407,7 +440,23 @@ export class Editor {
     this.trackTapUp(e);
   };
 
+  /** Remembers short, still taps (for double-tap) and starts a pending double-tap edit. */
+  private noteTap(e: PointerEvent): void {
+    const dbl = this.dbl;
+    if (dbl && dbl.pointerId === e.pointerId) {
+      this.dbl = null;
+      this.doubleTap.forget(e.pointerId);
+      this.doubleTap.reset();
+      this.text.beginEdit(dbl.textId);
+      return;
+    }
+    const [sx, sy] = this.screenPoint(e);
+    this.doubleTap.up(e.pointerId, sx, sy);
+  }
+
   private onCancel = (e: PointerEvent): void => {
+    this.doubleTap.forget(e.pointerId);
+    if (this.dbl?.pointerId === e.pointerId) this.dbl = null;
     if (!this.pointers.has(e.pointerId)) return;
     this.pointers.delete(e.pointerId);
     this.tap = null;

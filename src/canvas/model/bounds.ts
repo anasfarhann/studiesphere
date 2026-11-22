@@ -1,9 +1,11 @@
 import type { CanvasElement, Rect } from "./types";
+import { approxMeasure, wrapText } from "./wrap-text";
 
 /** Fixed card size (world units) for audio and file elements. */
 export const CARD_W = 240;
 export const CARD_H = 64;
-const TEXT_LINE_HEIGHT = 1.4;
+/** Line height as a multiple of fontSize; the renderer and the text overlay use it too. */
+export const TEXT_LINE_HEIGHT = 1.4;
 
 export function boundsOf(el: CanvasElement): Rect {
   switch (el.type) {
@@ -24,7 +26,8 @@ export function boundsOf(el: CanvasElement): Rect {
       return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
     }
     case "text": {
-      const lines = el.text.split("\n").length;
+      // No canvas context here: approximate widths (a touch wide, so boxes err on the tall side).
+      const lines = wrapText(approxMeasure, el.text, el.w, el.fontSize).length;
       return { minX: el.x, minY: el.y, maxX: el.x + el.w, maxY: el.y + el.fontSize * TEXT_LINE_HEIGHT * lines };
     }
     case "image":

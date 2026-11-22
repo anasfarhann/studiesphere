@@ -475,4 +475,53 @@ describe("Editor history and eraser", () => {
       expect(editor.selection.ids).toEqual([]);
     });
   });
+
+  describe("text tool", () => {
+    it("tap with the text tool opens a session on pointer up; typed text commits on the next canvas press", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      expect(editor.text.session).toBeNull();
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      expect(editor.text.session).toMatchObject({ id: null, x: 30, y: 40 });
+      editor.text.commit("hi");
+      expect(editor.scene.all()).toHaveLength(1);
+      editor.undo();
+      expect(editor.scene.all()).toHaveLength(0);
+    });
+
+    it("double tap on a text box edits it even with the pen tool, without drawing", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.commit("hi");
+      editor.setTool("pen");
+      const now = vi.spyOn(Date, "now");
+      const t0 = Date.now();
+      now.mockReturnValue(t0 + 2000); // not a double tap with the creating tap
+      fire(canvas, "pointerdown", 2, "mouse", 35, 45);
+      fire(canvas, "pointerup", 2, "mouse", 35, 45, { buttons: 0 });
+      const strokes = editor.scene.all().length;
+      now.mockReturnValue(t0 + 2100);
+      fire(canvas, "pointerdown", 3, "mouse", 35, 45);
+      fire(canvas, "pointerup", 3, "mouse", 35, 45, { buttons: 0 });
+      expect(editor.text.session).toMatchObject({ id: expect.any(String), text: "hi" });
+      expect(editor.scene.all().length).toBe(strokes);
+      now.mockRestore();
+    });
+
+    it("Delete, Backspace and Cmd+Z are left to the textarea while typing", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.commit("hi");
+      const ta = document.createElement("textarea");
+      document.body.appendChild(ta);
+      const keys = ["Delete", "Backspace"].map((key) => new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      const undo = new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true, cancelable: true });
+      for (const k of [...keys, undo]) ta.dispatchEvent(k);
+      expect(undo.defaultPrevented).toBe(false);
+      expect(editor.scene.all()).toHaveLength(1);
+      ta.remove();
+    });
+  });
 });

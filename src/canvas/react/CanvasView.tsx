@@ -5,6 +5,7 @@ import { Editor } from "../editor";
 import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
 import { t } from "@/i18n/en";
+import { TextEditorOverlay } from "./TextEditorOverlay";
 import { SelectionMenu } from "./SelectionMenu";
 import { INK_COLORS, PEN_SIZES, Toolbar } from "./Toolbar";
 
@@ -135,6 +136,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
             overscrollBehavior: "none",
           }}
         />
+        {editor ? <TextEditorOverlay editor={editor} /> : null}
         {editor ? <SelectionMenu editor={editor} /> : null}
       </div>
     </div>
