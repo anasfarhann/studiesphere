@@ -1,6 +1,7 @@
 "use client";
 
 import { t, type en } from "@/i18n/en";
+import type { ToolId } from "../tools/tool";
 
 export const INK_COLORS: ReadonlyArray<{ value: string; label: keyof typeof en }> = [
   { value: "#111827", label: "colorBlack" },
@@ -18,6 +19,8 @@ export const PEN_SIZES: ReadonlyArray<{ value: number; label: keyof typeof en }>
 ];
 
 export interface ToolbarProps {
+  tool: ToolId;
+  onTool: (id: ToolId) => void;
   color: string;
   size: number;
   onColor: (c: string) => void;
@@ -27,11 +30,26 @@ export interface ToolbarProps {
 const btn =
   "inline-flex h-11 min-w-11 items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
 
-export function Toolbar({ color, size, onColor, onSize }: ToolbarProps) {
+export function Toolbar({ tool, onTool, color, size, onColor, onSize }: ToolbarProps) {
   return (
     <div role="toolbar" aria-label={t("drawingTools")} className="flex flex-wrap items-center gap-2 border-b px-3 py-1">
-      <button type="button" aria-pressed="true" aria-label={t("toolPen")} className={`${btn} px-3 text-sm`}>
+      <button
+        type="button"
+        aria-pressed={tool === "pen"}
+        aria-label={t("toolPen")}
+        onClick={() => onTool("pen")}
+        className={`${btn} px-3 text-sm`}
+      >
         {t("toolPen")}
+      </button>
+      <button
+        type="button"
+        aria-pressed={tool === "hand"}
+        aria-label={t("toolHand")}
+        onClick={() => onTool("hand")}
+        className={`${btn} px-3 text-sm`}
+      >
+        {t("toolHand")}
       </button>
       <div role="group" aria-label={t("inkColors")} className="flex items-center gap-1">
         {INK_COLORS.map((c) => (

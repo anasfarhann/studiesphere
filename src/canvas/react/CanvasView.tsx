@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Editor } from "../editor";
+import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
 import { t } from "@/i18n/en";
 import { INK_COLORS, PEN_SIZES, Toolbar } from "./Toolbar";
@@ -21,6 +22,7 @@ export function CanvasView({ elements }: { elements: CanvasElement[] }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const [color, setColor] = useState(INK_COLORS[0].value);
+  const [tool, setTool] = useState<ToolId>("pen");
   const [size, setSize] = useState(PEN_SIZES[1].value);
   // Elements seed the editor once; later prop changes are not re-applied (persistence owns that, Task 12).
   const [initial] = useState(elements);
@@ -58,6 +60,8 @@ export function CanvasView({ elements }: { elements: CanvasElement[] }) {
     canvas.addEventListener("touchstart", preventDefault, opts);
     canvas.addEventListener("touchmove", preventDefault, opts);
     canvas.addEventListener("gesturestart", preventDefault, opts);
+    canvas.addEventListener("gesturechange", preventDefault, opts);
+    canvas.addEventListener("gestureend", preventDefault, opts);
     canvas.addEventListener("dblclick", preventDefault);
     canvas.addEventListener("contextmenu", preventDefault);
 
@@ -67,6 +71,8 @@ export function CanvasView({ elements }: { elements: CanvasElement[] }) {
       canvas.removeEventListener("touchstart", preventDefault);
       canvas.removeEventListener("touchmove", preventDefault);
       canvas.removeEventListener("gesturestart", preventDefault);
+      canvas.removeEventListener("gesturechange", preventDefault);
+      canvas.removeEventListener("gestureend", preventDefault);
       canvas.removeEventListener("dblclick", preventDefault);
       canvas.removeEventListener("contextmenu", preventDefault);
       editor.destroy();
@@ -79,6 +85,10 @@ export function CanvasView({ elements }: { elements: CanvasElement[] }) {
     setColor(c);
     editorRef.current?.setColor(c);
   };
+  const pickTool = (id: ToolId) => {
+    setTool(id);
+    editorRef.current?.setTool(id);
+  };
   const pickSize = (s: number) => {
     setSize(s);
     editorRef.current?.setSize(s);
@@ -86,7 +96,7 @@ export function CanvasView({ elements }: { elements: CanvasElement[] }) {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Toolbar color={color} size={size} onColor={pickColor} onSize={pickSize} />
+      <Toolbar tool={tool} onTool={pickTool} color={color} size={size} onColor={pickColor} onSize={pickSize} />
       <div ref={boxRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
           ref={canvasRef}

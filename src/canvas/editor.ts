@@ -1,4 +1,6 @@
+import { pinchUpdate } from "./input/pinch";
 import { InputRouter, type InputKind } from "./input/router";
+import { wheelAction } from "./input/wheel";
 import { Scene } from "./model/scene";
 import type { CanvasElement } from "./model/types";
 import { PenTool } from "./tools/pen";
@@ -16,6 +18,19 @@ type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number;
 
 const DEFAULT_COLOR = "#111827";
 const DEFAULT_SIZE = 4;
+
+function isEditable(t: EventTarget | null): boolean {
+  if (!(t instanceof HTMLElement)) return false;
+  return t.isContentEditable || t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT";
+}
+
+class HandTool implements Tool {
+  readonly id = "hand" as const;
+  down(): void {}
+  move(): void {}
+  up(): void {}
+  cancel(): void {}
+}
 
 function isInputKind(t: string): t is InputKind {
   return t === "pen" || t === "touch" || t === "mouse";
@@ -35,6 +50,7 @@ export class Editor {
   private pointers = new Map<number, Active>();
   /** The pointer feeding the current tool, if any. */
   private drawing: { id: number; kind: InputKind } | null = null;
+  private spaceDown = false;
   private destroyed = false;
 
   constructor(
@@ -49,12 +65,18 @@ export class Editor {
         style: () => ({ color: this.color, size: this.size }),
         setLive: (s) => this.renderer.setLive(s),
       }),
+      // Hand has no stroke of its own: while it is selected, drags pan (see onDown).
+      hand: new HandTool(),
     };
     canvas.addEventListener("pointerdown", this.onDown);
     canvas.addEventListener("pointermove", this.onMove);
     canvas.addEventListener("pointerup", this.onUp);
     canvas.addEventListener("pointercancel", this.onCancel);
     canvas.addEventListener("lostpointercapture", this.onCancel);
+    canvas.addEventListener("wheel", this.onWheel, { passive: false });
+    window.addEventListener("keydown", this.onKey);
+    window.addEventListener("keyup", this.onKey);
+    window.addEventListener("blur", this.onBlur);
   }
 
   get tool(): ToolId {
@@ -89,6 +111,10 @@ export class Editor {
     c.removeEventListener("pointerup", this.onUp);
     c.removeEventListener("pointercancel", this.onCancel);
     c.removeEventListener("lostpointercapture", this.onCancel);
+    c.removeEventListener("wheel", this.onWheel);
+    window.removeEventListener("keydown", this.onKey);
+    window.removeEventListener("keyup", this.onKey);
+    window.removeEventListener("blur", this.onBlur);
     this.renderer.destroy();
   }
 
@@ -154,12 +180,16 @@ export class Editor {
     // Anything else arriving mid finger-stroke (second finger, or the Pencil) cancels that stroke.
     if (this.drawing && this.drawing.kind === "touch") this.cancelStroke();
     if (isTouch && touches >= 2) {
-      // The finger that was drawing becomes part of the gesture; pinch itself arrives in Task 11.
+      // The finger that was drawing becomes part of the gesture (the pinch).
       for (const p of this.pointers.values()) if (p.mode === "draw") p.mode = "pan";
     }
 
     this.capture(e);
-    if (gesture.kind === "draw") {
+    if (!isTouch && (this.spaceDown || this.toolId === "hand")) {
+      // Space held or hand tool: a mouse/pen drag pans. Resting palms must not join in.
+      for (const p of this.pointers.values()) if (p.kind === "touch") p.mode = "ignore";
+      this.pointers.set(e.pointerId, { kind, mode: "pan", lastX: sx, lastY: sy });
+    } else if (gesture.kind === "draw") {
       this.cancelStroke();
       const tool = this.activeTool;
       if (!tool) return;
@@ -192,19 +222,55 @@ export class Editor {
       return;
     }
     const [sx, sy] = this.screenPoint(e);
-    if (p.mode === "pan" && this.panPointers() === 1) {
-      this.camera.panBy(sx - p.lastX, sy - p.lastY);
-      this.renderer.requestFrame();
-    }
+    if (p.mode === "pan") this.gestureMove(e.pointerId, p, sx, sy);
     p.lastX = sx;
     p.lastY = sy;
   };
 
-  private panPointers(): number {
-    let n = 0;
-    for (const p of this.pointers.values()) if (p.mode === "pan") n++;
-    return n;
+  /** Pen/mouse pans directly; one finger pans; exactly two fingers pinch. Re-baselined by lastX/lastY on every move. */
+  private gestureMove(id: number, p: Active, sx: number, sy: number): void {
+    if (p.kind !== "touch") {
+      this.camera.panBy(sx - p.lastX, sy - p.lastY);
+      this.renderer.requestFrame();
+      return;
+    }
+    const fingers: Array<[number, Active]> = [];
+    for (const [pid, q] of this.pointers) if (q.kind === "touch" && q.mode === "pan") fingers.push([pid, q]);
+    if (fingers.length === 1) {
+      this.camera.panBy(sx - p.lastX, sy - p.lastY);
+    } else if (fingers.length === 2) {
+      const other = fingers.find(([pid]) => pid !== id)?.[1];
+      if (!other) return;
+      const u = pinchUpdate(
+        [[p.lastX, p.lastY], [other.lastX, other.lastY]],
+        [[sx, sy], [other.lastX, other.lastY]],
+      );
+      this.camera.panBy(u.panDx, u.panDy);
+      this.camera.zoomAt(u.centerX, u.centerY, u.zoomFactor);
+    } else {
+      return;
+    }
+    this.renderer.requestFrame();
   }
+
+  private onWheel = (e: WheelEvent): void => {
+    e.preventDefault();
+    const r = this.canvas.getBoundingClientRect();
+    const a = wheelAction(e, r.height);
+    if (a.kind === "zoom") this.camera.zoomAt(e.clientX - r.left, e.clientY - r.top, a.factor);
+    else this.camera.panBy(a.dx, a.dy);
+    this.renderer.requestFrame();
+  };
+
+  private onKey = (e: KeyboardEvent): void => {
+    if (e.code !== "Space") return;
+    if (e.type === "keydown" && isEditable(e.target)) return;
+    this.spaceDown = e.type === "keydown";
+  };
+
+  private onBlur = (): void => {
+    this.spaceDown = false;
+  };
 
   private onUp = (e: PointerEvent): void => {
     const p = this.pointers.get(e.pointerId);

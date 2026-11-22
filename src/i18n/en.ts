@@ -44,6 +44,7 @@ export const en = {
   colorOrange: "Orange",
   drawingTools: "Drawing tools",
   toolPen: "Pen",
+  toolHand: "Hand (pan)",
   inkColors: "Ink colour",
   penSizes: "Pen size",
   sizeThin: "Thin",

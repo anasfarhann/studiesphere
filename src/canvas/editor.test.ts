@@ -160,3 +160,122 @@ describe("Editor input wiring", () => {
     expect(editor.scene.all()).toHaveLength(0);
   });
 });
+
+describe("Editor pan and zoom gestures", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+
+  beforeEach(() => {
+    canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [],
+      renderer: { raf: () => 1, caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+  });
+
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+  });
+
+  const wheel = (init: WheelEventInit) => {
+    const e = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
+    canvas.dispatchEvent(e);
+    return e;
+  };
+
+  it("two fingers moving apart zoom about their midpoint", () => {
+    fire(canvas, "pointerdown", 1, "touch", 90, 100);
+    fire(canvas, "pointerdown", 2, "touch", 110, 100);
+    const before = editor.camera.screenToWorld(100, 100);
+    fire(canvas, "pointermove", 1, "touch", 80, 100);
+    fire(canvas, "pointermove", 2, "touch", 120, 100);
+    expect(editor.camera.zoom).toBeCloseTo(2);
+    const after = editor.camera.screenToWorld(100, 100);
+    expect(after[0]).toBeCloseTo(before[0]);
+    expect(after[1]).toBeCloseTo(before[1]);
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("going from two fingers to one continues as a pan without a jump", () => {
+    fire(canvas, "pointerdown", 1, "touch", 100, 100);
+    fire(canvas, "pointerdown", 2, "touch", 200, 100);
+    fire(canvas, "pointermove", 2, "touch", 220, 100);
+    fire(canvas, "pointerup", 1, "touch", 100, 100);
+    const { x, y, zoom } = editor.camera;
+    fire(canvas, "pointermove", 2, "touch", 220, 100);
+    expect([editor.camera.x, editor.camera.y, editor.camera.zoom]).toEqual([x, y, zoom]);
+    fire(canvas, "pointermove", 2, "touch", 230, 110);
+    expect(editor.camera.x).toBeCloseTo(x - 10 / zoom);
+    expect(editor.camera.y).toBeCloseTo(y - 10 / zoom);
+    expect(editor.camera.zoom).toBe(zoom);
+  });
+
+  it("a second finger joining a one-finger pan starts a pinch without a jump", () => {
+    fire(canvas, "pointerdown", 1, "touch", 0, 0);
+    fire(canvas, "pointermove", 1, "touch", 10, 0);
+    fire(canvas, "pointerdown", 2, "touch", 110, 0);
+    const { x, y, zoom } = editor.camera;
+    fire(canvas, "pointermove", 2, "touch", 110, 0);
+    expect([editor.camera.x, editor.camera.y, editor.camera.zoom]).toEqual([x, y, zoom]);
+  });
+
+  it("ctrl+wheel zooms at the cursor", () => {
+    editor.camera.x = 30;
+    const before = editor.camera.screenToWorld(50, 60);
+    const e = wheel({ ctrlKey: true, deltaY: -100, clientX: 50, clientY: 60 });
+    expect(e.defaultPrevented).toBe(true);
+    expect(editor.camera.zoom).toBeCloseTo(Math.exp(1));
+    const after = editor.camera.screenToWorld(50, 60);
+    expect(after[0]).toBeCloseTo(before[0]);
+    expect(after[1]).toBeCloseTo(before[1]);
+  });
+
+  it("plain wheel pans", () => {
+    const e = wheel({ deltaX: 5, deltaY: 20 });
+    expect(e.defaultPrevented).toBe(true);
+    expect([editor.camera.x, editor.camera.y]).toEqual([5, 20]);
+    wheel({ deltaMode: 1, deltaY: 2 });
+    expect(editor.camera.y).toBe(20 + 32);
+  });
+
+  it("space+drag pans with the mouse instead of drawing", () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " " }));
+    fire(canvas, "pointerdown", 1, "mouse", 10, 10);
+    fire(canvas, "pointermove", 1, "mouse", 25, 5);
+    fire(canvas, "pointerup", 1, "mouse", 25, 5, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(0);
+    expect([editor.camera.x, editor.camera.y]).toEqual([-15, 5]);
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "Space", key: " " }));
+    fire(canvas, "pointerdown", 2, "mouse", 0, 0);
+    fire(canvas, "pointermove", 2, "mouse", 5, 5);
+    fire(canvas, "pointerup", 2, "mouse", 5, 5, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("space typed into an input does not switch to panning", () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true }));
+    fire(canvas, "pointerdown", 1, "mouse", 0, 0);
+    fire(canvas, "pointermove", 1, "mouse", 5, 5);
+    fire(canvas, "pointerup", 1, "mouse", 5, 5, { buttons: 0 });
+    input.remove();
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("the hand tool makes mouse and pen drags pan", () => {
+    editor.setTool("hand");
+    expect(editor.tool).toBe("hand");
+    fire(canvas, "pointerdown", 1, "mouse", 10, 10);
+    fire(canvas, "pointermove", 1, "mouse", 20, 40);
+    fire(canvas, "pointerup", 1, "mouse", 20, 40, { buttons: 0 });
+    fire(canvas, "pointerdown", 2, "pen", 0, 0);
+    fire(canvas, "pointermove", 2, "pen", 5, 5);
+    fire(canvas, "pointerup", 2, "pen", 5, 5, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(0);
+    expect([editor.camera.x, editor.camera.y]).toEqual([-15, -35]);
+  });
+});
