@@ -22,6 +22,7 @@ export class Renderer {
   private live: StrokeEl | null = null;
   private selection: string[] = [];
   private cache = new Map<string, { updatedAt: number; path: Path2D }>();
+  private maybeRemoved = false;
   private unsubscribe: () => void;
   private raf: (cb: () => void) => number;
   private caf: (id: number) => void;
@@ -39,7 +40,10 @@ export class Renderer {
     this.raf = opts.raf ?? ((cb) => window.requestAnimationFrame(cb));
     this.caf = opts.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.createPath = opts.createPath ?? (() => new Path2D());
-    this.unsubscribe = scene.onChange(() => this.requestFrame());
+    this.unsubscribe = scene.onChange(() => {
+      this.maybeRemoved = true;
+      this.requestFrame();
+    });
   }
 
   resize(cssW: number, cssH: number, dpr: number): void {
@@ -99,6 +103,11 @@ export class Renderer {
     return outlineToPath(strokeOutline(el), this.createPath);
   }
 
+  /** Test/diagnostic hook: number of cached stroke paths. */
+  get cachedPathCount(): number {
+    return this.cache.size;
+  }
+
   private cachedPath(el: StrokeEl): Path2D {
     const hit = this.cache.get(el.id);
     if (hit && hit.updatedAt === el.updatedAt) return hit.path;
@@ -109,7 +118,8 @@ export class Renderer {
 
   /** Drops cache entries for elements no longer in the scene. */
   private prune(): void {
-    if (this.cache.size <= this.scene.all().length) return;
+    if (!this.maybeRemoved) return;
+    this.maybeRemoved = false;
     for (const id of this.cache.keys()) if (!this.scene.get(id)) this.cache.delete(id);
   }
 

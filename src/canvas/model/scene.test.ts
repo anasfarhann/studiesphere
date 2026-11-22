@@ -16,6 +16,10 @@ describe("boundsOf", () => {
   it("pads strokes by size/2", () => {
     expect(boundsOf(stroke("s", 10, 20))).toEqual({ minX: 8, minY: 18, maxX: 22, maxY: 32 });
   });
+  it("pads highlighter strokes by 1.5x size", () => {
+    const h: StrokeEl = { ...stroke("h", 10, 20), tool: "highlighter" };
+    expect(boundsOf(h)).toEqual({ minX: 4, minY: 14, maxX: 26, maxY: 36 });
+  });
   it("uses card size for audio/file", () => {
     const a: AudioEl = { id: "a", z: 0, updatedAt: 1, type: "audio", x: 5, y: 6, assetPath: "p", durationMs: 1 };
     expect(boundsOf(a)).toEqual({ minX: 5, minY: 6, maxX: 5 + CARD_W, maxY: 6 + CARD_H });

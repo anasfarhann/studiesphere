@@ -96,6 +96,18 @@ describe("Renderer", () => {
     expect(made).toBe(2);
   });
 
+  it("drops cached paths of removed elements even when scene size is unchanged", () => {
+    scene.add(stroke("a", 10));
+    const r = make();
+    r.resize(200, 200, 1);
+    flush();
+    expect(r.cachedPathCount).toBe(1);
+    scene.remove("a");
+    scene.add(stroke("b", 5000));
+    flush();
+    expect(r.cachedPathCount).toBe(0);
+  });
+
   it("highlighter uses alpha 0.35 and restores it", () => {
     const alphas: number[] = [];
     ctx.fill.mockImplementation(() => { alphas.push(ctx.globalAlpha); });
