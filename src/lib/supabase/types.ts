@@ -90,10 +90,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "notebooks_subject_id_fkey";
-            columns: ["subject_id"];
+            columns: ["subject_id", "owner_id"];
             isOneToOne: false;
             referencedRelation: "subjects";
-            referencedColumns: ["id"];
+            referencedColumns: ["id", "owner_id"];
           },
         ];
       };
@@ -128,10 +128,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "pages_notebook_id_fkey";
-            columns: ["notebook_id"];
+            columns: ["notebook_id", "owner_id"];
             isOneToOne: false;
             referencedRelation: "notebooks";
-            referencedColumns: ["id"];
+            referencedColumns: ["id", "owner_id"];
           },
         ];
       };
@@ -169,10 +169,10 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "canvas_elements_page_id_fkey";
-            columns: ["page_id"];
+            columns: ["page_id", "owner_id"];
             isOneToOne: false;
             referencedRelation: "pages";
-            referencedColumns: ["id"];
+            referencedColumns: ["id", "owner_id"];
           },
         ];
       };

@@ -71,4 +71,31 @@ describe.skipIf(!configured)("row-level security", () => {
       .upload(`${me.user!.id}/page/${randomUUID()}.txt`, blob);
     expect(own.error).toBeNull();
   });
+
+  it("a user cannot attach rows to another user's parent rows", async () => {
+    const { client: a } = await signedInClient("a");
+    const { client: b } = await signedInClient("b");
+    const { data: s } = await a
+      .from("subjects")
+      .insert({ name: "Bio", color: "#4f8" })
+      .select()
+      .single();
+    const bad = await b.from("notebooks").insert({ subject_id: s!.id, title: "sneaky" });
+    expect(bad.error).not.toBeNull();
+    const { data: nb } = await a.from("notebooks").select().eq("subject_id", s!.id);
+    expect(nb).toEqual([]);
+    const { data: own } = await b.from("subjects").insert({ name: "Mine", color: "#111" }).select().single();
+    const { data: b2 } = await b.from("notebooks").insert({ subject_id: own!.id, title: "ok" }).select().single();
+    expect(
+      (await b.from("notebooks").update({ subject_id: s!.id }).eq("id", b2!.id)).error,
+    ).not.toBeNull();
+  });
+
+  it("a user cannot change their own plan", async () => {
+    const { client: a, userId } = await signedInClient("a");
+    await a.from("profiles").update({ plan: "pro" }).eq("id", userId);
+    const { data } = await a.from("profiles").select("plan").eq("id", userId).single();
+    expect(data?.plan).toBe("free");
+    expect((await a.from("profiles").delete().eq("id", userId)).error).not.toBeNull();
+  });
 });
