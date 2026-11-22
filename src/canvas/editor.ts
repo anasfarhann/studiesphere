@@ -69,6 +69,9 @@ export class Editor {
   private drawing: { id: number; kind: InputKind; tool: Tool } | null = null;
   private tap: Tap | null = null;
   private selectionListeners = new Set<() => void>();
+  private selectionFrame: number | null = null;
+  private raf: (cb: () => void) => number;
+  private caf: (id: number) => void;
   private spaceDown = false;
   private destroyed = false;
 
@@ -77,6 +80,8 @@ export class Editor {
     opts: EditorOptions,
   ) {
     this.scene = new Scene(opts.elements);
+    this.raf = opts.renderer?.raf ?? ((cb) => window.requestAnimationFrame(cb));
+    this.caf = opts.renderer?.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.renderer = new Renderer(canvas, this.scene, this.camera, opts.renderer);
     this.selection = new Selection(this.scene);
     this.selection.onChange(() => {
@@ -150,8 +155,13 @@ export class Editor {
     if (c.before.length > 0) this.history.push(c);
   }
 
+  /** Coalesced: at most one listener round per animation frame, however many events arrive. */
   private notifySelection(): void {
-    for (const fn of [...this.selectionListeners]) fn();
+    if (this.selectionFrame !== null || this.destroyed) return;
+    this.selectionFrame = this.raf(() => {
+      this.selectionFrame = null;
+      for (const fn of [...this.selectionListeners]) fn();
+    });
   }
 
   setColor(c: string): void {
@@ -194,6 +204,8 @@ export class Editor {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    if (this.selectionFrame !== null) this.caf(this.selectionFrame);
+    this.selectionFrame = null;
     this.cancelStroke();
     const c = this.canvas;
     c.removeEventListener("pointerdown", this.onDown);

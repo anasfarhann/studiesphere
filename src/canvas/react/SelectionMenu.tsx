@@ -24,7 +24,9 @@ export function SelectionMenu({ editor }: { editor: Editor }) {
       const [x0, y0] = editor.camera.worldToScreen(b.minX, b.minY);
       const [x1] = editor.camera.worldToScreen(b.maxX, b.minY);
       // Above the box; if there is no room, just below the top edge of the view.
-      setPos({ left: (x0 + x1) / 2, top: Math.max(GAP, y0 - MENU_H - GAP) });
+      const left = (x0 + x1) / 2;
+      const top = Math.max(GAP, y0 - MENU_H - GAP);
+      setPos((p) => (p && p.left === left && p.top === top ? p : { left, top }));
     };
     sync();
     return editor.onSelectionChange(sync);

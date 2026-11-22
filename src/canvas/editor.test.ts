@@ -13,6 +13,13 @@ function fakeCtx() {
 
 class FakePath { moveTo() {} lineTo() {} quadraticCurveTo() {} closePath() {} }
 
+let frames: Array<() => void> = [];
+const flushFrames = () => {
+  const f = frames;
+  frames = [];
+  f.forEach((cb) => cb());
+};
+
 type Kind = "pen" | "touch" | "mouse";
 function fire(
   el: HTMLElement, type: string, id: number, kind: Kind, x: number, y: number,
@@ -31,12 +38,13 @@ describe("Editor input wiring", () => {
   let editor: Editor;
 
   beforeEach(() => {
+    frames = [];
     canvas = document.createElement("canvas");
     canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
     document.body.appendChild(canvas);
     editor = new Editor(canvas, {
       elements: [],
-      renderer: { raf: () => 1, caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
     });
   });
 
@@ -285,12 +293,13 @@ describe("Editor history and eraser", () => {
   let editor: Editor;
 
   beforeEach(() => {
+    frames = [];
     canvas = document.createElement("canvas");
     canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
     document.body.appendChild(canvas);
     editor = new Editor(canvas, {
       elements: [],
-      renderer: { raf: () => 1, caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
     });
   });
   afterEach(() => {
@@ -413,6 +422,7 @@ describe("Editor history and eraser", () => {
       lassoAround();
       expect(editor.selection.ids).toEqual(["a"]);
       expect(editor.getSelectionBounds()).not.toBeNull();
+      flushFrames();
       expect(n).toBeGreaterThan(0);
       fire(canvas, "pointerdown", 2, "mouse", 20, 20);
       fire(canvas, "pointermove", 2, "mouse", 30, 20);
@@ -437,6 +447,20 @@ describe("Editor history and eraser", () => {
       expect(editor.selection.ids).toEqual([]);
       editor.undo();
       expect(editor.scene.get("a")).toBeDefined();
+    });
+
+    it("coalesces selection notifications to one per frame", () => {
+      lassoAround();
+      flushFrames();
+      let n = 0;
+      editor.onSelectionChange(() => n++);
+      for (let i = 0; i < 5; i++) canvas.dispatchEvent(new WheelEvent("wheel", { deltaY: 10, bubbles: true, cancelable: true }));
+      fire(canvas, "pointerdown", 7, "mouse", 5, 5, { buttons: 4 });
+      expect(n).toBe(0);
+      flushFrames();
+      expect(n).toBe(1);
+      flushFrames();
+      expect(n).toBe(1);
     });
 
     it("changing tool away from lasso clears the selection", () => {
