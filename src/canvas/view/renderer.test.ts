@@ -1,0 +1,145 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { Scene } from "../model/scene";
+import type { CanvasElement, StrokeEl } from "../model/types";
+import { Camera } from "./camera";
+import { Renderer } from "./renderer";
+
+const stroke = (id: string, x: number, updatedAt = 1, z = 1): StrokeEl => ({
+  id, z, updatedAt, type: "stroke", tool: "pen", color: "#111", size: 4,
+  points: [[x, 0, 0.5], [x + 20, 20, 0.5]], simulatePressure: false,
+});
+
+function fakeCtx() {
+  const calls: string[] = [];
+  const rec = (name: string) => (...a: unknown[]) => { calls.push(name); void a; };
+  const ctx = {
+    calls, fillStyle: "", strokeStyle: "", globalAlpha: 1, lineWidth: 1, font: "", textBaseline: "",
+    setTransform: vi.fn(rec("setTransform")), fillRect: vi.fn(rec("fillRect")), fill: vi.fn(rec("fill")),
+    fillText: vi.fn(rec("fillText")), strokeRect: vi.fn(rec("strokeRect")), setLineDash: vi.fn(rec("setLineDash")),
+    beginPath: vi.fn(rec("beginPath")), roundRect: vi.fn(rec("roundRect")), stroke: vi.fn(rec("stroke")),
+    save: vi.fn(rec("save")), restore: vi.fn(rec("restore")),
+  };
+  return ctx;
+}
+
+class FakePath {
+  moveTo() {}
+  lineTo() {}
+  quadraticCurveTo() {}
+  closePath() {}
+}
+
+describe("Renderer", () => {
+  let canvas: HTMLCanvasElement;
+  let ctx: ReturnType<typeof fakeCtx>;
+  let scene: Scene;
+  let camera: Camera;
+  let frames: Array<() => void>;
+  let made: number;
+  const raf = (cb: () => void) => { frames.push(cb); return frames.length; };
+  const caf = vi.fn();
+  const flush = () => { const f = frames; frames = []; f.forEach((cb) => cb()); };
+  const make = () =>
+    new Renderer(canvas, scene, camera, {
+      raf, caf, createPath: () => { made++; return new FakePath() as unknown as Path2D; },
+    });
+
+  beforeEach(() => {
+    canvas = document.createElement("canvas");
+    ctx = fakeCtx();
+    canvas.getContext = (() => ctx) as unknown as HTMLCanvasElement["getContext"];
+    scene = new Scene();
+    camera = new Camera();
+    frames = [];
+    made = 0;
+    caf.mockClear();
+  });
+
+  it("resize sets backing size and css size and requests a frame", () => {
+    const r = make();
+    r.resize(100, 50, 2);
+    expect(canvas.width).toBe(200);
+    expect(canvas.height).toBe(100);
+    expect(canvas.style.width).toBe("100px");
+    expect(frames).toHaveLength(1);
+  });
+
+  it("coalesces requestFrame calls", () => {
+    const r = make();
+    r.resize(100, 100, 1);
+    flush();
+    r.requestFrame(); r.requestFrame(); r.requestFrame();
+    expect(frames).toHaveLength(1);
+  });
+
+  it("draws only visible elements, with the dpr*zoom transform", () => {
+    scene.add(stroke("a", 10));
+    scene.add(stroke("far", 5000));
+    const r = make();
+    r.resize(200, 200, 2);
+    camera.zoom = 2; camera.x = 5; camera.y = 3;
+    flush();
+    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.setTransform).toHaveBeenCalledWith(4, 0, 0, 4, -20, -12);
+  });
+
+  it("caches paths by id/updatedAt and rebuilds on change", () => {
+    scene.add(stroke("a", 10));
+    const r = make();
+    r.resize(200, 200, 1);
+    flush();
+    expect(made).toBe(1);
+    r.requestFrame(); flush();
+    expect(made).toBe(1);
+    scene.update("a", { points: [[10, 0, 0.5], [40, 40, 0.5]] });
+    flush();
+    expect(made).toBe(2);
+  });
+
+  it("highlighter uses alpha 0.35 and restores it", () => {
+    const alphas: number[] = [];
+    ctx.fill.mockImplementation(() => { alphas.push(ctx.globalAlpha); });
+    scene.add({ ...stroke("h", 10), tool: "highlighter" });
+    const r = make();
+    r.resize(200, 200, 1);
+    flush();
+    expect(alphas).toEqual([0.35]);
+    expect(ctx.globalAlpha).toBe(1);
+  });
+
+  it("draws live stroke on top without caching, and selection boxes", () => {
+    scene.add(stroke("a", 10));
+    const r = make();
+    r.resize(200, 200, 1);
+    r.setLive(stroke("live", 30));
+    r.setSelection(["a"]);
+    flush();
+    expect(ctx.fill).toHaveBeenCalledTimes(2);
+    expect(ctx.strokeRect).toHaveBeenCalledTimes(1);
+    r.requestFrame(); flush();
+    expect(ctx.fill).toHaveBeenCalledTimes(4);
+  });
+
+  it("draws text lines and placeholder cards", () => {
+    const els: CanvasElement[] = [
+      { id: "t", z: 1, updatedAt: 1, type: "text", x: 0, y: 0, w: 100, text: "a\nb", fontSize: 16, color: "#000" },
+      { id: "f", z: 2, updatedAt: 1, type: "file", x: 0, y: 100, assetPath: "p", fileName: "f", mime: "x", bytes: 1 },
+    ];
+    els.forEach((e) => scene.add(e));
+    const r = make();
+    r.resize(400, 400, 1);
+    flush();
+    expect(ctx.fillText).toHaveBeenCalledTimes(2);
+    expect(ctx.roundRect).toHaveBeenCalledTimes(1);
+  });
+
+  it("destroy unsubscribes and cancels pending frame", () => {
+    const r = make();
+    r.resize(100, 100, 1);
+    r.destroy();
+    expect(caf).toHaveBeenCalled();
+    frames = [];
+    scene.add(stroke("z", 1));
+    expect(frames).toHaveLength(0);
+  });
+});
