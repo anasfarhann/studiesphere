@@ -1,3 +1,4 @@
+import { t } from "@/i18n/en";
 import type { Notebook, Page, Subject } from "./types";
 
 export interface LibraryRepo {
@@ -11,11 +12,17 @@ export interface LibraryRepo {
   createPage(notebookId: string): Promise<Page>; // title 'Untitled', sort_order = last + 1
 }
 
-export const NAME_REQUIRED = "Name is required";
+/** Thrown for invalid user input; safe to map to a translated message. */
+export class ValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ValidationError";
+  }
+}
 
 /** Trims and validates a user-entered name; throws 'Name is required' when blank. */
 export function requireName(value: string): string {
   const name = value.trim();
-  if (!name) throw new Error(NAME_REQUIRED);
+  if (!name) throw new ValidationError(t("nameRequired"));
   return name;
 }

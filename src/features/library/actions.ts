@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
 import { SUBJECT_COLORS } from "./colors";
+import { toFormError, type FormState } from "./form-error";
 import { SupabaseLibraryRepo } from "./supabase-repo";
 
 async function repo() {
@@ -14,20 +15,36 @@ async function repo() {
 
 const text = (f: FormData, k: string) => String(f.get(k) ?? "");
 
-export async function createSubjectAction(form: FormData) {
+// redirect() throws, so it must stay outside the try blocks.
+export async function createSubjectAction(_prev: FormState, form: FormData): Promise<FormState> {
   const color = text(form, "color");
   const valid = SUBJECT_COLORS.some((c) => c.hex === color) ? color : SUBJECT_COLORS[0].hex;
-  const subject = await (await repo()).createSubject({ name: text(form, "name"), color: valid });
+  let id: string;
+  try {
+    id = (await (await repo()).createSubject({ name: text(form, "name"), color: valid })).id;
+  } catch (e) {
+    return toFormError(e);
+  }
   revalidatePath("/app");
-  redirect(`/app/s/${subject.id}`);
+  redirect(`/app/s/${id}`);
 }
 
-export async function createNotebookAction(subjectId: string, form: FormData) {
-  const nb = await (await repo()).createNotebook(subjectId, text(form, "title"));
-  redirect(`/app/n/${nb.id}`);
+export async function createNotebookAction(subjectId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  let id: string;
+  try {
+    id = (await (await repo()).createNotebook(subjectId, text(form, "title"))).id;
+  } catch (e) {
+    return toFormError(e);
+  }
+  redirect(`/app/n/${id}`);
 }
 
-export async function createPageAction(notebookId: string) {
-  const page = await (await repo()).createPage(notebookId);
-  redirect(`/app/p/${page.id}`);
+export async function createPageAction(notebookId: string): Promise<FormState> {
+  let id: string;
+  try {
+    id = (await (await repo()).createPage(notebookId)).id;
+  } catch (e) {
+    return toFormError(e);
+  }
+  redirect(`/app/p/${id}`);
 }

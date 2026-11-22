@@ -19,6 +19,8 @@ export const en = {
   authGenericError: "Something went wrong. Please try again.",
   checkYourEmail: "Check your email to confirm your account",
   appHomeTitle: "Your notebooks",
+  nameRequired: "Name is required",
+  genericError: "Something went wrong, please try again",
   newSubject: "New subject",
   subjectName: "Subject name",
   subjectColor: "Colour",

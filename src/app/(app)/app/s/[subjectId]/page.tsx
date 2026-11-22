@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
 import { SupabaseLibraryRepo } from "@/features/library/supabase-repo";
-import { createNotebookAction } from "@/features/library/actions";
+import { NotebookForm } from "@/features/library/forms";
 import { getSubject } from "@/features/library/lookups";
 import { t } from "@/i18n/en";
 
@@ -21,15 +21,7 @@ export default async function SubjectPage({ params }: { params: Promise<{ subjec
         {subject.name}
       </h1>
 
-      <form action={createNotebookAction.bind(null, subject.id)} className="mt-6 flex flex-col gap-3 rounded-lg border p-4">
-        <label className="flex flex-col gap-1">
-          <span className="text-sm">{t("notebookTitle")}</span>
-          <input name="title" required className="min-h-11 rounded-md border px-3" />
-        </label>
-        <button type="submit" className="min-h-11 self-start rounded-md bg-black px-4 text-white">
-          {t("createNotebook")}
-        </button>
-      </form>
+      <NotebookForm subjectId={subject.id} />
 
       {notebooks.length === 0 ? (
         <p className="mt-6 opacity-70">{t("noNotebooks")}</p>

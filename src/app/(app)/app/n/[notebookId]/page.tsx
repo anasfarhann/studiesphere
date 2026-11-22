@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
 import { SupabaseLibraryRepo } from "@/features/library/supabase-repo";
-import { createPageAction } from "@/features/library/actions";
+import { NewPageButton } from "@/features/library/forms";
 import { getNotebook } from "@/features/library/lookups";
 import { t } from "@/i18n/en";
 
@@ -18,11 +18,7 @@ export default async function NotebookPage({ params }: { params: Promise<{ noteb
       </Link>
       <h1 className="text-2xl font-semibold">{notebook.title}</h1>
 
-      <form action={createPageAction.bind(null, notebook.id)} className="mt-6">
-        <button type="submit" className="min-h-11 rounded-md bg-black px-4 text-white">
-          {t("newPage")}
-        </button>
-      </form>
+      <NewPageButton notebookId={notebook.id} />
 
       {pages.length === 0 ? (
         <p className="mt-6 opacity-70">{t("noPages")}</p>
