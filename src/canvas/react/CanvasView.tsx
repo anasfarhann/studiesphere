@@ -16,8 +16,14 @@ declare global {
 
 const preventDefault = (e: Event) => e.preventDefault();
 
+export interface CanvasViewProps {
+  elements: CanvasElement[];
+  /** Called once the editor exists; the returned cleanup runs before the editor is destroyed. */
+  onEditor?: (editor: Editor) => (() => void) | void;
+}
+
 /** Toolbar + full-size drawing canvas. Fills its (flex) container. */
-export function CanvasView({ elements }: { elements: CanvasElement[] }) {
+export function CanvasView({ elements, onEditor }: CanvasViewProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -26,6 +32,8 @@ export function CanvasView({ elements }: { elements: CanvasElement[] }) {
   const [size, setSize] = useState(PEN_SIZES[1].value);
   // Elements seed the editor once; later prop changes are not re-applied (persistence owns that, Task 12).
   const [initial] = useState(elements);
+  // The first callback wins, like the elements: re-creating the editor would drop its scene.
+  const [attach] = useState(() => onEditor);
 
   useEffect(() => {
     const box = boxRef.current;
@@ -34,6 +42,7 @@ export function CanvasView({ elements }: { elements: CanvasElement[] }) {
     const editor = new Editor(canvas, { elements: initial });
     editorRef.current = editor;
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
+    const detach = attach?.(editor);
 
     const fit = () => {
       const r = box.getBoundingClientRect();
@@ -75,11 +84,12 @@ export function CanvasView({ elements }: { elements: CanvasElement[] }) {
       canvas.removeEventListener("gestureend", preventDefault);
       canvas.removeEventListener("dblclick", preventDefault);
       canvas.removeEventListener("contextmenu", preventDefault);
+      detach?.();
       editor.destroy();
       if (window.__editor === editor) delete window.__editor;
       editorRef.current = null;
     };
-  }, [initial]);
+  }, [initial, attach]);
 
   const pickColor = (c: string) => {
     setColor(c);

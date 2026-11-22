@@ -51,6 +51,14 @@ export const en = {
   sizeMedium: "Medium",
   sizeThick: "Thick",
   canvasLabel: "Page canvas",
+  saveSaved: "Saved",
+  saveSaving: "Saving…",
+  saveOffline: "Offline — will retry",
+  saveError: "Couldn't save — will retry",
+  saveStatusLabel: "Save status",
+  pageLoading: "Loading page…",
+  pageLoadError: "Couldn't load this page. Check your connection and try again.",
+  tryAgain: "Try again",
 } as const;
 
 export function t(key: keyof typeof en): string {
