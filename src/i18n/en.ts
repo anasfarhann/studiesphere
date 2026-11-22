@@ -34,13 +34,22 @@ export const en = {
   noPages: "No pages in this notebook yet.",
   backToSubjects: "All subjects",
   untitledPage: "Untitled",
-  canvasComingSoon: "Canvas coming soon",
   colorBlue: "Blue",
   colorGreen: "Green",
   colorAmber: "Amber",
   colorRed: "Red",
   colorPurple: "Purple",
   colorTeal: "Teal",
+  colorBlack: "Black",
+  colorOrange: "Orange",
+  drawingTools: "Drawing tools",
+  toolPen: "Pen",
+  inkColors: "Ink colour",
+  penSizes: "Pen size",
+  sizeThin: "Thin",
+  sizeMedium: "Medium",
+  sizeThick: "Thick",
+  canvasLabel: "Page canvas",
 } as const;
 
 export function t(key: keyof typeof en): string {
