@@ -5,7 +5,15 @@ import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
 import type { CanvasElement } from "../model/types";
 import { Autosave } from "../persistence/autosave";
-import { applyBatches, type ElementStore, type OfflineQueue, type SaveState } from "../persistence/store";
+import {
+  applyBatches,
+  QUEUE_DRAIN_TIMEOUT_MS,
+  withTimeout,
+  type ElementStore,
+  type OfflineQueue,
+  type SaveBatch,
+  type SaveState,
+} from "../persistence/store";
 import { CanvasView } from "./CanvasView";
 import { SaveStatus } from "./SaveStatus";
 
@@ -29,7 +37,12 @@ export function PersistentCanvas({ pageId, store, queue }: PersistentCanvasProps
 
   useEffect(() => {
     let cancelled = false;
-    const queued = queue.drain().catch(() => []);
+    // A hanging IndexedDB must not keep the page on "Loading…": treat it as an empty queue.
+    const queued = withTimeout<SaveBatch[]>(
+      Promise.resolve().then(() => queue.drain()),
+      QUEUE_DRAIN_TIMEOUT_MS,
+      [],
+    );
     Promise.all([store.load(pageId), queued]).then(
       ([elements, batches]) => {
         if (!cancelled) setLoad({ status: "ready", elements: applyBatches(elements, batches) });

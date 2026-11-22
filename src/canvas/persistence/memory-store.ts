@@ -47,14 +47,14 @@ export class MemoryOfflineQueue implements OfflineQueue {
   constructor(readonly pageId: string) {}
 
   async push(batch: SaveBatch): Promise<void> {
-    this.batches = [...this.batches.filter((b) => b.queuedAt !== batch.queuedAt), structuredClone(batch)];
+    this.batches = [...this.batches.filter((b) => b.id !== batch.id), structuredClone(batch)];
   }
 
   async drain(): Promise<SaveBatch[]> {
     return structuredClone(this.batches);
   }
 
-  async remove(queuedAt: number): Promise<void> {
-    this.batches = this.batches.filter((b) => b.queuedAt !== queuedAt);
+  async remove(id: string): Promise<void> {
+    this.batches = this.batches.filter((b) => b.id !== id);
   }
 }

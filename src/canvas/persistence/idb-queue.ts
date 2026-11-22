@@ -22,7 +22,7 @@ export class IdbOfflineQueue implements OfflineQueue {
   push(batch: SaveBatch): Promise<void> {
     return this.run(() =>
       update<SaveBatch[]>(queueKey(this.pageId), (cur) => [
-        ...(cur ?? []).filter((b) => b.queuedAt !== batch.queuedAt),
+        ...(cur ?? []).filter((b) => b.id !== batch.id),
         batch,
       ]),
     );
@@ -35,9 +35,9 @@ export class IdbOfflineQueue implements OfflineQueue {
     });
   }
 
-  remove(queuedAt: number): Promise<void> {
+  remove(id: string): Promise<void> {
     return this.run(() =>
-      update<SaveBatch[]>(queueKey(this.pageId), (cur) => (cur ?? []).filter((b) => b.queuedAt !== queuedAt)),
+      update<SaveBatch[]>(queueKey(this.pageId), (cur) => (cur ?? []).filter((b) => b.id !== id)),
     );
   }
 }

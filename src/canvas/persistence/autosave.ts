@@ -1,6 +1,14 @@
 import type { Scene } from "../model/scene";
 import { MemoryOfflineQueue } from "./memory-store";
-import { ElementStoreError, type ElementStore, type OfflineQueue, type SaveBatch, type SaveState } from "./store";
+import {
+  ElementStoreError,
+  QUEUE_DRAIN_TIMEOUT_MS,
+  withTimeout,
+  type ElementStore,
+  type OfflineQueue,
+  type SaveBatch,
+  type SaveState,
+} from "./store";
 
 export interface AutosaveOptions {
   /** Quiet time after the last change before saving. Default 1500 ms (meets the 2 s rule). */
@@ -12,28 +20,11 @@ export interface AutosaveOptions {
   /** Online detection; defaults to navigator.onLine. */
   isOnline?: () => boolean;
   now?: () => number;
+  newId?: () => string;
 }
 
 const RETRY_BASE_MS = 2000;
 const RETRY_MAX_MS = 60_000;
-/** A queue operation (IndexedDB) that hangs must not stall saving. */
-const QUEUE_OP_TIMEOUT_MS = 3000;
-
-function settle(p: Promise<unknown>, ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    const t = setTimeout(resolve, ms);
-    p.then(
-      () => {
-        clearTimeout(t);
-        resolve();
-      },
-      () => {
-        clearTimeout(t);
-        resolve();
-      },
-    );
-  });
-}
 
 /**
  * Saves a scene's changed elements to a store.
@@ -42,6 +33,10 @@ function settle(p: Promise<unknown>, ms: number): Promise<void> {
  * before its network save; it leaves both only after the store confirmed it. Batches are saved one at
  * a time, oldest first, so queued (offline / earlier-visit) batches always reach the server before newer
  * ones. Nothing taken from the scene is ever dropped: failures keep the batch and retry with backoff.
+ *
+ * The durable queue is best effort and never on the save path: pushes and removes are fire-and-forget
+ * (the queue orders them itself), and the startup read gives up after QUEUE_DRAIN_TIMEOUT_MS, so a
+ * hanging IndexedDB cannot delay or block network saves.
  */
 export class Autosave {
   private debounceMs: number;
@@ -49,10 +44,9 @@ export class Autosave {
   private queue: OfflineQueue;
   private isOnline: () => boolean;
   private now: () => number;
+  private newId: () => string;
 
   private outbox: SaveBatch[] = [];
-  /** Write-ahead push of each outbox batch, awaited before it is removed from the queue. */
-  private persisted = new Map<number, Promise<void>>();
   private lastQueuedAt = 0;
   private started: Promise<void>;
   private chain: Promise<void> = Promise.resolve();
@@ -78,6 +72,7 @@ export class Autosave {
     this.queue = opts.queue ?? new MemoryOfflineQueue(pageId);
     this.isOnline = opts.isOnline ?? (() => typeof navigator === "undefined" || navigator.onLine !== false);
     this.now = opts.now ?? (() => Date.now());
+    this.newId = opts.newId ?? (() => crypto.randomUUID());
 
     this.unsubscribeScene = scene.onChange(this.onSceneChange);
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onVisibility);
@@ -128,14 +123,12 @@ export class Autosave {
   // ---------------------------------------------------------------- internals
 
   private async loadQueued(): Promise<void> {
-    let queued: SaveBatch[] = [];
-    try {
-      queued = (await this.queue.drain()).filter((b) => b.pageId === this.pageId);
-    } catch {
-      return; // queue unreadable (e.g. IndexedDB unavailable): nothing to replay
-    }
-    const known = new Set(this.outbox.map((b) => b.queuedAt));
-    const earlier = queued.filter((b) => !known.has(b.queuedAt)).sort((a, b) => a.queuedAt - b.queuedAt);
+    // Unreadable or hanging queue (IndexedDB unavailable / stuck): nothing to replay this visit.
+    // Its batches stay stored and are replayed on a later visit.
+    const read = Promise.resolve().then(() => this.queue.drain());
+    const queued = (await withTimeout(read, QUEUE_DRAIN_TIMEOUT_MS, [])).filter((b) => b.pageId === this.pageId);
+    const known = new Set(this.outbox.map((b) => b.id));
+    const earlier = queued.filter((b) => !known.has(b.id)).sort((a, b) => a.queuedAt - b.queuedAt);
     for (const b of earlier) this.lastQueuedAt = Math.max(this.lastQueuedAt, b.queuedAt);
     // Batches from earlier visits are older than anything taken since construction: they go first.
     this.outbox = [...earlier, ...this.outbox];
@@ -182,9 +175,9 @@ export class Autosave {
     if (upserts.length === 0 && deletes.length === 0) return;
     const queuedAt = Math.max(this.now(), this.lastQueuedAt + 1);
     this.lastQueuedAt = queuedAt;
-    const batch: SaveBatch = { pageId: this.pageId, upserts, deletes, queuedAt };
+    const batch: SaveBatch = { id: this.newId(), pageId: this.pageId, upserts, deletes, queuedAt };
     this.outbox.push(batch);
-    this.persisted.set(queuedAt, settle(this.queue.push(batch), QUEUE_OP_TIMEOUT_MS));
+    this.queueOp(() => this.queue.push(batch));
   }
 
   /** Serialised save passes: each pass saves the outbox oldest-first until empty or a failure. */
@@ -205,14 +198,21 @@ export class Autosave {
         return;
       }
       this.outbox.shift();
-      const persisted = this.persisted.get(batch.queuedAt);
-      this.persisted.delete(batch.queuedAt);
-      if (persisted) await persisted;
-      await settle(this.queue.remove(batch.queuedAt), QUEUE_OP_TIMEOUT_MS);
+      // Not awaited: the queue applies it after the batch's push, and a hang must not delay the next save.
+      this.queueOp(() => this.queue.remove(batch.id));
       this.failures = 0;
       this.clearRetry();
     }
     this.setState(this.debounceTimer ? "saving" : "saved");
+  }
+
+  /** Fire-and-forget queue write; errors (quota, private mode, unavailable) are ignored. */
+  private queueOp(op: () => Promise<void>): void {
+    try {
+      op().catch(() => undefined);
+    } catch {
+      // synchronous throw from the queue: ignore, the in-memory outbox still has the batch
+    }
   }
 
   private onFailure(err: unknown): void {

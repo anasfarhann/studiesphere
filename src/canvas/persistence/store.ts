@@ -13,7 +13,8 @@ export interface ElementStore {
 
 export type SaveState = "saved" | "saving" | "offline" | "error";
 
-export type SaveBatch = { pageId: string; upserts: CanvasElement[]; deletes: string[]; queuedAt: number };
+/** `id` (random) identifies a batch in the queue; `queuedAt` only orders batches. */
+export type SaveBatch = { id: string; pageId: string; upserts: CanvasElement[]; deletes: string[]; queuedAt: number };
 
 /**
  * Durable outbox of batches not yet confirmed by the server, scoped to one page.
@@ -23,8 +24,28 @@ export type SaveBatch = { pageId: string; upserts: CanvasElement[]; deletes: str
 export interface OfflineQueue {
   push(batch: SaveBatch): Promise<void>;
   drain(): Promise<SaveBatch[]>;
-  /** Forget the batch with this queuedAt (it was saved). */
-  remove(queuedAt: number): Promise<void>;
+  /** Forget the batch with this id (it was saved). */
+  remove(id: string): Promise<void>;
+}
+
+/** How long a queue read may take before it is treated as empty (IndexedDB can hang in Safari). */
+export const QUEUE_DRAIN_TIMEOUT_MS = 1000;
+
+/** Resolves with `p`'s value, or with `fallback` if it rejects or takes longer than `ms`. */
+export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise((resolve) => {
+    const t = setTimeout(() => resolve(fallback), ms);
+    p.then(
+      (v) => {
+        clearTimeout(t);
+        resolve(v);
+      },
+      () => {
+        clearTimeout(t);
+        resolve(fallback);
+      },
+    );
+  });
 }
 
 /** A store failure the server reported (not a network failure): shown as "error", still retried. */

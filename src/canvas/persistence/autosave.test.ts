@@ -3,7 +3,7 @@ import { Scene } from "../model/scene";
 import type { CanvasElement, StrokeEl } from "../model/types";
 import { Autosave } from "./autosave";
 import { MemoryElementStore, MemoryOfflineQueue } from "./memory-store";
-import { applyBatches, ElementStoreError, type SaveState } from "./store";
+import { applyBatches, ElementStoreError, type OfflineQueue, type SaveState } from "./store";
 
 const PAGE = "page-1";
 
@@ -198,7 +198,7 @@ describe("Autosave", () => {
   });
 
   it("replays batches queued in an earlier visit before new edits", async () => {
-    await queue.push({ pageId: PAGE, upserts: [stroke("old", 500)], deletes: [], queuedAt: 500 });
+    await queue.push({ id: "b-old", pageId: PAGE, upserts: [stroke("old", 500)], deletes: [], queuedAt: 500 });
     const scene = new Scene(applyBatches([], await queue.drain()));
     start(scene);
     scene.add(stroke("new"));
@@ -244,6 +244,37 @@ describe("Autosave", () => {
   });
 });
 
+describe("Autosave with a hanging IndexedDB", () => {
+  const never = <T,>() => new Promise<T>(() => {});
+  const hanging: OfflineQueue = { push: () => never(), drain: () => never(), remove: () => never() };
+
+  afterEach(() => vi.useRealTimers());
+
+  it("keeps saving every stroke within 2 s, with no growing lag", async () => {
+    vi.useFakeTimers();
+    const store = new MemoryElementStore();
+    const saveAt: number[] = [];
+    const t0 = Date.now();
+    vi.spyOn(store, "save").mockImplementation(async () => {
+      saveAt.push(Date.now() - t0);
+    });
+    const scene = new Scene();
+    const a = new Autosave(scene, store, PAGE, { queue: hanging });
+    const editAt: number[] = [];
+    for (let i = 0; i < 5; i++) {
+      editAt.push(Date.now() - t0);
+      scene.add(stroke(`h${i}`));
+      await vi.advanceTimersByTimeAsync(2500);
+    }
+    expect(saveAt).toHaveLength(5);
+    saveAt.forEach((t, i) => expect(t - editAt[i]).toBeLessThanOrEqual(2000));
+    const states: SaveState[] = [];
+    a.onState((s) => states.push(s));
+    expect(states.at(-1)).toBe("saved");
+    void a.dispose();
+  });
+});
+
 describe("MemoryElementStore (same merge rules as save_elements)", () => {
   it("an older updatedAt never overwrites a newer row", async () => {
     const s = new MemoryElementStore();
@@ -261,11 +292,22 @@ describe("MemoryElementStore (same merge rules as save_elements)", () => {
   });
 });
 
+describe("MemoryOfflineQueue", () => {
+  it("two tabs queuing at the same millisecond keep both batches", async () => {
+    const q = new MemoryOfflineQueue(PAGE);
+    await q.push({ id: "tab1", pageId: PAGE, upserts: [stroke("x", 1)], deletes: [], queuedAt: 7 });
+    await q.push({ id: "tab2", pageId: PAGE, upserts: [stroke("y", 1)], deletes: [], queuedAt: 7 });
+    expect((await q.drain()).map((b) => b.id)).toEqual(["tab1", "tab2"]);
+    await q.remove("tab1");
+    expect((await q.drain()).map((b) => b.id)).toEqual(["tab2"]);
+  });
+});
+
 describe("applyBatches", () => {
   it("keeps the newer element and applies deletes", () => {
     const loaded = [stroke("a", 2000), stroke("b", 1000)];
     const out = applyBatches(loaded, [
-      { pageId: PAGE, upserts: [{ ...stroke("a", 1500), color: "#old" }, stroke("c", 1)], deletes: ["b"], queuedAt: 1 },
+      { id: "b1", pageId: PAGE, upserts: [{ ...stroke("a", 1500), color: "#old" }, stroke("c", 1)], deletes: ["b"], queuedAt: 1 },
     ]);
     expect(out.map((e) => e.id).sort()).toEqual(["a", "c"]);
     expect(out.find((e) => e.id === "a")?.updatedAt).toBe(2000);

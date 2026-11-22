@@ -1,7 +1,9 @@
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Scene } from "../model/scene";
 import type { StrokeEl } from "../model/types";
+import type { OfflineQueue } from "../persistence/store";
 import { MemoryElementStore, MemoryOfflineQueue } from "../persistence/memory-store";
 import { PersistentCanvas } from "./PersistentCanvas";
 
@@ -37,7 +39,7 @@ describe("PersistentCanvas", () => {
     const store = new MemoryElementStore();
     await store.save("p", [stroke("server", 1000)], []);
     const queue = new MemoryOfflineQueue("p");
-    await queue.push({ pageId: "p", upserts: [stroke("queued", 2000)], deletes: [], queuedAt: 2000 });
+    await queue.push({ id: "q1", pageId: "p", upserts: [stroke("queued", 2000)], deletes: [], queuedAt: 2000 });
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const load = store.load.bind(store);
@@ -57,6 +59,21 @@ describe("PersistentCanvas", () => {
     // The queued batch is replayed to the store on start.
     expect(await screen.findByText("Saved")).toBeInTheDocument();
     expect((await store.load("p")).map((e) => e.id).sort()).toEqual(["queued", "server"]);
+  });
+
+  it("mounts and saves a stroke within 2 s when IndexedDB hangs", async () => {
+    const store = new MemoryElementStore();
+    await store.save("p", [stroke("server", 1000)], []);
+    const never = <T,>() => new Promise<T>(() => {});
+    const hanging: OfflineQueue = { push: () => never(), drain: () => never(), remove: () => never() };
+    render(<PersistentCanvas pageId="p" store={store} queue={hanging} />);
+    expect(await screen.findByTestId("canvas", {}, { timeout: 3000 })).toBeInTheDocument();
+    const scene = (window as unknown as EditorHook).__editor!.scene as unknown as Scene;
+    expect(scene.all().map((e) => e.id)).toEqual(["server"]);
+    const before = Date.now();
+    act(() => scene.add(stroke("new", Date.now())));
+    await waitFor(async () => expect((await store.load("p")).map((e) => e.id)).toContain("new"), { timeout: 3000 });
+    expect(Date.now() - before).toBeLessThanOrEqual(2000);
   });
 
   it("never shows an empty canvas when loading fails; offers a retry", async () => {
