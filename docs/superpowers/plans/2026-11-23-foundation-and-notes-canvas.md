@@ -1,4 +1,4 @@
-# Study App — Foundation and Notes Canvas Implementation Plan
+# Studiesphere — Foundation and Notes Canvas Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -62,13 +62,13 @@
 // e2e/home.spec.ts
 test('landing page shows app name and sign-in link', async ({ page }) => {
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: 'StudyNest' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Studiesphere' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
 });
 // src/i18n/en.test.ts
-it('returns the string for a key', () => expect(t('appName')).toBe('StudyNest'));
+it('returns the string for a key', () => expect(t('appName')).toBe('Studiesphere'));
 ```
-Working name "StudyNest" is a placeholder (Claude's call); the owner can rename by editing `en.ts`.
+App name "Studiesphere" chosen by the owner 2026-11-23.
 - [ ] **Step 3:** Run `pnpm test && pnpm e2e` → FAIL.
 - [ ] **Step 4:** Implement `en.ts` (`appName`, `signIn`, …) and the landing page.
 - [ ] **Step 5:** Run `pnpm test && pnpm e2e && pnpm typecheck && pnpm lint` → all PASS.
@@ -157,7 +157,7 @@ interface LibraryRepo {
 - Modify: `src/app/layout.tsx` (apple-mobile-web-app meta, theme colour, viewport)
 - Test: `e2e/pwa.spec.ts`
 
-- [ ] **Step 1: Write failing test:** `/manifest.webmanifest` has `name: 'StudyNest'`, `display: 'standalone'`, `start_url: '/app'`, icons 192 and 512; page has `<link rel="apple-touch-icon">`.
+- [ ] **Step 1: Write failing test:** `/manifest.webmanifest` has `name: 'Studiesphere'`, `display: 'standalone'`, `start_url: '/app'`, icons 192 and 512; page has `<link rel="apple-touch-icon">`.
 - [ ] **Step 2:** Run → FAIL. **Step 3:** Implement. **Step 4:** Run → PASS. Commit `feat: installable web app manifest`.
 
 ### Task 6: Deploy
