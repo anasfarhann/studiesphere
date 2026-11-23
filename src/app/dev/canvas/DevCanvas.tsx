@@ -1,12 +1,31 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { AttachmentService, type AttachmentStorage } from "@/canvas/attachments/upload";
 import type { CanvasElement } from "@/canvas/model/types";
 import { MemoryElementStore, MemoryOfflineQueue } from "@/canvas/persistence/memory-store";
 import type { ElementStore, Tombstone } from "@/canvas/persistence/store";
 import { MemorySnapshotStore } from "@/canvas/persistence/memory-snapshot-store";
 import { PersistentCanvas } from "@/canvas/react/PersistentCanvas";
+import { FileStatus } from "@/canvas/react/FileStatus";
+import { PhotoStatus } from "@/canvas/react/PhotoStatus";
+import { RecordingBar } from "@/canvas/react/RecordingBar";
+
+const noop = () => {};
+const DEMO_STARTED = 0;
+const subscribeNone = () => noop;
+const readSearch = () => window.location.search;
+
+/** `?demo=notices`: a photo, a file and a recording notice at once, to check how they stack (e2e). */
+function DemoNotices() {
+  return (
+    <>
+      <PhotoStatus status={{ kind: "uploading" }} onRetry={noop} onDismiss={noop} />
+      <FileStatus status={{ kind: "uploading" }} onRetry={noop} onDismiss={noop} />
+      <RecordingBar status={{ kind: "recording", startedAt: DEMO_STARTED }} onStop={noop} onCancel={noop} onRetry={noop} onDismiss={noop} />
+    </>
+  );
+}
 
 const DEV_PAGE = "dev-page";
 const KEY = "dev-canvas-elements";
@@ -64,5 +83,7 @@ export function DevCanvas() {
     ownerId: "dev-owner",
     pageId: DEV_PAGE,
   }));
-  return <PersistentCanvas pageId={DEV_PAGE} store={store} queue={queue} attachments={attachments} snapshots={snapshots} />;
+  const search = useSyncExternalStore(subscribeNone, readSearch, () => "");
+  const extra: ReactNode = new URLSearchParams(search).get("demo") === "notices" ? <DemoNotices /> : null;
+  return <PersistentCanvas pageId={DEV_PAGE} store={store} queue={queue} attachments={attachments} snapshots={snapshots} extraNotices={extra} />;
 }

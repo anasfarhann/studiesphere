@@ -74,3 +74,41 @@ test("at iPad portrait and phone widths the bar never overflows the page", async
     await expect(page.getByTestId("save-status")).toBeVisible();
   }
 });
+
+test("at phone width the bottom notices stack without overlapping", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dev/canvas?demo=notices");
+  await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+  const names = ["audio-status", "photo-status", "file-status"];
+  const boxes = [];
+  for (const id of names) {
+    const el = page.getByTestId(id);
+    await expect(el).toBeVisible();
+    const b = await el.boundingBox();
+    if (!b) throw new Error(`${id} has no box`);
+    boxes.push(b);
+  }
+  for (let i = 0; i < boxes.length; i++) {
+    expect(boxes[i].x).toBeGreaterThanOrEqual(0);
+    expect(boxes[i].x + boxes[i].width).toBeLessThanOrEqual(390);
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+      expect(overlap, `${names[i]} vs ${names[j]}`).toBe(false);
+    }
+  }
+});
+
+for (const [w, h] of [[834, 1194], [1280, 720], [390, 844]] as const) {
+  test(`history panel opens below the top bar at ${w}px`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    await page.getByRole("button", { name: "Page history" }).click();
+    const panel = await page.getByRole("complementary", { name: "Page history" }).boundingBox();
+    const bar = await page.getByTestId("canvas-topbar").boundingBox();
+    if (!panel || !bar) throw new Error("missing box");
+    expect(panel.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+  });
+}

@@ -17,7 +17,7 @@ export function PhotoStatus({ status, onRetry, onDismiss }: PhotoStatusProps) {
       role="status"
       aria-label={t("photoStatusLabel")}
       data-testid="photo-status"
-      className="absolute bottom-4 left-3 z-10 max-w-[calc(100%-1.5rem)] touch-manipulation rounded-3xl bg-card px-4 py-2 text-sm text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
+      className="pointer-events-auto max-w-full touch-manipulation rounded-3xl bg-card px-4 py-2 text-sm text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
     >
       {status.kind === "uploading" ? (
         t("photoUploading")

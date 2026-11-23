@@ -47,6 +47,8 @@ const GROUND_COLOR = "#FBF9F7";
 const DOT_COLOR = "#DDD5CD";
 const DOT_SPACING = 28;
 const DOT_RADIUS_PX = 1.2;
+const DOT_MIN_SCREEN_GAP = 14;
+const MAX_DOTS_PER_AXIS = 140;
 /** Below this zoom the dots would be a few pixels apart: skip them. */
 const DOT_MIN_ZOOM = 0.35;
 
@@ -282,12 +284,16 @@ export class Renderer {
     if (camera.zoom < DOT_MIN_ZOOM) return;
     const v = camera.viewRect(this.cssW, this.cssH);
     const r = DOT_RADIUS_PX / camera.zoom;
-    const x0 = Math.ceil((v.minX - r) / DOT_SPACING) * DOT_SPACING;
-    const y0 = Math.ceil((v.minY - r) / DOT_SPACING) * DOT_SPACING;
+    // Double the step until dots are >= 14 screen px apart and at most ~MAX_DOTS_PER_AXIS per axis.
+    const span = Math.max(v.maxX - v.minX, v.maxY - v.minY);
+    let step = DOT_SPACING;
+    while (step * camera.zoom < DOT_MIN_SCREEN_GAP || span / step > MAX_DOTS_PER_AXIS - 2) step *= 2;
+    const x0 = Math.ceil((v.minX - r) / step) * step;
+    const y0 = Math.ceil((v.minY - r) / step) * step;
     ctx.fillStyle = DOT_COLOR;
     ctx.beginPath();
-    for (let y = y0; y <= v.maxY + r; y += DOT_SPACING) {
-      for (let x = x0; x <= v.maxX + r; x += DOT_SPACING) {
+    for (let y = y0; y <= v.maxY + r; y += step) {
+      for (let x = x0; x <= v.maxX + r; x += step) {
         ctx.moveTo(x + r, y);
         ctx.arc(x, y, r, 0, Math.PI * 2);
       }

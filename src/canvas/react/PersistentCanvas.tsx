@@ -38,6 +38,8 @@ export interface PersistentCanvasProps {
   snapshots?: SnapshotStore;
   /** The title pill shown at the top left of the canvas (also while loading). */
   header?: ReactNode;
+  /** Extra notices for the bottom stack (dev demos). */
+  extraNotices?: ReactNode;
 }
 
 /**
@@ -45,7 +47,7 @@ export interface PersistentCanvasProps {
  * canvas with autosave. The editor is never shown before the load finished, so an empty canvas
  * always means an empty page.
  */
-export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox, snapshots, header }: PersistentCanvasProps) {
+export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox, snapshots, header, extraNotices }: PersistentCanvasProps) {
   const [attachments] = useState<AttachmentConfig | undefined>(() =>
     attachmentProps ? { ...attachmentProps, store, outbox: outbox ?? new MemoryRecordingOutbox() } : undefined,
   );
@@ -182,19 +184,24 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
         snapshots={snapshots ? { store: snapshots, pageId } : undefined}
         topLeft={header}
         status={<SaveStatus state={saveState} parked={parked > 0} />}
+        notices={
+          <>
+            {recovered > 0 ? (
+              <p role="status" className="pointer-events-auto max-w-full rounded-3xl bg-card px-4 py-2 text-sm text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]">
+                {t("recoveredRecordings").replace("{n}", String(recovered))}
+              </p>
+            ) : null}
+            {extraNotices}
+            {attachments?.outbox ? (
+              <OversizeRecordings
+                entries={oversize}
+                outbox={attachments.outbox}
+                onRemoved={(id) => setOversize((cur) => cur.filter((e) => e.id !== id))}
+              />
+            ) : null}
+          </>
+        }
       />
-      {recovered > 0 ? (
-        <p role="status" className="absolute bottom-36 left-1/2 z-10 max-w-[calc(100%-1.5rem)] -translate-x-1/2 rounded-3xl bg-card px-4 py-2 text-sm text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]">
-          {t("recoveredRecordings").replace("{n}", String(recovered))}
-        </p>
-      ) : null}
-      {attachments?.outbox ? (
-        <OversizeRecordings
-          entries={oversize}
-          outbox={attachments.outbox}
-          onRemoved={(id) => setOversize((cur) => cur.filter((e) => e.id !== id))}
-        />
-      ) : null}
     </div>
   );
 }

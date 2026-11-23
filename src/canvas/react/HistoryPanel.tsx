@@ -13,10 +13,12 @@ export interface HistoryPanelProps {
   pageId: string;
   editor: Editor;
   onClose: () => void;
+  /** Distance in px from the top of the canvas; the host passes the bottom of the top bar. */
+  top?: number;
 }
 
 /** Side panel listing the page's saved versions (newest first), each with a Restore button. */
-export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelProps) {
+export function HistoryPanel({ store, pageId, editor, onClose, top = 0 }: HistoryPanelProps) {
   const [list, setList] = useState<List>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [restoring, setRestoring] = useState<string | null>(null);
@@ -55,7 +57,8 @@ export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelPro
   return (
     <aside
       aria-label={t("historyTitle")}
-      className="absolute bottom-3 right-3 top-44 z-20 flex w-80 max-w-[calc(100%-1.5rem)] touch-manipulation flex-col overflow-hidden rounded-3xl bg-card text-ink shadow-[0_8px_28px_rgba(27,26,31,0.14)] sm:top-36 2xl:top-20"
+      className="absolute bottom-3 right-3 z-20 flex w-80 max-w-[calc(100%-1.5rem)] touch-manipulation flex-col overflow-hidden rounded-3xl bg-card text-ink shadow-[0_8px_28px_rgba(27,26,31,0.14)]"
+      style={{ top }}
     >
       <div className="flex items-center justify-between gap-2 px-5 py-2">
         <h2 className="text-base font-semibold">{t("historyTitle")}</h2>

@@ -54,12 +54,17 @@ export interface CanvasViewProps {
   topLeft?: ReactNode;
   /** Right of the top bar: the save status pill. */
   status?: ReactNode;
+  /** Extra notices for the bottom stack, rendered above the photo/file/recording statuses. */
+  notices?: ReactNode;
 }
 
 /** Full-size drawing canvas with the top bar floating over it. Fills its (flex) container. */
-export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft, status }: CanvasViewProps) {
+export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft, status, notices }: CanvasViewProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
+  // Bottom of the top bar (it wraps with the viewport width); the history panel starts below it.
+  const [barBottom, setBarBottom] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
@@ -192,6 +197,16 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     };
   }, [initial, attach, files]);
 
+  useEffect(() => {
+    const bar = barRef.current;
+    if (!bar) return;
+    const measure = () => setBarBottom(bar.offsetTop + bar.offsetHeight);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, []);
+
   // Closing the tab while recording or uploading asks first (in-app navigation is handled by the hand-off).
   const audioBusy = audioState.kind === "recording" || audioState.kind === "uploading";
   useEffect(() => {
@@ -234,7 +249,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
             overscrollBehavior: "none",
           }}
         />
-        <Toolbar left={topLeft} status={status} tool={tool} onTool={pickTool} color={color} size={size} onColor={pickColor} onSize={pickSize}
+        <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} color={color} size={size} onColor={pickColor} onSize={pickSize}
           canUndo={hist.canUndo}
           canRedo={hist.canRedo}
           onUndo={() => editorRef.current?.undo()}
@@ -245,25 +260,32 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
           onHistory={snapshots ? () => setHistoryOpen((o) => !o) : undefined}
           recordDisabled={audioState.kind === "recording" || audioState.kind === "uploading" || audioState.kind === "oversize"}
         />
-        <PhotoStatus
-          status={photoState}
-          onRetry={() => void photosRef.current?.retry()}
-          onDismiss={() => photosRef.current?.dismiss()}
-        />
-        <FileStatus
-          status={fileState}
-          onRetry={() => void fileInsRef.current?.retry()}
-          onDismiss={() => fileInsRef.current?.dismiss()}
-        />
-        <RecordingBar
-          status={audioState}
-          onStop={() => void audioRef.current?.stop()}
-          onCancel={() => audioRef.current?.cancel()}
-          onRetry={() => void audioRef.current?.retry()}
-          onDismiss={() => audioRef.current?.dismiss()}
-          onSaveToDevice={() => audioRef.current?.saveToDevice()}
-          onDiscardOversize={() => void audioRef.current?.discardOversize()}
-        />
+        <div
+          data-testid="notice-stack"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col items-center gap-2 px-3 pt-3"
+          style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}
+        >
+          {notices}
+          <PhotoStatus
+            status={photoState}
+            onRetry={() => void photosRef.current?.retry()}
+            onDismiss={() => photosRef.current?.dismiss()}
+          />
+          <FileStatus
+            status={fileState}
+            onRetry={() => void fileInsRef.current?.retry()}
+            onDismiss={() => fileInsRef.current?.dismiss()}
+          />
+          <RecordingBar
+            status={audioState}
+            onStop={() => void audioRef.current?.stop()}
+            onCancel={() => audioRef.current?.cancel()}
+            onRetry={() => void audioRef.current?.retry()}
+            onDismiss={() => audioRef.current?.dismiss()}
+            onSaveToDevice={() => audioRef.current?.saveToDevice()}
+            onDiscardOversize={() => void audioRef.current?.discardOversize()}
+          />
+        </div>
         {editor && files ? (
           <AudioCards
             editor={editor}
@@ -281,7 +303,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
         {editor ? <TextEditorOverlay editor={editor} /> : null}
         {editor ? <SelectionMenu editor={editor} /> : null}
         {editor && snapshots && historyOpen ? (
-          <HistoryPanel store={snapshots.store} pageId={snapshots.pageId} editor={editor} onClose={() => setHistoryOpen(false)} />
+          <HistoryPanel store={snapshots.store} pageId={snapshots.pageId} editor={editor} onClose={() => setHistoryOpen(false)} top={barBottom + 8} />
         ) : null}
       </div>
     </div>

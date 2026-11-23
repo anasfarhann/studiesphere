@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
+import { useRef, type ReactNode, type Ref } from "react";
 import { t, type en } from "@/i18n/en";
 import { Icon, type IconName } from "@/ui/icons";
 import type { ToolId } from "../tools/tool";
@@ -45,6 +45,8 @@ export interface ToolbarProps {
   left?: ReactNode;
   /** Right of the bar, after undo/redo/history: the save status pill. */
   status?: ReactNode;
+  /** The bar element, so the host can measure it (panels sit below it). */
+  barRef?: Ref<HTMLDivElement>;
 }
 
 const TOOLS: ReadonlyArray<{ id: ToolId; icon: IconName; label: keyof typeof en }> = [
@@ -68,11 +70,12 @@ const Divider = () => <span aria-hidden="true" className="mx-1.5 h-7 w-px shrink
  * The canvas top bar, floating over the drawing: title pill, tool pill, undo/redo/history and
  * save status. The bar itself ignores pointer events so strokes can start between the pills.
  */
-export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory, left, status }: ToolbarProps) {
+export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory, left, status, barRef }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const anyFileRef = useRef<HTMLInputElement>(null);
   return (
     <div
+      ref={barRef}
       data-testid="canvas-topbar"
       className="pointer-events-none absolute inset-x-0 top-0 z-20 flex touch-manipulation flex-wrap items-start justify-between gap-3 p-3"
     >

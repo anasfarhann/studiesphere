@@ -24,6 +24,11 @@ describe("HistoryPanel", () => {
     expect(await screen.findByText(/No earlier versions yet/)).toBeInTheDocument();
   });
 
+  it("starts at the offset the host gives (below the top bar)", () => {
+    render(<HistoryPanel store={new MemorySnapshotStore()} pageId="p" editor={fakeEditor(new Scene())} onClose={() => {}} top={148} />);
+    expect(screen.getByRole("complementary", { name: "Page history" }).style.top).toBe("148px");
+  });
+
   it("lists snapshots newest first and restores one", async () => {
     const store = new MemorySnapshotStore();
     await store.create("p", [stroke("a")], 1000);

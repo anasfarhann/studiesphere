@@ -107,6 +107,30 @@ describe("Renderer", () => {
       expect(ctx.arc).not.toHaveBeenCalled();
     });
 
+    it("stays bounded and sparse-enough on a large view at the lowest zoom", () => {
+      const r = make();
+      r.resize(2732, 2048, 1);
+      camera.zoom = 0.35;
+      flush();
+      const pts = dots();
+      expect(pts.length).toBeGreaterThan(0);
+      expect(pts.length).toBeLessThanOrEqual(140 * 140);
+      const xs = [...new Set(pts.map((p) => p[0]))].sort((a, b) => a - b);
+      const ys = [...new Set(pts.map((p) => p[1]))].sort((a, b) => a - b);
+      expect(xs.length).toBeLessThanOrEqual(140);
+      expect(ys.length).toBeLessThanOrEqual(140);
+      expect((xs[1] - xs[0]) * 0.35).toBeGreaterThanOrEqual(14);
+      expect((ys[1] - ys[0]) * 0.35).toBeGreaterThanOrEqual(14);
+    });
+
+    it("spaces dots 28 world px apart at zoom 1", () => {
+      const r = make();
+      r.resize(300, 300, 1);
+      flush();
+      const xs = [...new Set(dots().map((p) => p[0]))].sort((a, b) => a - b);
+      expect(xs[1] - xs[0]).toBe(28);
+    });
+
     it("draws dots at zoom 0.35", () => {
       const r = make();
       r.resize(300, 300, 1);
