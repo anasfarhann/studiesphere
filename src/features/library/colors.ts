@@ -1,10 +1,17 @@
 import type { en } from "@/i18n/en";
+import { PASTELS } from "@/ui/pastel";
 
-export const SUBJECT_COLORS: { hex: string; label: keyof typeof en }[] = [
-  { hex: "#2563eb", label: "colorBlue" },
-  { hex: "#16a34a", label: "colorGreen" },
-  { hex: "#d97706", label: "colorAmber" },
-  { hex: "#dc2626", label: "colorRed" },
-  { hex: "#7c3aed", label: "colorPurple" },
-  { hex: "#0d9488", label: "colorTeal" },
-];
+const LABELS = {
+  pink: "colorPink",
+  peach: "colorPeach",
+  lavender: "colorLavender",
+  mint: "colorMint",
+  sky: "colorSky",
+  butter: "colorButter",
+} as const satisfies Record<string, keyof typeof en>;
+
+/** Swatches offered for new subjects: the six design pastels (the stored value is the pastel hex). */
+export const SUBJECT_COLORS: { hex: string; label: keyof typeof en }[] = PASTELS.map((p) => ({
+  hex: p.hex,
+  label: LABELS[p.id],
+}));

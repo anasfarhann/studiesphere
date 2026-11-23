@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { SubjectForm } from "@/features/library/forms";
 import { t } from "@/i18n/en";
-import { PillButton, IconButton } from "@/ui/Button";
+import { PillButton } from "@/ui/Button";
+import { Dialog } from "@/ui/Dialog";
 import { Chip } from "@/ui/Chip";
 import { Icon } from "@/ui/icons";
 import { PASTELS } from "@/ui/pastel";
@@ -32,63 +33,6 @@ function useLocalToday(override?: Date): Date | null {
 }
 
 const count = (n: number, one: string, many: string) => (n === 1 ? t(one as "dashPageOne") : t(many as "dashPageMany").replace("{n}", String(n)));
-
-function NewSubjectDialog({ onClose }: { onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const closeRef = useRef(onClose);
-  useEffect(() => {
-    closeRef.current = onClose;
-  });
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    const focusables = () =>
-      Array.from(ref.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), a[href]") ?? []);
-    focusables()[0]?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return closeRef.current();
-      if (e.key !== "Tab") return;
-      const items = focusables();
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-      if (!ref.current?.contains(active)) {
-        e.preventDefault();
-        first.focus();
-      } else if (e.shiftKey && active === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && active === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      opener?.focus();
-    };
-  }, []);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="new-subject-h"
-        className="flex w-full max-w-md flex-col gap-4 rounded-[28px] bg-card p-6 shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
-      >
-        <div className="flex items-center justify-between gap-3">
-          <h2 id="new-subject-h" className="text-xl font-medium">
-            {t("newSubject")}
-          </h2>
-          <IconButton icon="plus" label={t("dashClose")} onClick={onClose} className="rotate-45 bg-panel" />
-        </div>
-        <SubjectForm bare />
-      </div>
-    </div>
-  );
-}
 
 function RecentCard({ page, today }: { page: RecentPage; today: Date | null }) {
   const meta = [page.subjectName, page.notebookTitle].filter(Boolean).join(" · ");
@@ -268,7 +212,11 @@ export function Dashboard({
         </section>
       </aside>
 
-      {creating && <NewSubjectDialog onClose={() => setCreating(false)} />}
+      {creating && (
+        <Dialog title={t("newSubject")} onClose={() => setCreating(false)}>
+          <SubjectForm bare />
+        </Dialog>
+      )}
     </div>
   );
 }

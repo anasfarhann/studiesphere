@@ -42,6 +42,18 @@ export const en = {
   newPage: "New page",
   noPages: "No pages in this notebook yet.",
   backToSubjects: "All subjects",
+  backTo: "Back to {name}",
+  backHome: "Home",
+  subjectNotebooks: "Notebooks",
+  notebookOf: "{name} notebook",
+  pagesLabel: "Pages",
+  recordingBadge: "Recording",
+  colorPink: "Pink",
+  colorPeach: "Peach",
+  colorLavender: "Lavender",
+  colorMint: "Mint",
+  colorSky: "Sky",
+  colorButter: "Butter",
   backToNotebook: "Back to notebook",
   untitledPage: "Untitled",
   colorBlue: "Blue",
@@ -162,6 +174,8 @@ export const en = {
   recoveredRecordings: "Recovered {n} recording(s)",
 } as const;
 
-export function t(key: keyof typeof en): string {
-  return en[key];
+/** Look up a string; `{name}`-style placeholders are filled from `vars`. */
+export function t(key: keyof typeof en, vars?: Record<string, string | number>): string {
+  const s: string = en[key];
+  return vars ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in vars ? String(vars[k]) : m)) : s;
 }
