@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { IconButton, PillButton } from "./Button";
 import { AppRail } from "./AppRail";
+import { Chip } from "./Chip";
 
 afterEach(cleanup);
 
@@ -64,5 +65,14 @@ describe("AppRail", () => {
     expect(screen.getByRole("group", { name: "Account" })).toBeTruthy();
     fireEvent.pointerDown(document.body);
     expect(screen.queryByRole("group", { name: "Account" })).toBeNull();
+  });
+});
+
+describe("Chip", () => {
+  it("is a toggle button exposing its pressed state", () => {
+    render(<Chip selected dot="#fff">Biology</Chip>);
+    const b = screen.getByRole("button", { name: "Biology" });
+    expect(b.getAttribute("aria-pressed")).toBe("true");
+    expect(b.getAttribute("role")).toBeNull();
   });
 });

@@ -14,11 +14,12 @@ function ErrorText({ state }: { state: FormState }) {
   ) : null;
 }
 
-export function SubjectForm() {
+/** `bare` drops the heading, border and top margin so the form can sit inside a dialog that supplies its own title. */
+export function SubjectForm({ bare = false }: { bare?: boolean }) {
   const [state, action, pending] = useActionState(createSubjectAction, null);
   return (
-    <form action={action} className="mt-6 flex flex-col gap-4 rounded-lg border p-4">
-      <h2 className="font-medium">{t("newSubject")}</h2>
+    <form action={action} className={bare ? "flex flex-col gap-4" : "mt-6 flex flex-col gap-4 rounded-lg border p-4"}>
+      {!bare && <h2 className="font-medium">{t("newSubject")}</h2>}
       <label className="flex flex-col gap-1">
         <span className="text-sm">{t("subjectName")}</span>
         <input name="name" required className="min-h-11 rounded-md border px-3" />

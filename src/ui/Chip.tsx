@@ -12,8 +12,7 @@ export function Chip({
   return (
     <button
       type={type}
-      role="tab"
-      aria-selected={!!selected}
+      aria-pressed={!!selected}
       {...rest}
       className={`inline-flex h-12 max-w-full cursor-pointer items-center gap-2.5 rounded-full pr-5 pl-4 text-sm font-medium ${
         selected ? "bg-ink text-white" : "bg-card text-ink"

@@ -12,6 +12,7 @@ test("create subject, notebook and page, landing on the page route", async ({ pa
   await expect(page).toHaveURL(/\/app$/);
 
   const subject = `Biology ${Date.now()}`;
+  await page.getByRole("button", { name: "New subject" }).click();
   await page.getByLabel("Subject name").fill(subject);
   await page.getByRole("radio", { name: "Green" }).check({ force: true });
   await page.getByRole("button", { name: "Create subject" }).click();
