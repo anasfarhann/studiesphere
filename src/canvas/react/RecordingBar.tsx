@@ -36,7 +36,7 @@ export function RecordingBar({ status, onStop, onCancel, onRetry, onDismiss, onS
       role="status"
       aria-label={t("audioStatusLabel")}
       data-testid="audio-status"
-      className="absolute bottom-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-lg border bg-white px-3 py-1 text-sm text-gray-900 shadow"
+      className="absolute bottom-4 left-1/2 z-10 flex touch-manipulation -translate-x-1/2 items-center gap-2 rounded-lg border bg-white px-3 py-1 text-sm text-gray-900 shadow"
     >
       {status.kind === "recording" ? (
         <>

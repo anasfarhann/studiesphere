@@ -149,7 +149,7 @@ export function AudioCards({ editor, resolveUrl, forgetUrl }: AudioCardsProps) {
               aria-label={on ? t("audioPause") : t("audioPlay")}
               aria-pressed={on}
               onClick={() => toggle(s)}
-              className="absolute z-10 flex items-center justify-center rounded-full bg-slate-800 text-white"
+              className="absolute z-10 flex touch-manipulation items-center justify-center rounded-full bg-slate-800 text-white"
               style={{ left: s.cx - s.size / 2, top: s.cy - s.size / 2, width: s.size, height: s.size, touchAction: "manipulation" }}
             >
               <svg width="40%" height="40%" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

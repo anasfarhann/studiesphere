@@ -34,3 +34,12 @@ test("a stroke is autosaved within 2 s", async ({ page }) => {
   await expect(status).toHaveText("Saving…");
   await expect(status).toHaveText("Saved", { timeout: 2000 });
 });
+
+test("toolbar buttons opt out of double-tap zoom (touch-action: manipulation)", async ({ page }) => {
+  await page.goto("/dev/canvas");
+  await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+  const toolbar = page.getByRole("toolbar", { name: "Drawing tools" });
+  expect(await toolbar.evaluate((el) => getComputedStyle(el).touchAction)).toBe("manipulation");
+  const undo = page.getByRole("button", { name: "Undo" });
+  expect(await undo.evaluate((el) => getComputedStyle(el).touchAction)).toBe("manipulation");
+});

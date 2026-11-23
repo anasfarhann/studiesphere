@@ -119,7 +119,7 @@ export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
             data-testid="file-open"
             aria-label={t("fileOpen").replace("{name}", s.name)}
             onClick={() => open(s)}
-            className="absolute z-10 rounded-lg bg-transparent"
+            className="absolute z-10 touch-manipulation rounded-lg bg-transparent"
             style={{ left: s.cx - s.size / 2, top: s.cy - s.size / 2, width: s.size, height: s.size, touchAction: "manipulation" }}
           />
           {notice === s.id ? (

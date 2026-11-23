@@ -43,13 +43,13 @@ export interface ToolbarProps {
 }
 
 const btn =
-  "inline-flex h-11 min-w-11 items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
+  "inline-flex h-11 min-w-11 touch-manipulation items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
 
 export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const anyFileRef = useRef<HTMLInputElement>(null);
   return (
-    <div role="toolbar" aria-label={t("drawingTools")} className="flex flex-wrap items-center gap-2 border-b px-3 py-1">
+    <div role="toolbar" aria-label={t("drawingTools")} className="flex touch-manipulation flex-wrap items-center gap-2 border-b px-3 py-1">
       <button
         type="button"
         aria-pressed={tool === "pen"}
