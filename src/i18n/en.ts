@@ -69,6 +69,14 @@ export const en = {
   pageLoading: "Loading page…",
   pageLoadError: "Couldn't load this page. Check your connection and try again.",
   tryAgain: "Try again",
+  toolPhoto: "Photo",
+  photoUploading: "Uploading photo…",
+  photoUploadFailed: "Couldn't upload — tap to retry",
+  photoUnreadable: "Couldn't read this image",
+  attachmentTooLarge: "This file is larger than 50 MB",
+  photoStatusLabel: "Photo upload status",
+  photoPickerLabel: "Choose a photo",
+  photoBroken: "Image unavailable",
 } as const;
 
 export function t(key: keyof typeof en): string {

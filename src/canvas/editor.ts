@@ -15,12 +15,14 @@ import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
 import { Selection } from "./selection";
 import type { Rect } from "./model/types";
 import { Camera } from "./view/camera";
-import { Renderer, type RendererOptions } from "./view/renderer";
+import { Renderer, type ImageLoader, type RendererOptions } from "./view/renderer";
 
 export interface EditorOptions {
   elements: CanvasElement[];
   /** Test seams for the renderer (raf, path factory). */
   renderer?: RendererOptions;
+  /** Loads photo cards' images; without it they stay grey placeholders. */
+  loadImage?: ImageLoader;
 }
 
 type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number; lastY: number };
@@ -82,6 +84,8 @@ export class Editor {
   private raf: (cb: () => void) => number;
   private caf: (id: number) => void;
   private spaceDown = false;
+  private viewW = 0;
+  private viewH = 0;
   private destroyed = false;
 
   constructor(
@@ -91,7 +95,7 @@ export class Editor {
     this.scene = new Scene(opts.elements);
     this.raf = opts.renderer?.raf ?? ((cb) => window.requestAnimationFrame(cb));
     this.caf = opts.renderer?.caf ?? ((id) => window.cancelAnimationFrame(id));
-    this.renderer = new Renderer(canvas, this.scene, this.camera, opts.renderer);
+    this.renderer = new Renderer(canvas, this.scene, this.camera, { loadImage: opts.loadImage, ...opts.renderer });
     this.selection = new Selection(this.scene);
     this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.color });
     this.text.onChange(() => {
@@ -126,6 +130,7 @@ export class Editor {
         history: this.history,
         selection: this.selection,
         setLasso: (pts) => this.renderer.setLasso(pts),
+        zoom: () => this.camera.zoom,
       }),
       text: new TextTool({ scene: this.scene, editing: this.text, slop: () => 6 / this.camera.zoom }),
       // Hand has no stroke of its own: while it is selected, drags pan (see onDown).
@@ -219,7 +224,14 @@ export class Editor {
     return this.history.onChange(fn);
   }
 
+  /** The middle of the visible area, in world coordinates. */
+  viewportCenter(): [number, number] {
+    return this.camera.screenToWorld(this.viewW / 2, this.viewH / 2);
+  }
+
   resize(cssW: number, cssH: number, dpr: number): void {
+    this.viewW = cssW;
+    this.viewH = cssH;
     this.renderer.resize(cssW, cssH, dpr);
   }
 

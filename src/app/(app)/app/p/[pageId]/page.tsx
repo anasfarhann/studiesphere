@@ -5,7 +5,7 @@ import { t } from "@/i18n/en";
 import { PageCanvas } from "./PageCanvas";
 
 export default async function CanvasPage({ params }: { params: Promise<{ pageId: string }> }) {
-  await getUser();
+  const user = await getUser();
   const { pageId } = await params;
   const page = await getPage(pageId);
   return (
@@ -16,7 +16,7 @@ export default async function CanvasPage({ params }: { params: Promise<{ pageId:
         </Link>
         <h1 className="truncate text-base font-semibold">{page.title}</h1>
       </div>
-      <PageCanvas pageId={page.id} />
+      <PageCanvas pageId={page.id} ownerId={user.id} />
     </main>
   );
 }

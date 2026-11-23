@@ -3,13 +3,19 @@ import type { CanvasElement, StrokeEl } from "../model/types";
 import { boundsOf, TEXT_LINE_HEIGHT } from "../model/bounds";
 import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
+import { HANDLE_DRAW_PX } from "../tools/image-resize";
 import { outlineToPath, strokeOutline, type PathFactory } from "./stroke-path";
 
 export interface RendererOptions {
   raf?: (cb: () => void) => number;
   caf?: (id: number) => void;
   createPath?: PathFactory;
+  /** Resolves an asset path to a decoded image. Without it, photos stay grey placeholders. */
+  loadImage?: ImageLoader;
 }
+
+export type ImageLoader = (assetPath: string) => Promise<ImageBitmap | HTMLImageElement>;
+type ImageEntry = { state: "loading" } | { state: "ready"; img: ImageBitmap | HTMLImageElement } | { state: "error" };
 
 const HIGHLIGHTER_ALPHA = 0.35;
 
@@ -29,6 +35,9 @@ export class Renderer {
   private raf: (cb: () => void) => number;
   private caf: (id: number) => void;
   private createPath: PathFactory;
+  private loadImage: ImageLoader | undefined;
+  /** Decoded photos by assetPath, so each is fetched and decoded once. */
+  private images = new Map<string, ImageEntry>();
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -42,6 +51,7 @@ export class Renderer {
     this.raf = opts.raf ?? ((cb) => window.requestAnimationFrame(cb));
     this.caf = opts.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.createPath = opts.createPath ?? (() => new Path2D());
+    this.loadImage = opts.loadImage;
     this.unsubscribe = scene.onChange(() => {
       this.maybeRemoved = true;
       this.requestFrame();
@@ -96,6 +106,40 @@ export class Renderer {
       this.pending = null;
     }
     this.cache.clear();
+    this.releaseImages(() => true);
+  }
+
+  private releaseImages(drop: (assetPath: string) => boolean): void {
+    for (const [path, e] of this.images) {
+      if (!drop(path)) continue;
+      if (e.state === "ready" && "close" in e.img) e.img.close();
+      this.images.delete(path);
+    }
+  }
+
+  /** The decoded image if it is ready; starts loading it the first time it is asked for. */
+  private imageFor(assetPath: string): ImageEntry {
+    const hit = this.images.get(assetPath);
+    if (hit) return hit;
+    const load = this.loadImage;
+    const loading: ImageEntry = { state: "loading" };
+    if (!load) return loading;
+    this.images.set(assetPath, loading);
+    load(assetPath).then(
+      (img) => this.settleImage(assetPath, loading, { state: "ready", img }),
+      () => this.settleImage(assetPath, loading, { state: "error" }),
+    );
+    return loading;
+  }
+
+  private settleImage(assetPath: string, was: ImageEntry, next: ImageEntry): void {
+    // Dropped (destroyed or no longer on the page) while loading: discard the result.
+    if (this.images.get(assetPath) !== was) {
+      if (next.state === "ready" && "close" in next.img) next.img.close();
+      return;
+    }
+    this.images.set(assetPath, next);
+    this.requestFrame();
   }
 
   private draw(): void {
@@ -138,6 +182,11 @@ export class Renderer {
     if (!this.maybeRemoved) return;
     this.maybeRemoved = false;
     for (const id of this.cache.keys()) if (!this.scene.get(id)) this.cache.delete(id);
+    if (this.images.size > 0) {
+      const used = new Set<string>();
+      for (const el of this.scene.all()) if (el.type === "image") used.add(el.assetPath);
+      this.releaseImages((path) => !used.has(path));
+    }
   }
 
   private drawStroke(el: StrokeEl, path: Path2D): void {
@@ -163,16 +212,38 @@ export class Renderer {
       const measure: Measure = typeof ctx.measureText === "function" ? (str) => ctx.measureText(str).width : approxMeasure;
       const lines = wrapText(measure, el.text, el.w, el.fontSize);
       lines.forEach((line, i) => ctx.fillText(line, el.x, el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1)));
+    } else if (el.type === "image") {
+      const entry = this.imageFor(el.assetPath);
+      if (entry.state === "ready") ctx.drawImage(entry.img, el.x, el.y, el.w, el.h);
+      else this.drawPlaceholder(el, entry.state === "error");
     } else {
-      const b = boundsOf(el);
-      ctx.beginPath();
-      ctx.roundRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY, 6);
-      ctx.fillStyle = "#f1f1f1";
-      ctx.fill();
-      ctx.strokeStyle = "#c8c8c8";
-      ctx.lineWidth = 1 / this.camera.zoom;
-      ctx.stroke();
+      this.drawPlaceholder(el, false);
     }
+  }
+
+  private drawPlaceholder(el: CanvasElement, broken: boolean): void {
+    const { ctx } = this;
+    const b = boundsOf(el);
+    ctx.beginPath();
+    ctx.roundRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY, 6);
+    ctx.fillStyle = "#f1f1f1";
+    ctx.fill();
+    ctx.strokeStyle = "#c8c8c8";
+    ctx.lineWidth = 1 / this.camera.zoom;
+    ctx.stroke();
+    if (!broken) return;
+    // A small "x" in the middle: the picture could not be loaded.
+    const r = Math.min(12 / this.camera.zoom, (b.maxX - b.minX) / 4, (b.maxY - b.minY) / 4);
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - r, cy - r);
+    ctx.lineTo(cx + r, cy + r);
+    ctx.moveTo(cx + r, cy - r);
+    ctx.lineTo(cx - r, cy + r);
+    ctx.strokeStyle = "#9ca3af";
+    ctx.lineWidth = 2 / this.camera.zoom;
+    ctx.stroke();
   }
 
   /** One dashed box around the whole selection. */
@@ -198,6 +269,16 @@ export class Renderer {
     ctx.setLineDash([4 / camera.zoom, 3 / camera.zoom]);
     ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
     ctx.restore();
+    this.drawResizeHandle(maxX, maxY);
+  }
+
+  /** Corner grip for a single selected photo (the touch target is larger than what is drawn). */
+  private drawResizeHandle(cx: number, cy: number): void {
+    if (this.selection.length !== 1 || this.scene.get(this.selection[0])?.type !== "image") return;
+    const { ctx, camera } = this;
+    const s = HANDLE_DRAW_PX / camera.zoom;
+    ctx.fillStyle = "#2563eb";
+    ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
   }
 
   private drawLasso(): void {

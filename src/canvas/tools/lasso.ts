@@ -4,6 +4,7 @@ import type { Change } from "../model/history";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
 import type { Selection } from "../selection";
+import { ImageResize } from "./image-resize";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
 
 /** A stroke is selected when at least this share of its points lies inside the lasso. */
@@ -43,22 +44,31 @@ export interface LassoToolContext {
   selection: Selection;
   /** Shows (or clears, with null) the lasso path being drawn. */
   setLasso: (points: [number, number][] | null) => void;
+  /** Camera zoom, for the corner handle's screen-sized touch target. */
+  zoom: () => number;
 }
 
 /** Draw a loop to select; drag inside the selection box to move it; tap elsewhere to deselect. */
 export class LassoTool implements Tool {
   readonly id = "lasso" as const;
-  private mode: "idle" | "lasso" | "move" = "idle";
+  private mode: "idle" | "lasso" | "move" | "resize" = "idle";
+  private resize: ImageResize;
   private path: [number, number][] = [];
   private last: [number, number] = [0, 0];
   private moveBefore: Change["before"] | null = null;
   private moveAfter: Change["after"] = [];
 
-  constructor(private ctx: LassoToolContext) {}
+  constructor(private ctx: LassoToolContext) {
+    this.resize = new ImageResize(ctx);
+  }
 
   down(p: WorldPoint, e: PointerInfo): void {
     void e;
     this.finish();
+    if (this.resize.begin(p[0], p[1])) {
+      this.mode = "resize";
+      return;
+    }
     const b = this.ctx.selection.bounds();
     if (b && p[0] >= b.minX && p[0] <= b.maxX && p[1] >= b.minY && p[1] <= b.maxY) {
       this.mode = "move";
@@ -77,6 +87,9 @@ export class LassoTool implements Tool {
     if (this.mode === "lasso") {
       for (const p of pts) this.path.push([p[0], p[1]]);
       this.ctx.setLasso([...this.path]);
+    } else if (this.mode === "resize") {
+      const p = pts[pts.length - 1];
+      if (p) this.resize.move(p[0], p[1]);
     } else if (this.mode === "move") {
       const p = pts[pts.length - 1];
       if (!p) return;
@@ -108,6 +121,8 @@ export class LassoTool implements Tool {
       this.path = [];
       this.ctx.setLasso(null);
       this.ctx.selection.set(elementsInLasso(this.ctx.scene, path));
+    } else if (mode === "resize") {
+      this.resize.end();
     } else if (mode === "move" && this.moveBefore) {
       this.ctx.history.push({ before: this.moveBefore, after: this.moveAfter });
       this.moveBefore = null;

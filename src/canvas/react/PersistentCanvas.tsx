@@ -14,7 +14,7 @@ import {
   type SaveBatch,
   type SaveState,
 } from "../persistence/store";
-import { CanvasView } from "./CanvasView";
+import { CanvasView, type AttachmentConfig } from "./CanvasView";
 import { SaveStatus } from "./SaveStatus";
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; elements: CanvasElement[] };
@@ -23,6 +23,8 @@ export interface PersistentCanvasProps {
   pageId: string;
   store: ElementStore;
   queue: OfflineQueue;
+  /** Photo uploads; omit to hide the Photo button. */
+  attachments?: AttachmentConfig;
 }
 
 /**
@@ -30,7 +32,7 @@ export interface PersistentCanvasProps {
  * canvas with autosave. The editor is never shown before the load finished, so an empty canvas
  * always means an empty page.
  */
-export function PersistentCanvas({ pageId, store, queue }: PersistentCanvasProps) {
+export function PersistentCanvas({ pageId, store, queue, attachments }: PersistentCanvasProps) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -95,7 +97,7 @@ export function PersistentCanvas({ pageId, store, queue }: PersistentCanvasProps
   }
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <CanvasView elements={load.elements} onEditor={onEditor} />
+      <CanvasView elements={load.elements} attachments={attachments} onEditor={onEditor} />
       <div
         className="pointer-events-none absolute right-3"
         style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}

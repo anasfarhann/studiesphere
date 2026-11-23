@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { AttachmentService, type AttachmentStorage } from "@/canvas/attachments/upload";
 import type { CanvasElement } from "@/canvas/model/types";
 import { MemoryElementStore, MemoryOfflineQueue } from "@/canvas/persistence/memory-store";
 import type { ElementStore, Tombstone } from "@/canvas/persistence/store";
@@ -37,9 +38,29 @@ class SessionElementStore implements ElementStore {
   }
 }
 
+/** Dev-only uploader: keeps blobs in memory and signs them as object URLs (lost on reload). */
+function memoryAttachmentStorage(): AttachmentStorage {
+  const blobs = new Map<string, Blob>();
+  return {
+    upload: async (path, body) => {
+      blobs.set(path, body);
+      return { error: null };
+    },
+    createSignedUrl: async (path) => {
+      const blob = blobs.get(path);
+      return blob ? { url: URL.createObjectURL(blob), error: null } : { url: null, error: { message: "not found" } };
+    },
+  };
+}
+
 /** Dev canvas: same load/autosave path as a real page, but no network; kept per browser tab session. */
 export function DevCanvas() {
   const [store] = useState(() => new SessionElementStore());
   const [queue] = useState(() => new MemoryOfflineQueue(DEV_PAGE));
-  return <PersistentCanvas pageId={DEV_PAGE} store={store} queue={queue} />;
+  const [attachments] = useState(() => ({
+    service: new AttachmentService(memoryAttachmentStorage()),
+    ownerId: "dev-owner",
+    pageId: DEV_PAGE,
+  }));
+  return <PersistentCanvas pageId={DEV_PAGE} store={store} queue={queue} attachments={attachments} />;
 }

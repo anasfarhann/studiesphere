@@ -1,5 +1,6 @@
 "use client";
 
+import { useRef } from "react";
 import { t, type en } from "@/i18n/en";
 import type { ToolId } from "../tools/tool";
 
@@ -30,12 +31,15 @@ export interface ToolbarProps {
   canRedo: boolean;
   onUndo: () => void;
   onRedo: () => void;
+  /** Shows the Photo button when set; called with the picked (or camera) image. */
+  onPhoto?: (file: File) => void;
 }
 
 const btn =
   "inline-flex h-11 min-w-11 items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
 
-export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo }: ToolbarProps) {
+export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto }: ToolbarProps) {
+  const fileRef = useRef<HTMLInputElement>(null);
   return (
     <div role="toolbar" aria-label={t("drawingTools")} className="flex flex-wrap items-center gap-2 border-b px-3 py-1">
       <button
@@ -92,6 +96,27 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
       >
         {t("toolHand")}
       </button>
+      {onPhoto ? (
+        <>
+          {/* click() runs inside the tap handler: iPad Safari only opens the picker from a user gesture. */}
+          <button type="button" aria-label={t("toolPhoto")} onClick={() => fileRef.current?.click()} className={`${btn} px-3 text-sm`}>
+            {t("toolPhoto")}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            hidden
+            data-testid="photo-input"
+            aria-label={t("photoPickerLabel")}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) onPhoto(file);
+            }}
+          />
+        </>
+      ) : null}
       <button type="button" aria-label={t("undo")} disabled={!canUndo} onClick={onUndo} className={`${btn} px-3 text-sm disabled:opacity-40`}>
         {t("undo")}
       </button>

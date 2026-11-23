@@ -17,7 +17,8 @@ function fakeCtx() {
     setTransform: vi.fn(rec("setTransform")), fillRect: vi.fn(rec("fillRect")), fill: vi.fn(rec("fill")),
     fillText: vi.fn(rec("fillText")), strokeRect: vi.fn(rec("strokeRect")), setLineDash: vi.fn(rec("setLineDash")),
     beginPath: vi.fn(rec("beginPath")), roundRect: vi.fn(rec("roundRect")), stroke: vi.fn(rec("stroke")),
-    save: vi.fn(rec("save")), restore: vi.fn(rec("restore")),
+    save: vi.fn(rec("save")), restore: vi.fn(rec("restore")), drawImage: vi.fn(rec("drawImage")),
+    moveTo: vi.fn(rec("moveTo")), lineTo: vi.fn(rec("lineTo")),
   };
   return ctx;
 }
@@ -143,6 +144,63 @@ describe("Renderer", () => {
     flush();
     expect(ctx.fillText).toHaveBeenCalledTimes(2);
     expect(ctx.roundRect).toHaveBeenCalledTimes(1);
+  });
+
+  describe("images", () => {
+    const photo = { id: "p", z: 1, updatedAt: 1, type: "image", x: 10, y: 20, w: 200, h: 100, assetPath: "o/p/a.jpg" } as const;
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+    const bitmap = { width: 400, height: 200 } as unknown as ImageBitmap;
+    const makeWith = (loadImage: (p: string) => Promise<ImageBitmap | HTMLImageElement>) =>
+      new Renderer(canvas, scene, camera, { raf, caf, loadImage });
+
+    it("draws a grey placeholder until the image loads, then the image, requesting a frame", async () => {
+      scene.add(photo);
+      const load = vi.fn(async () => bitmap);
+      const r = makeWith(load);
+      r.resize(400, 400, 1);
+      flush();
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+      expect(ctx.roundRect).toHaveBeenCalledTimes(1);
+      await settle();
+      expect(frames).toHaveLength(1);
+      flush();
+      expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, 10, 20, 200, 100);
+      r.requestFrame(); flush();
+      expect(load).toHaveBeenCalledTimes(1);
+    });
+
+    it("a failed load keeps the placeholder with a broken-image mark and never retries per frame", async () => {
+      scene.add(photo);
+      const load = vi.fn(async () => { throw new Error("404"); });
+      const r = makeWith(load);
+      r.resize(400, 400, 1);
+      flush();
+      await settle();
+      flush();
+      expect(ctx.drawImage).not.toHaveBeenCalled();
+      expect(ctx.lineTo).toHaveBeenCalled();
+      r.requestFrame(); flush();
+      expect(load).toHaveBeenCalledTimes(1);
+    });
+
+    it("draws a resize handle only for a single selected image", async () => {
+      scene.add(photo);
+      const r = makeWith(async () => bitmap);
+      r.resize(400, 400, 1);
+      r.setSelection(["p"]);
+      flush();
+      // background + handle square; one dashed box
+      expect(ctx.strokeRect).toHaveBeenCalledTimes(1);
+      expect(ctx.fillRect).toHaveBeenCalledTimes(2);
+    });
+
+    it("without a loader it just draws the placeholder", () => {
+      scene.add(photo);
+      const r = make();
+      r.resize(400, 400, 1);
+      flush();
+      expect(ctx.roundRect).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("destroy unsubscribes and cancels pending frame", () => {

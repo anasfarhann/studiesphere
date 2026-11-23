@@ -61,7 +61,7 @@ describe("LassoTool", () => {
     history = new History();
     selection = new Selection(scene);
     lasso = [];
-    tool = new LassoTool({ scene, history, selection, setLasso: (p) => lasso.push(p) });
+    tool = new LassoTool({ scene, history, selection, setLasso: (p) => lasso.push(p), zoom: () => 1 });
   });
 
   function drawLasso() {

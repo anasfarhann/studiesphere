@@ -5,6 +5,10 @@ import { Editor } from "../editor";
 import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
 import { t } from "@/i18n/en";
+import type { AttachmentService } from "../attachments/upload";
+import { createImageLoader } from "../attachments/image-loader";
+import { PhotoInserter, type PhotoStatus as PhotoState } from "../tools/insert-image";
+import { PhotoStatus } from "./PhotoStatus";
 import { TextEditorOverlay } from "./TextEditorOverlay";
 import { SelectionMenu } from "./SelectionMenu";
 import { INK_COLORS, PEN_SIZES, Toolbar } from "./Toolbar";
@@ -18,14 +22,22 @@ declare global {
 
 const preventDefault = (e: Event) => e.preventDefault();
 
+export interface AttachmentConfig {
+  service: AttachmentService;
+  ownerId: string;
+  pageId: string;
+}
+
 export interface CanvasViewProps {
   elements: CanvasElement[];
+  /** Enables photo cards (Photo button, uploads, image loading). Like elements, read once. */
+  attachments?: AttachmentConfig;
   /** Called once the editor exists; the returned cleanup runs before the editor is destroyed. */
   onEditor?: (editor: Editor) => (() => void) | void;
 }
 
 /** Toolbar + full-size drawing canvas. Fills its (flex) container. */
-export function CanvasView({ elements, onEditor }: CanvasViewProps) {
+export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps) {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -38,13 +50,32 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
   const [initial] = useState(elements);
   // The first callback wins, like the elements: re-creating the editor would drop its scene.
   const [attach] = useState(() => onEditor);
+  const [files] = useState(() => attachments);
+  const photosRef = useRef<PhotoInserter | null>(null);
+  const [photoState, setPhotoState] = useState<PhotoState>({ kind: "idle" });
 
   useEffect(() => {
     const box = boxRef.current;
     const canvas = canvasRef.current;
     if (!box || !canvas) return;
-    const editor = new Editor(canvas, { elements: initial });
+    const editor = new Editor(canvas, {
+      elements: initial,
+      loadImage: files ? createImageLoader((path) => files.service.signedUrl(path)) : undefined,
+    });
     editorRef.current = editor;
+    let offPhoto = () => {};
+    if (files) {
+      const photos = new PhotoInserter({
+        scene: editor.scene,
+        history: editor.history,
+        ownerId: files.ownerId,
+        pageId: files.pageId,
+        center: () => editor.viewportCenter(),
+        upload: (blob, o) => files.service.uploadAttachment(blob, o),
+      });
+      photosRef.current = photos;
+      offPhoto = photos.onStatus(setPhotoState);
+    }
     setEditor(editor);
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
     const syncHist = () => setHist({ canUndo: editor.canUndo(), canRedo: editor.canRedo() });
@@ -93,6 +124,9 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
       canvas.removeEventListener("contextmenu", preventDefault);
       // Open text goes into the scene before the autosave detach does its final flush.
       editor.text.commit();
+      offPhoto();
+      photosRef.current?.dispose();
+      photosRef.current = null;
       offHist();
       detach?.();
       editor.destroy();
@@ -100,7 +134,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
       editorRef.current = null;
       setEditor(null);
     };
-  }, [initial, attach]);
+  }, [initial, attach, files]);
 
   const pickColor = (c: string) => {
     setColor(c);
@@ -122,6 +156,7 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
         canRedo={hist.canRedo}
         onUndo={() => editorRef.current?.undo()}
         onRedo={() => editorRef.current?.redo()}
+        onPhoto={files ? (file) => void photosRef.current?.insert(file) : undefined}
       />
       <div ref={boxRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
@@ -137,6 +172,11 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
             WebkitTapHighlightColor: "transparent",
             overscrollBehavior: "none",
           }}
+        />
+        <PhotoStatus
+          status={photoState}
+          onRetry={() => void photosRef.current?.retry()}
+          onDismiss={() => photosRef.current?.dismiss()}
         />
         {editor ? <TextEditorOverlay editor={editor} /> : null}
         {editor ? <SelectionMenu editor={editor} /> : null}
