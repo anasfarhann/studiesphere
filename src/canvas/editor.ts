@@ -371,7 +371,11 @@ export class Editor {
     const textId = textAt(this.scene, wx, wy);
     if (!textId) return false;
     // The first tap already drew a dot (own undo step): the double tap must leave only the edit.
-    if (prevStroke && this.history.discard(prevStroke)) for (const el of prevStroke.after) this.scene.remove(el.id);
+    if (prevStroke && this.history.discard(prevStroke)) {
+      this.scene.batch(() => {
+        for (const el of prevStroke.after) this.scene.remove(el.id);
+      });
+    }
     this.capture(e);
     this.dbl = { pointerId: e.pointerId, textId };
     this.pointers.set(e.pointerId, { kind, mode: "ignore", lastX: sx, lastY: sy });

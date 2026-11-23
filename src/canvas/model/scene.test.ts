@@ -158,4 +158,41 @@ describe("Scene", () => {
     times.sort((a, b) => a - b);
     expect(times[10]).toBeLessThan(5);
   });
+
+  it("batch emits once at the end, nested batches emit once at the outermost end, dirty tracking unchanged", () => {
+    const s = new Scene();
+    const fn = vi.fn();
+    s.onChange(fn);
+    s.batch(() => {
+      s.add(img("a", 0, 0));
+      s.add(img("b", 0, 0));
+      s.batch(() => {
+        s.update("a", { x: 5 } as Partial<CanvasElement>);
+        s.remove("b");
+      });
+      expect(fn).not.toHaveBeenCalled();
+    });
+    expect(fn).toHaveBeenCalledTimes(1);
+    const d = s.takeDirty();
+    expect(d.upserts.map((e) => e.id)).toEqual(["a"]);
+    expect(d.deletes.map((e) => e.id)).toEqual(["b"]);
+    s.batch(() => {}); // nothing changed: no emit
+    expect(fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("batch still emits when fn throws, and returns fn's value", () => {
+    const s = new Scene();
+    const fn = vi.fn();
+    s.onChange(fn);
+    expect(() =>
+      s.batch(() => {
+        s.add(img("a", 0, 0));
+        throw new Error("boom");
+      }),
+    ).toThrow("boom");
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(s.batch(() => 7)).toBe(7);
+    s.add(img("b", 0, 0));
+    expect(fn).toHaveBeenCalledTimes(2); // emits normally again afterwards
+  });
 });

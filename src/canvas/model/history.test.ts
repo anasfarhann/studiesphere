@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { History } from "./history";
 import { Scene } from "./scene";
 import type { StrokeEl } from "./types";
@@ -73,5 +73,20 @@ describe("History", () => {
     off();
     h.push({ before: [], after: [s("b")] });
     expect(calls).toBe(1);
+  });
+
+  it("undo and redo of a multi-element change notify the scene once each", () => {
+    const scene = new Scene();
+    const h = new History();
+    const els = [s("a"), s("b"), s("c")];
+    for (const el of els) scene.add(el);
+    h.push({ before: [], after: els });
+    const fn = vi.fn();
+    scene.onChange(fn);
+    h.undo(scene);
+    expect(fn).toHaveBeenCalledTimes(1);
+    h.redo(scene);
+    expect(fn).toHaveBeenCalledTimes(2);
+    expect(scene.all()).toHaveLength(3);
   });
 });

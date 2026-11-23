@@ -46,11 +46,13 @@ export class History {
   private apply(scene: Scene, from: CanvasElement[], to: CanvasElement[]): void {
     const fromIds = new Set(from.map((e) => e.id));
     const toIds = new Set(to.map((e) => e.id));
-    for (const el of from) if (!toIds.has(el.id)) scene.remove(el.id);
-    for (const el of to) {
-      if (fromIds.has(el.id) && scene.get(el.id)) scene.update(el.id, withoutStamp(el));
-      else scene.add({ ...el, updatedAt: this.stamp(el.updatedAt) });
-    }
+    scene.batch(() => {
+      for (const el of from) if (!toIds.has(el.id)) scene.remove(el.id);
+      for (const el of to) {
+        if (fromIds.has(el.id) && scene.get(el.id)) scene.update(el.id, withoutStamp(el));
+        else scene.add({ ...el, updatedAt: this.stamp(el.updatedAt) });
+      }
+    });
   }
 
   undo(scene: Scene): void {

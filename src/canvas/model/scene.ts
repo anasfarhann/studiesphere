@@ -13,6 +13,9 @@ export class Scene {
   /** Last updatedAt handed out per id, removals included: one clock per author. */
   private lastStamp = new Map<string, number>();
   private listeners = new Set<() => void>();
+  /** Open batch() calls; while > 0 mutations only mark `pendingEmit`. */
+  private batchDepth = 0;
+  private pendingEmit = false;
 
   constructor(elements: CanvasElement[] = []) {
     for (const el of elements) this.index(el);
@@ -28,7 +31,28 @@ export class Scene {
   }
 
   private emit(): void {
+    if (this.batchDepth > 0) {
+      this.pendingEmit = true;
+      return;
+    }
     for (const fn of [...this.listeners]) fn();
+  }
+
+  /**
+   * Runs `fn` with change notifications held back, then notifies listeners once (if anything
+   * changed). Nested batches notify when the outermost one ends. Dirty tracking is unaffected.
+   */
+  batch<T>(fn: () => T): T {
+    this.batchDepth++;
+    try {
+      return fn();
+    } finally {
+      this.batchDepth--;
+      if (this.batchDepth === 0 && this.pendingEmit) {
+        this.pendingEmit = false;
+        this.emit();
+      }
+    }
   }
 
   add(el: CanvasElement): void {

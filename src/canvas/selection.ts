@@ -51,18 +51,21 @@ export class Selection {
   moveBy(dx: number, dy: number): Change {
     const before: CanvasElement[] = [];
     const after: CanvasElement[] = [];
-    for (const id of this._ids) {
-      const el = this.scene.get(id);
-      if (!el) continue;
-      before.push(el);
-      if (el.type === "stroke") {
-        this.scene.update(id, { points: el.points.map(([x, y, p]) => [x + dx, y + dy, p]) });
-      } else {
-        this.scene.update(id, { x: el.x + dx, y: el.y + dy });
+    // One scene notification for the whole move, not one per element (O(k) instead of O(k²)).
+    this.scene.batch(() => {
+      for (const id of this._ids) {
+        const el = this.scene.get(id);
+        if (!el) continue;
+        before.push(el);
+        if (el.type === "stroke") {
+          this.scene.update(id, { points: el.points.map(([x, y, p]) => [x + dx, y + dy, p]) });
+        } else {
+          this.scene.update(id, { x: el.x + dx, y: el.y + dy });
+        }
+        const next = this.scene.get(id);
+        if (next) after.push(next);
       }
-      const next = this.scene.get(id);
-      if (next) after.push(next);
-    }
+    });
     this.emit();
     return { before, after };
   }
@@ -70,13 +73,16 @@ export class Selection {
   /** Removes the selection from the scene and returns the change (not pushed to history). */
   deleteAll(): Change {
     const before: CanvasElement[] = [];
-    for (const id of this._ids) {
-      const el = this.scene.get(id);
-      if (!el) continue;
-      before.push(el);
-      this.scene.remove(id);
-    }
+    const ids = this._ids;
     this._ids = [];
+    this.scene.batch(() => {
+      for (const id of ids) {
+        const el = this.scene.get(id);
+        if (!el) continue;
+        before.push(el);
+        this.scene.remove(id);
+      }
+    });
     this.emit();
     return { before, after: [] };
   }

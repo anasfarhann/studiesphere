@@ -61,14 +61,16 @@ export async function restoreSnapshot(
 
   const before = scene.all();
   const keep = new Set(target.map((e) => e.id));
-  for (const el of before) if (!keep.has(el.id)) scene.remove(el.id);
-  // Stamps come from the injected clock: an element deleted in an earlier session has a tombstone this
-  // Scene does not know, so it must be newer than any earlier real-time delete.
-  for (const el of target) {
-    const cur = scene.get(el.id);
-    if (cur) scene.update(el.id, { ...withoutStamp(el), updatedAt: Math.max(now, cur.updatedAt + 1) });
-    else scene.add({ ...el, updatedAt: Math.max(el.updatedAt, now) });
-  }
+  scene.batch(() => {
+    for (const el of before) if (!keep.has(el.id)) scene.remove(el.id);
+    // Stamps come from the injected clock: an element deleted in an earlier session has a tombstone this
+    // Scene does not know, so it must be newer than any earlier real-time delete.
+    for (const el of target) {
+      const cur = scene.get(el.id);
+      if (cur) scene.update(el.id, { ...withoutStamp(el), updatedAt: Math.max(now, cur.updatedAt + 1) });
+      else scene.add({ ...el, updatedAt: Math.max(el.updatedAt, now) });
+    }
+  });
   const change: Change = { before, after: target };
   history.push(change);
   opts.afterRestore?.();

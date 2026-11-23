@@ -75,6 +75,11 @@ export class EraserTool implements Tool {
     const r = this.ctx.radius();
     const { scene } = this.ctx;
     const hits = scene.getVisible({ minX: x - r, minY: y - r, maxX: x + r, maxY: y + r });
+    scene.batch(() => this.eraseHits(hits, x, y, r));
+  }
+
+  private eraseHits(hits: CanvasElement[], x: number, y: number, r: number): void {
+    const { scene } = this.ctx;
     for (const el of hits) {
       if (el.type !== "stroke") continue;
       const pieces = eraseFromStroke(el, [x, y], r, this.newId);

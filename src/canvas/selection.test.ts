@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { History } from "./model/history";
 import { Scene } from "./model/scene";
 import type { StrokeEl, TextEl } from "./model/types";
@@ -56,5 +56,35 @@ describe("Selection", () => {
     sel.prune();
     expect(sel.ids).toEqual(["b"]);
     expect(n).toBe(2);
+  });
+
+  it("moving 2,000 selected elements notifies the scene once and stays fast", () => {
+    const els: StrokeEl[] = [];
+    for (let i = 0; i < 2000; i++) els.push({ ...s(`k${i}`), z: i });
+    const scene = new Scene(els);
+    const sel = new Selection(scene);
+    // Like the editor: selection prunes on every scene change (O(k) each).
+    scene.onChange(() => sel.prune());
+    const onScene = vi.fn();
+    scene.onChange(onScene);
+    sel.set(els.map((e) => e.id));
+    const t0 = performance.now();
+    const c = sel.moveBy(3, 4);
+    const ms = performance.now() - t0;
+    expect(onScene).toHaveBeenCalledTimes(1);
+    expect(c.after).toHaveLength(2000);
+    expect((scene.get("k0") as StrokeEl).points[0]).toEqual([3, 4, 0.3]);
+    expect(ms).toBeLessThan(50);
+  });
+
+  it("deleteAll notifies the scene once", () => {
+    const scene = new Scene([s("a"), s("b"), t]);
+    const sel = new Selection(scene);
+    const onScene = vi.fn();
+    scene.onChange(onScene);
+    sel.set(["a", "b", "t"]);
+    expect(sel.deleteAll().before).toHaveLength(3);
+    expect(onScene).toHaveBeenCalledTimes(1);
+    expect(scene.all()).toHaveLength(0);
   });
 });
