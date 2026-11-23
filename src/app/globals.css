@@ -27,9 +27,10 @@
   --color-butter: #f4ebb5;
   --color-today: #f4d35e;
   --color-saved: #2f9e6b;
-  --radius-card: 1.5rem;
-  --radius-card-lg: 1.75rem;
-  --radius-banner: 2rem;
+  --color-hairline: #e8e1da;
+  --color-dashed-line: #cfc6be;
+  --color-night: #3a3740;
+  --color-night-muted: #b8b3be;
 }
 
 body {

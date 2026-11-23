@@ -112,3 +112,46 @@ for (const [w, h] of [[834, 1194], [1280, 720], [390, 844]] as const) {
     expect(panel.y).toBeGreaterThanOrEqual(bar.y + bar.height);
   });
 }
+
+for (const vp of [
+  { name: "iPad portrait", width: 834, height: 1194 },
+  { name: "phone", width: 390, height: 844 },
+]) {
+  test(`toolbar keeps the pen, File and Record fully inside the viewport (${vp.name})`, async ({ page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await page.goto("/dev/canvas");
+    await expect(page.getByTestId("canvas")).toBeVisible();
+    for (const name of ["Pen", "File", "Record"]) {
+      const box = await page.getByRole("button", { name, exact: true }).boundingBox();
+      if (!box) throw new Error(`${name} has no box`);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(vp.width);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+}
+
+test("at phone width the colour is changed through the colour popover", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dev/canvas");
+  const trigger = page.getByRole("button", { name: "Colour and pen size" });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const red = page.getByRole("button", { name: "Red", exact: true });
+  const box = await red.boundingBox();
+  if (!box) throw new Error("no box");
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  await red.click();
+  await expect(red).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.mouse.click(200, 700);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+});

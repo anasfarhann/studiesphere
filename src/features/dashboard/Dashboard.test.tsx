@@ -18,8 +18,8 @@ const subjects: SubjectSummary[] = [
   { id: "s2", name: "Chemistry", tint: "#F9DFC0", notebooks: 1, pages: 1 },
 ];
 const recent: RecentPage[] = [
-  { id: "p1", title: "Cell walls", subjectName: "Biology", notebookTitle: "Cells", tint: "#F6CFCF", editedAt: new Date(2026, 10, 23, 9).toISOString() },
-  { id: "p2", title: "Moles", subjectName: "Chemistry", notebookTitle: "Stoichiometry", tint: "#F9DFC0", editedAt: new Date(2026, 10, 22, 9).toISOString() },
+  { id: "p1", title: "Cell walls", subjectId: "s1", subjectName: "Biology", notebookTitle: "Cells", tint: "#F6CFCF", editedAt: new Date(2026, 10, 23, 9).toISOString() },
+  { id: "p2", title: "Moles", subjectId: "s2", subjectName: "Chemistry", notebookTitle: "Stoichiometry", tint: "#F9DFC0", editedAt: new Date(2026, 10, 22, 9).toISOString() },
 ];
 
 describe("Dashboard", () => {
@@ -85,6 +85,23 @@ describe("Dashboard", () => {
     expect(screen.getByRole("link", { name: /Chemistry.*1 notebook/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "All subjects" }));
     expect(screen.getByRole("link", { name: /Cell walls/ })).toBeTruthy();
+  });
+
+  it("a subject chip with no recent pages and an empty search shows the no-recent message, not no-matches", () => {
+    render(<Dashboard name="Anas" subjects={subjects} recent={[recent[0]]} today={today} />);
+    fireEvent.click(screen.getByRole("button", { name: "Chemistry" }));
+    expect(screen.getByText("Pages you edit will show up here.")).toBeTruthy();
+    expect(screen.queryByText("Nothing matches your search.")).toBeNull();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz" } });
+    expect(screen.getAllByText("Nothing matches your search.").length).toBeGreaterThan(0);
+  });
+
+  it("matches recent pages to the chip by subject id, not name", () => {
+    const twin = [{ ...recent[0], id: "p9", title: "Twin", subjectId: "other", subjectName: "Chemistry" }, recent[1]];
+    render(<Dashboard name="Anas" subjects={subjects} recent={twin} today={today} />);
+    fireEvent.click(screen.getByRole("button", { name: "Chemistry" }));
+    expect(screen.queryByRole("link", { name: /Twin/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /Moles/ })).toBeTruthy();
   });
 
   it("search filters by name", () => {

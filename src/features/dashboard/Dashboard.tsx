@@ -93,12 +93,11 @@ export function Dashboard({
   const [selected, setSelected] = useState<string | null>(null); // subject id
   const [creating, setCreating] = useState(false);
 
-  const selectedName = subjects.find((s) => s.id === selected)?.name;
   const q = query.trim().toLowerCase();
   const shownSubjects = subjects.filter((s) => (!selected || s.id === selected) && s.name.toLowerCase().includes(q));
   const shownRecent = recent.filter(
     (p) =>
-      (!selectedName || p.subjectName === selectedName) &&
+      (!selected || p.subjectId === selected) &&
       [p.title, p.subjectName, p.notebookTitle].some((v) => v.toLowerCase().includes(q)),
   );
   const empty = subjects.length === 0;
@@ -114,7 +113,7 @@ export function Dashboard({
             </h1>
             <p className="text-[17px] text-muted">{t("dashSubtitle")}</p>
           </div>
-          <label className="flex h-[52px] min-w-[260px] max-w-full items-center gap-2.5 rounded-full bg-card px-5 max-md:w-full">
+          <label className="flex h-[52px] min-w-[260px] max-w-full items-center gap-2.5 rounded-full bg-card px-5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink max-md:w-full">
             <Icon name="search" size={18} className="shrink-0 text-muted" />
             <span className="sr-only">{t("dashSearch")}</span>
             <input
@@ -152,7 +151,7 @@ export function Dashboard({
                 ))}
               </div>
             ) : (
-              <p className="text-[15px] text-muted">{recent.length === 0 ? t("dashNoRecent") : t("dashNoMatches")}</p>
+              <p className="text-[15px] text-muted">{recent.length === 0 || (q === "" && selected) ? t("dashNoRecent") : t("dashNoMatches")}</p>
             )}
           </section>
         )}

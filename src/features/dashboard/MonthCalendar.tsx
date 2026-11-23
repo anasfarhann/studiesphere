@@ -13,11 +13,11 @@ export function MonthCalendar({ today }: { today: Date }) {
         <h2 id="cal-h" className="truncate text-base font-medium">
           {formatMonthYear(today)}
         </h2>
-        <span className="shrink-0 rounded-full bg-[#3A3740] px-2.5 py-[5px] text-xs">{t("dashTimetableSoon")}</span>
+        <span className="shrink-0 rounded-full bg-night px-2.5 py-[5px] text-xs">{t("dashTimetableSoon")}</span>
       </div>
       <div className="grid grid-cols-7 gap-1.5 text-center">
         {t("dashWeekdays").split(",").map((w) => (
-          <span key={w} className="text-[11px] text-[#B8B3BE]">
+          <span key={w} className="text-[11px] text-night-muted">
             {w}
           </span>
         ))}

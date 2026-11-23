@@ -6,6 +6,7 @@ import { toPastel } from "@/ui/pastel";
 export type RecentPage = {
   id: string;
   title: string;
+  subjectId: string;
   subjectName: string;
   notebookTitle: string;
   tint: string;
@@ -71,6 +72,7 @@ export async function getRecentPages(limit = 3): Promise<RecentPage[]> {
       return {
         id: p.id,
         title: p.title,
+        subjectId: nb?.subject_id ?? "",
         subjectName: sub?.name ?? "",
         notebookTitle: nb?.title ?? "",
         tint: toPastel(sub?.color ?? ""),

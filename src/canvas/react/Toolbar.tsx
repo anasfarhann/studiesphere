@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import { t, type en } from "@/i18n/en";
 import { Icon, type IconName } from "@/ui/icons";
 import type { ToolId } from "../tools/tool";
@@ -62,9 +62,23 @@ const SHADOW = "shadow-[0_8px_28px_rgba(27,26,31,0.10)]";
 const base = "inline-flex shrink-0 touch-manipulation cursor-pointer items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40";
 const toolBtn = `${base} size-11 text-ink aria-pressed:bg-ink aria-pressed:text-white`;
 const insertBtn = `${base} size-11 bg-ground text-ink`;
-const swatchBtn = `${base} h-11 rounded-[18px] text-ink aria-pressed:shadow-[inset_0_0_0_2px_#1B1A1F]`;
+const swatchBtn = `${base} size-11 text-ink aria-pressed:shadow-[inset_0_0_0_2px_#1B1A1F]`;
 const clusterBtn = `${base} size-11 bg-card text-ink ${SHADOW}`;
-const Divider = () => <span aria-hidden="true" className="mx-1.5 h-7 w-px shrink-0 bg-[#E8E1DA]" />;
+const Divider = () => <span aria-hidden="true" className="mx-1.5 h-7 w-px shrink-0 bg-hairline" />;
+
+const WIDE = "(min-width: 1024px)";
+const subscribeWide = (cb: () => void) => {
+  const mq = window.matchMedia?.(WIDE);
+  mq?.addEventListener("change", cb);
+  return () => mq?.removeEventListener("change", cb);
+};
+/** True from lg up, where the colour and size groups fit inline; below, they collapse into one popover button. */
+const useWide = () =>
+  useSyncExternalStore(
+    subscribeWide,
+    () => (typeof window.matchMedia === "function" ? window.matchMedia(WIDE).matches : true),
+    () => true,
+  );
 
 /**
  * The canvas top bar, floating over the drawing: title pill, tool pill, undo/redo/history and
@@ -73,6 +87,63 @@ const Divider = () => <span aria-hidden="true" className="mx-1.5 h-7 w-px shrink
 export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory, left, status, barRef }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const anyFileRef = useRef<HTMLInputElement>(null);
+  const wide = useWide();
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const close = useCallback((refocus: boolean) => {
+    setOpen(false);
+    if (refocus) triggerRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close(true);
+    const onDown = (e: PointerEvent) => {
+      const n = e.target as Node;
+      if (!popRef.current?.contains(n) && !triggerRef.current?.contains(n)) close(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown);
+    };
+  }, [open, close]);
+
+  const colorGroup = (
+    <div role="group" aria-label={t("inkColors")} className="flex shrink-0 flex-wrap items-center">
+      {INK_COLORS.map((c) => (
+        <button
+          key={c.value}
+          type="button"
+          aria-label={t(c.label)}
+          title={t(c.label)}
+          aria-pressed={color === c.value}
+          onClick={() => onColor(c.value)}
+          className={swatchBtn}
+        >
+          <span className="block size-[22px] rounded-full" style={{ backgroundColor: c.value }} />
+        </button>
+      ))}
+    </div>
+  );
+  const sizeGroup = (
+    <div role="group" aria-label={t("penSizes")} className="flex shrink-0 items-center">
+      {PEN_SIZES.map((s) => (
+        <button
+          key={s.value}
+          type="button"
+          aria-label={t(s.label)}
+          title={t(s.label)}
+          aria-pressed={size === s.value}
+          onClick={() => onSize(s.value)}
+          className={swatchBtn}
+        >
+          <span className="block rounded-full bg-ink" style={{ width: s.value * 2 + 2, height: s.value * 2 + 2 }} />
+        </button>
+      ))}
+    </div>
+  );
   return (
     <div
       ref={barRef}
@@ -84,7 +155,7 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
         <div
           role="toolbar"
           aria-label={t("drawingTools")}
-          className={`pointer-events-auto flex max-w-full touch-manipulation items-center gap-1 overflow-x-auto rounded-[28px] bg-card p-1.5 ${SHADOW}`}
+          className={`pointer-events-auto relative flex max-w-full touch-manipulation flex-wrap items-center justify-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
         >
           {TOOLS.map((x) => (
             <button
@@ -100,37 +171,27 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
             </button>
           ))}
           <Divider />
-          <div role="group" aria-label={t("inkColors")} className="flex shrink-0 items-center">
-            {INK_COLORS.map((c) => (
-              <button
-                key={c.value}
-                type="button"
-                aria-label={t(c.label)}
-                title={t(c.label)}
-                aria-pressed={color === c.value}
-                onClick={() => onColor(c.value)}
-                className={`${swatchBtn} w-9`}
-              >
-                <span className="block size-[22px] rounded-full" style={{ backgroundColor: c.value }} />
-              </button>
-            ))}
-          </div>
-          <Divider />
-          <div role="group" aria-label={t("penSizes")} className="flex shrink-0 items-center">
-            {PEN_SIZES.map((s) => (
-              <button
-                key={s.value}
-                type="button"
-                aria-label={t(s.label)}
-                title={t(s.label)}
-                aria-pressed={size === s.value}
-                onClick={() => onSize(s.value)}
-                className={`${swatchBtn} w-10`}
-              >
-                <span className="block rounded-full bg-ink" style={{ width: s.value * 2 + 2, height: s.value * 2 + 2 }} />
-              </button>
-            ))}
-          </div>
+          {wide ? (
+            <>
+              {colorGroup}
+              <Divider />
+              {sizeGroup}
+            </>
+          ) : (
+            <button
+              ref={triggerRef}
+              type="button"
+              aria-label={t("inkAndSize")}
+              title={t("inkAndSize")}
+              aria-haspopup="true"
+              aria-expanded={open}
+              aria-controls="ink-popover"
+              onClick={() => setOpen((v) => !v)}
+              className={`${base} size-11 text-ink aria-expanded:shadow-[inset_0_0_0_2px_#1B1A1F]`}
+            >
+              <span className="block size-[26px] rounded-full border border-hairline" style={{ backgroundColor: color }} />
+            </button>
+          )}
           {onPhoto || onFile || onRecord ? <Divider /> : null}
           {onPhoto ? (
             <>
@@ -176,6 +237,16 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
                 }}
               />
             </>
+          ) : null}
+          {!wide && open ? (
+            <div
+              ref={popRef}
+              id="ink-popover"
+              className={`absolute top-full left-1/2 z-30 mt-2 flex w-[min(332px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
+            >
+              {colorGroup}
+              {sizeGroup}
+            </div>
           ) : null}
         </div>
       </div>

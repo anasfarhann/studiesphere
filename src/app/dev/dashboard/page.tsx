@@ -12,9 +12,9 @@ const subjects: SubjectSummary[] = [
 ];
 const now = Date.now();
 const recent: RecentPage[] = [
-  { id: "p1", title: "Cell walls and membranes", subjectName: "Biology", notebookTitle: "Cells", tint: "#F6CFCF", editedAt: new Date(now - 3_600_000).toISOString() },
-  { id: "p2", title: "Moles and stoichiometry", subjectName: "Chemistry", notebookTitle: "Calculations", tint: "#F9DFC0", editedAt: new Date(now - 86_400_000).toISOString() },
-  { id: "p3", title: long + " page title", subjectName: long, notebookTitle: "Notebook with an equally long title for overflow", tint: "#C9EEDB", editedAt: new Date(now - 5 * 86_400_000).toISOString() },
+  { id: "p1", subjectId: "s1", title: "Cell walls and membranes", subjectName: "Biology", notebookTitle: "Cells", tint: "#F6CFCF", editedAt: new Date(now - 3_600_000).toISOString() },
+  { id: "p2", subjectId: "s2", title: "Moles and stoichiometry", subjectName: "Chemistry", notebookTitle: "Calculations", tint: "#F9DFC0", editedAt: new Date(now - 86_400_000).toISOString() },
+  { id: "p3", subjectId: "s4", title: long + " page title", subjectName: long, notebookTitle: "Notebook with an equally long title for overflow", tint: "#C9EEDB", editedAt: new Date(now - 5 * 86_400_000).toISOString() },
 ];
 
 /** Dev-only dashboard with fixture data and no sign-in, used by e2e layout tests. 404 in production. */

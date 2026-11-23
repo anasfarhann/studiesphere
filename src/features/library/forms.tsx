@@ -7,6 +7,9 @@ import type { FormState } from "./form-error";
 import { t } from "@/i18n/en";
 import { PillButton } from "@/ui/Button";
 
+const inputClass =
+  "h-[52px] w-full rounded-2xl border-0 bg-ground px-[18px] text-[15px] text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-ink";
+
 function ErrorText({ state }: { state: FormState }) {
   return state ? (
     <p role="alert" className="text-sm text-red-700">
@@ -22,8 +25,8 @@ export function SubjectForm({ bare = false }: { bare?: boolean }) {
     <form action={action} className={bare ? "flex flex-col gap-4" : "mt-6 flex flex-col gap-4 rounded-lg border p-4"}>
       {!bare && <h2 className="font-medium">{t("newSubject")}</h2>}
       <label className="flex flex-col gap-1">
-        <span className="text-sm">{t("subjectName")}</span>
-        <input name="name" required className="min-h-11 rounded-md border px-3" />
+        <span className="text-sm font-medium">{t("subjectName")}</span>
+        <input name="name" required className={inputClass} />
       </label>
       <fieldset className="flex flex-wrap items-center gap-2">
         <legend className="mb-1 text-sm">{t("subjectColor")}</legend>
@@ -45,9 +48,9 @@ export function SubjectForm({ bare = false }: { bare?: boolean }) {
         ))}
       </fieldset>
       <ErrorText state={state} />
-      <button type="submit" disabled={pending} className="min-h-11 self-start rounded-md bg-black px-4 text-white">
+      <PillButton type="submit" disabled={pending} className="self-start">
         {t("createSubject")}
-      </button>
+      </PillButton>
     </form>
   );
 }
@@ -58,13 +61,13 @@ export function NotebookForm({ subjectId, bare = false }: { subjectId: string; b
   return (
     <form action={action} className={bare ? "flex flex-col gap-4" : "mt-6 flex flex-col gap-3 rounded-lg border p-4"}>
       <label className="flex flex-col gap-1">
-        <span className="text-sm">{t("notebookTitle")}</span>
-        <input name="title" required className="min-h-11 rounded-md border px-3" />
+        <span className="text-sm font-medium">{t("notebookTitle")}</span>
+        <input name="title" required className={inputClass} />
       </label>
       <ErrorText state={state} />
-      <button type="submit" disabled={pending} className="min-h-11 self-start rounded-md bg-black px-4 text-white">
+      <PillButton type="submit" disabled={pending} className="self-start">
         {t("createNotebook")}
-      </button>
+      </PillButton>
     </form>
   );
 }

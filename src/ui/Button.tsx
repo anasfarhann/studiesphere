@@ -27,9 +27,11 @@ type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label
   label: string;
   active?: boolean;
   size?: 44 | 52;
+  /** Resting background: white card (default) or the beige panel, for use on cards. */
+  tone?: "card" | "panel";
 };
 
-export function IconButton({ icon, label, active, size = 44, className, type = "button", ...rest }: IconButtonProps) {
+export function IconButton({ icon, label, active, size = 44, tone = "card", className, type = "button", ...rest }: IconButtonProps) {
   return (
     <button
       type={type}
@@ -39,7 +41,7 @@ export function IconButton({ icon, label, active, size = 44, className, type = "
       className={cx(
         "inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-50",
         size === 52 ? "size-[52px]" : "size-11",
-        active ? "bg-ink text-white" : "bg-card text-ink",
+        active ? "bg-ink text-white" : tone === "panel" ? "bg-panel text-ink" : "bg-card text-ink",
         className,
       )}
     >

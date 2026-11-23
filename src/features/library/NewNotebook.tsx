@@ -20,7 +20,7 @@ export function NewNotebook({ subjectId, variant }: { subjectId: string; variant
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="flex min-h-[228px] cursor-pointer flex-col items-center justify-center gap-2.5 rounded-[28px] border-2 border-dashed border-[#CFC6BE] bg-transparent text-[15px] font-medium text-muted"
+          className="flex min-h-[228px] cursor-pointer flex-col items-center justify-center gap-2.5 rounded-[28px] border-2 border-dashed border-dashed-line bg-transparent text-[15px] font-medium text-muted"
         >
           <span className="flex size-12 items-center justify-center rounded-full bg-card text-ink">
             <Icon name="plus" size={20} />

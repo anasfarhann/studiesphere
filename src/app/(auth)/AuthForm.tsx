@@ -52,7 +52,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   }
 
   const inputClass =
-    "h-[52px] w-full rounded-2xl border-0 bg-ground px-[18px] text-[15px] text-ink placeholder:text-muted/70";
+    "h-[52px] w-full rounded-2xl border-0 bg-ground px-[18px] text-[15px] text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-ink";
   return (
     <main className="flex min-h-dvh flex-1 flex-col gap-5 bg-ground p-3 sm:p-5 lg:flex-row">
       <BrandPanel className="lg:flex-1" />

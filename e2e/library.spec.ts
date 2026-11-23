@@ -26,5 +26,6 @@ test("create subject, notebook and page, landing on the page route", async ({ pa
 
   await page.getByRole("button", { name: "New page" }).click();
   await expect(page).toHaveURL(/\/app\/p\/[0-9a-f-]+$/);
-  await expect(page.getByText("Canvas coming soon")).toBeVisible();
+  await expect(page.getByTestId("canvas")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Back to/ })).toBeVisible();
 });

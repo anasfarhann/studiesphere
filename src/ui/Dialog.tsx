@@ -55,7 +55,7 @@ export function Dialog({ title, onClose, children }: { title: string; onClose: (
           <h2 id={headingId} className="text-xl font-medium">
             {title}
           </h2>
-          <IconButton icon="plus" label={t("dashClose")} onClick={onClose} className="rotate-45 bg-panel" />
+          <IconButton icon="plus" label={t("dashClose")} onClick={onClose} tone="panel" className="rotate-45" />
         </div>
         {children}
       </div>
