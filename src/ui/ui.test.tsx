@@ -44,4 +44,25 @@ describe("AppRail", () => {
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.getByText("a@b.co")).toBeTruthy();
   });
+  it("toggles aria-expanded, focuses the popover, closes on Escape and refocuses the trigger", () => {
+    render(<AppRail active="home" account={{ email: "a@b.co", signOut: async () => {} }} />);
+    const trigger = screen.getByRole("button", { name: "Settings" });
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(trigger);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    expect(trigger.getAttribute("aria-controls")).toBe(screen.getByRole("group", { name: "Account" }).id);
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sign out" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("group", { name: "Account" })).toBeNull();
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(trigger);
+  });
+  it("closes on pointerdown outside but not inside", () => {
+    render(<AppRail active="home" account={{ email: "a@b.co", signOut: async () => {} }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.pointerDown(screen.getByText("a@b.co"));
+    expect(screen.getByRole("group", { name: "Account" })).toBeTruthy();
+    fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole("group", { name: "Account" })).toBeNull();
+  });
 });

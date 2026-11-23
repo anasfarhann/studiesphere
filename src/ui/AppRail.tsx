@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { t } from "@/i18n/en";
 import { Icon, type IconName } from "./icons";
 
@@ -30,6 +30,31 @@ function Soon({ label, icon }: { label: string; icon: IconName }) {
 /** Left rail on >= md, bottom bar below. Sign-out lives in the Settings popover. */
 export function AppRail({ active, account }: { active: "home" | "subjects"; account?: RailAccount }) {
   const [open, setOpen] = useState(false);
+  const popId = useId();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const first = popRef.current?.querySelector<HTMLElement>("button, a[href], input");
+    (first ?? popRef.current)?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setOpen(false);
+      triggerRef.current?.focus();
+    };
+    const onPointer = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (popRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer);
+    };
+  }, [open]);
   return (
     <nav
       aria-label={t("navMain")}
@@ -52,6 +77,8 @@ export function AppRail({ active, account }: { active: "home" | "subjects"; acco
           type="button"
           aria-label={t("navSettings")}
           aria-expanded={open}
+          aria-controls={open ? popId : undefined}
+          ref={triggerRef}
           onClick={() => setOpen((o) => !o)}
           className={`${btn} ${idle}`}
         >
@@ -59,6 +86,9 @@ export function AppRail({ active, account }: { active: "home" | "subjects"; acco
         </button>
         {open && (
           <div
+            id={popId}
+            ref={popRef}
+            tabIndex={-1}
             role="group"
             aria-label={t("navAccount")}
             className="absolute right-0 bottom-full z-40 mb-2 flex w-60 flex-col gap-3 rounded-3xl bg-card p-4 shadow-[0_8px_28px_rgba(27,26,31,0.12)] md:right-auto md:bottom-0 md:left-full md:mb-0 md:ml-3"
