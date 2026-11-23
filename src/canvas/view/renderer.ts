@@ -1,6 +1,7 @@
 import type { Scene } from "../model/scene";
-import type { AudioEl, CanvasElement, StrokeEl } from "../model/types";
-import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, TEXT_LINE_HEIGHT } from "../model/bounds";
+import type { AudioEl, CanvasElement, FileEl, StrokeEl } from "../model/types";
+import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, FILE_ICON_X, TEXT_LINE_HEIGHT } from "../model/bounds";
+import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
 import { formatDuration } from "../model/format-duration";
 import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
@@ -23,6 +24,17 @@ export interface RendererOptions {
 export const IMAGE_BUDGET_BYTES = 96 * 1024 * 1024;
 const RETRY_BASE_MS = 5_000;
 const RETRY_MAX_MS = 60_000;
+
+const BADGE_COLOR: Record<FileKind, string> = {
+  pdf: "#dc2626",
+  image: "#0891b2",
+  audio: "#7c3aed",
+  video: "#db2777",
+  doc: "#2563eb",
+  sheet: "#16a34a",
+  slides: "#ea580c",
+  other: "#64748b",
+};
 
 export type ImageLoader = (assetPath: string) => Promise<ImageBitmap | HTMLImageElement>;
 type ImageEntry =
@@ -315,9 +327,48 @@ export class Renderer {
       else this.drawPlaceholder(el, entry.state === "error");
     } else if (el.type === "audio") {
       this.drawAudioCard(el);
+    } else if (el.type === "file") {
+      this.drawFileCard(el);
     } else {
       this.drawPlaceholder(el, false);
     }
+  }
+
+  /** Card shell: type badge (opened by a DOM overlay, see FileCards), file name and size. */
+  private drawFileCard(el: FileEl): void {
+    const { ctx } = this;
+    const b = boundsOf(el);
+    ctx.beginPath();
+    ctx.roundRect(b.minX, b.minY, CARD_W, CARD_H, 10);
+    ctx.fillStyle = "#f8fafc";
+    ctx.fill();
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1 / this.camera.zoom;
+    ctx.stroke();
+    const kind = fileKind(el.mime, el.fileName);
+    const cx = b.minX + FILE_ICON_X;
+    const cy = b.minY + CARD_H / 2;
+    const half = FILE_ICON_SIZE / 2;
+    ctx.beginPath();
+    ctx.roundRect(cx - half, cy - half, FILE_ICON_SIZE, FILE_ICON_SIZE, 8);
+    ctx.fillStyle = BADGE_COLOR[kind];
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(FILE_BADGE[kind], cx, cy);
+    ctx.textAlign = "left";
+    const tx = cx + half + 10;
+    const maxW = b.minX + CARD_W - 10 - tx;
+    const measure = typeof ctx.measureText === "function" ? (str: string) => ctx.measureText(str).width : (str: string) => approxMeasure(str, 15);
+    ctx.fillStyle = "#1e293b";
+    ctx.font = "15px sans-serif";
+    ctx.fillText(ellipsize(measure, el.fileName, maxW), tx, cy - 9);
+    ctx.fillStyle = "#64748b";
+    ctx.font = "13px sans-serif";
+    ctx.fillText(formatBytes(el.bytes), tx, cy + 12);
+    ctx.textBaseline = "alphabetic";
   }
 
   /** Card shell, play icon and duration; the real play/pause button is a DOM overlay (AudioCards). */

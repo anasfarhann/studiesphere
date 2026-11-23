@@ -10,8 +10,11 @@ import type { RecordingOutbox } from "../attachments/recording-outbox";
 import type { ElementStore } from "../persistence/store";
 import { createImageLoader } from "../attachments/image-loader";
 import { PhotoInserter, type PhotoStatus as PhotoState } from "../tools/insert-image";
+import { FileInserter, type FileStatus as FileState } from "../tools/insert-file";
 import { AudioRecorder, type AudioStatus } from "../tools/record-audio";
 import { AudioCards } from "./AudioCards";
+import { FileCards } from "./FileCards";
+import { FileStatus } from "./FileStatus";
 import { PhotoStatus } from "./PhotoStatus";
 import { RecordingBar } from "./RecordingBar";
 import { TextEditorOverlay } from "./TextEditorOverlay";
@@ -62,6 +65,8 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
   const [files] = useState(() => attachments);
   const photosRef = useRef<PhotoInserter | null>(null);
   const [photoState, setPhotoState] = useState<PhotoState>({ kind: "idle" });
+  const fileInsRef = useRef<FileInserter | null>(null);
+  const [fileState, setFileState] = useState<FileState>({ kind: "idle" });
   const audioRef = useRef<AudioRecorder | null>(null);
   const [audioState, setAudioState] = useState<AudioStatus>({ kind: "idle" });
 
@@ -77,6 +82,7 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
     editorRef.current = editor;
     let offPhoto = () => {};
     let offAudio = () => {};
+    let offFile = () => {};
     if (files) {
       const photos = new PhotoInserter({
         scene: editor.scene,
@@ -88,6 +94,16 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
       });
       photosRef.current = photos;
       offPhoto = photos.onStatus(setPhotoState);
+      const fileIns = new FileInserter({
+        scene: editor.scene,
+        history: editor.history,
+        ownerId: files.ownerId,
+        pageId: files.pageId,
+        center: () => editor.viewportCenter(),
+        upload: (blob, o) => files.service.uploadAttachment(blob, o),
+      });
+      fileInsRef.current = fileIns;
+      offFile = fileIns.onStatus(setFileState);
       const audio = new AudioRecorder({
         scene: editor.scene,
         history: editor.history,
@@ -152,6 +168,9 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
       offPhoto();
       photosRef.current?.dispose();
       photosRef.current = null;
+      offFile();
+      fileInsRef.current?.dispose();
+      fileInsRef.current = null;
       offAudio();
       audioRef.current?.dispose();
       audioRef.current = null;
@@ -197,6 +216,7 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
         onUndo={() => editorRef.current?.undo()}
         onRedo={() => editorRef.current?.redo()}
         onPhoto={files ? (file) => void photosRef.current?.insert(file) : undefined}
+        onFile={files ? (file) => void fileInsRef.current?.insert(file) : undefined}
         onRecord={files ? () => void audioRef.current?.start() : undefined}
         recordDisabled={audioState.kind === "recording" || audioState.kind === "uploading"}
       />
@@ -220,6 +240,11 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
           onRetry={() => void photosRef.current?.retry()}
           onDismiss={() => photosRef.current?.dismiss()}
         />
+        <FileStatus
+          status={fileState}
+          onRetry={() => void fileInsRef.current?.retry()}
+          onDismiss={() => fileInsRef.current?.dismiss()}
+        />
         <RecordingBar
           status={audioState}
           onStop={() => void audioRef.current?.stop()}
@@ -229,6 +254,13 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
         />
         {editor && files ? (
           <AudioCards
+            editor={editor}
+            resolveUrl={(path) => files.service.signedUrl(path)}
+            forgetUrl={(path) => files.service.forgetSignedUrl(path)}
+          />
+        ) : null}
+        {editor && files ? (
+          <FileCards
             editor={editor}
             resolveUrl={(path) => files.service.signedUrl(path)}
             forgetUrl={(path) => files.service.forgetSignedUrl(path)}

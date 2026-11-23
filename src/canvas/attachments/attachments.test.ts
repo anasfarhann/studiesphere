@@ -65,3 +65,26 @@ describe("AttachmentService", () => {
     expect(storage.createSignedUrl).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("file attachments (Task 18)", () => {
+  it("a 51 MB PDF is rejected with the 50 MB message and a 2 MB PDF creates one FileEl", async () => {
+    const { FileInserter } = await import("../tools/insert-file");
+    const { Scene } = await import("../model/scene");
+    const { History } = await import("../model/history");
+    const scene = new Scene();
+    const svc = new AttachmentService(fakeStorage(), () => 0, () => "u1");
+    const mk = (bytes: number) => {
+      const f = new File(["x"], "a.pdf", { type: "application/pdf" });
+      Object.defineProperty(f, "size", { value: bytes });
+      return f;
+    };
+    const ins = new FileInserter({ scene, history: new History(), ownerId: "o", pageId: "p", center: () => [0, 0], upload: (b, o) => svc.uploadAttachment(b, o), newId: () => "f1" });
+    await ins.insert(mk(51 * 1024 * 1024));
+    expect(ins.status).toMatchObject({ kind: "error", message: "This file is larger than 50 MB" });
+    expect(scene.all()).toHaveLength(0);
+    await ins.dismiss();
+    await ins.insert(mk(2 * 1024 * 1024));
+    expect(scene.all()).toHaveLength(1);
+    expect(scene.get("f1")).toMatchObject({ type: "file", fileName: "a.pdf", mime: "application/pdf", bytes: 2 * 1024 * 1024 });
+  });
+});

@@ -33,6 +33,8 @@ export interface ToolbarProps {
   onRedo: () => void;
   /** Shows the Photo button when set; called with the picked (or camera) image. */
   onPhoto?: (file: File) => void;
+  /** Shows the File button when set; called with the picked file (any type). */
+  onFile?: (file: File) => void;
   /** Shows the Record button when set; called straight from the tap (microphone prompt needs the gesture). */
   onRecord?: () => void;
   recordDisabled?: boolean;
@@ -41,8 +43,9 @@ export interface ToolbarProps {
 const btn =
   "inline-flex h-11 min-w-11 items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
 
-export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onRecord, recordDisabled }: ToolbarProps) {
+export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
+  const anyFileRef = useRef<HTMLInputElement>(null);
   return (
     <div role="toolbar" aria-label={t("drawingTools")} className="flex flex-wrap items-center gap-2 border-b px-3 py-1">
       <button
@@ -116,6 +119,25 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
               const file = e.target.files?.[0];
               e.target.value = "";
               if (file) onPhoto(file);
+            }}
+          />
+        </>
+      ) : null}
+      {onFile ? (
+        <>
+          <button type="button" aria-label={t("toolFile")} onClick={() => anyFileRef.current?.click()} className={`${btn} px-3 text-sm`}>
+            {t("toolFile")}
+          </button>
+          <input
+            ref={anyFileRef}
+            type="file"
+            hidden
+            data-testid="file-input"
+            aria-label={t("filePickerLabel")}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = "";
+              if (file) onFile(file);
             }}
           />
         </>

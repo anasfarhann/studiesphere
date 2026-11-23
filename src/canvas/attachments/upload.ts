@@ -31,7 +31,7 @@ export interface UploadOptions {
 
 function cleanExt(ext: string): string {
   const e = ext.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return e.length > 0 && e.length <= 8 ? e : "bin";
+  return e.length > 0 && e.length <= 10 ? e : "bin";
 }
 
 /** Uploads to `{owner}/{page}/{uuid}.{ext}` (storage policies key on the first segment) and signs URLs. */

@@ -133,7 +133,7 @@ describe("Renderer", () => {
     expect(ctx.fill).toHaveBeenCalledTimes(4);
   });
 
-  it("draws text lines and placeholder cards", () => {
+  it("draws text lines and a file card (badge, name, size)", () => {
     const els: CanvasElement[] = [
       { id: "t", z: 1, updatedAt: 1, type: "text", x: 0, y: 0, w: 100, text: "a\nb", fontSize: 16, color: "#000" },
       { id: "f", z: 2, updatedAt: 1, type: "file", x: 0, y: 100, assetPath: "p", fileName: "f", mime: "x", bytes: 1 },
@@ -142,8 +142,9 @@ describe("Renderer", () => {
     const r = make();
     r.resize(400, 400, 1);
     flush();
-    expect(ctx.fillText).toHaveBeenCalledTimes(2);
-    expect(ctx.roundRect).toHaveBeenCalledTimes(1);
+    const drawn = (ctx.fillText as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => c[0]);
+    expect(drawn).toEqual(expect.arrayContaining(["a", "b", "FILE", "f", "1 B"]));
+    expect(ctx.roundRect).toHaveBeenCalledTimes(2); // card shell + badge
   });
 
   describe("images", () => {
