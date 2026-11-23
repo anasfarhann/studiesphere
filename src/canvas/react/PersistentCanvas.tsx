@@ -70,7 +70,8 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
     );
     Promise.all([store.load(pageId), queued, parkedBatches]).then(
       ([elements, batches, parkedList]) => {
-        const all = [...parkedList, ...batches].sort((a, b) => a.queuedAt - b.queuedAt);
+        // Defensive, like Autosave: only this page's batches, whatever the queue hands back.
+        const all = [...parkedList, ...batches].filter((b) => b.pageId === pageId).sort((a, b) => a.queuedAt - b.queuedAt);
         if (!cancelled) setLoad({ status: "ready", elements: applyBatches(elements, all) });
       },
       () => {

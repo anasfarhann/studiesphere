@@ -80,6 +80,16 @@ describe("PersistentCanvas", () => {
     expect(await queue.parked()).toHaveLength(1);
   });
 
+  it("ignores queued batches that belong to another page", async () => {
+    const store = new MemoryElementStore();
+    const queue = new MemoryOfflineQueue("p");
+    await queue.push({ id: "mine", pageId: "p", upserts: [stroke("mine", 2000)], deletes: [], queuedAt: 2000 });
+    await queue.push({ id: "other", pageId: "other-page", upserts: [stroke("foreign", 2000)], deletes: [], queuedAt: 2001 });
+    render(<PersistentCanvas pageId="p" store={store} queue={queue} />);
+    expect(await screen.findByTestId("canvas")).toBeInTheDocument();
+    expect((window as unknown as EditorHook).__editor!.scene.all().map((e) => e.id)).toEqual(["mine"]);
+  });
+
   it("mounts and saves a stroke within 2 s when IndexedDB hangs", async () => {
     const store = new MemoryElementStore();
     await store.save("p", [stroke("server", 1000)], []);
