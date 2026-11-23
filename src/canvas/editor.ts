@@ -231,6 +231,11 @@ export class Editor {
     return this.camera.screenToWorld(this.viewW / 2, this.viewH / 2);
   }
 
+  /** Elements in the visible area (what the renderer draws), by z. */
+  visibleElements(): CanvasElement[] {
+    return this.scene.getVisible(this.camera.viewRect(this.viewW, this.viewH));
+  }
+
   resize(cssW: number, cssH: number, dpr: number): void {
     this.viewW = cssW;
     this.viewH = cssH;

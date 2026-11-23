@@ -4,6 +4,9 @@ import { approxMeasure, wrapText } from "./wrap-text";
 /** Fixed card size (world units) for audio and file elements. */
 export const CARD_W = 240;
 export const CARD_H = 64;
+/** Audio card: the play icon's centre (from the card's left edge, vertically centred) and radius. */
+export const AUDIO_ICON_X = 32;
+export const AUDIO_ICON_R = 20;
 /** Line height as a multiple of fontSize; the renderer and the text overlay use it too. */
 export const TEXT_LINE_HEIGHT = 1.4;
 

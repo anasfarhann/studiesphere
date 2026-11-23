@@ -339,4 +339,14 @@ describe("Renderer", () => {
     scene.add(stroke("z", 1));
     expect(frames).toHaveLength(0);
   });
+
+  it("draws an audio card shell with its duration", () => {
+    scene.add({ id: "a", z: 1, updatedAt: 1, type: "audio", x: 0, y: 0, assetPath: "p", durationMs: 125_000 });
+    const r = make();
+    r.resize(400, 300, 1);
+    flush();
+    expect(ctx.roundRect).toHaveBeenCalledTimes(2);
+    expect(ctx.fillText).toHaveBeenCalledWith("2:05", expect.any(Number), expect.any(Number));
+    r.destroy();
+  });
 });

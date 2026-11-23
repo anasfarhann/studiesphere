@@ -77,6 +77,22 @@ export const en = {
   photoStatusLabel: "Photo upload status",
   photoPickerLabel: "Choose a photo",
   photoBroken: "Image unavailable",
+  toolRecord: "Record",
+  recordingBarLabel: "Recording",
+  recordingStop: "Stop",
+  recordingCancel: "Cancel",
+  audioUploading: "Uploading recording…",
+  audioUploadFailed: "Couldn't upload recording — tap to retry",
+  micPermissionDenied: "Allow microphone access in Settings to record",
+  recordingUnsupported: "Recording isn't supported in this browser",
+  recordingFailed: "Couldn't record audio",
+  recordingLimitReached: "Recording stopped at 60 minutes and was saved",
+  recordingStoppedHidden: "Recording stopped when you left the page and was saved",
+  audioStatusLabel: "Recording status",
+  audioPlay: "Play recording",
+  audioPause: "Pause recording",
+  audioPlayFailed: "Couldn't play this recording",
+  dismiss: "Dismiss",
 } as const;
 
 export function t(key: keyof typeof en): string {

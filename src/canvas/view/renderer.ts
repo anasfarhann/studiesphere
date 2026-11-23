@@ -1,6 +1,7 @@
 import type { Scene } from "../model/scene";
-import type { CanvasElement, StrokeEl } from "../model/types";
-import { boundsOf, TEXT_LINE_HEIGHT } from "../model/bounds";
+import type { AudioEl, CanvasElement, StrokeEl } from "../model/types";
+import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, TEXT_LINE_HEIGHT } from "../model/bounds";
+import { formatDuration } from "../model/format-duration";
 import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
@@ -312,9 +313,42 @@ export class Renderer {
       const entry = this.imageFor(el.assetPath);
       if (entry.state === "ready") ctx.drawImage(entry.img, el.x, el.y, el.w, el.h);
       else this.drawPlaceholder(el, entry.state === "error");
+    } else if (el.type === "audio") {
+      this.drawAudioCard(el);
     } else {
       this.drawPlaceholder(el, false);
     }
+  }
+
+  /** Card shell, play icon and duration; the real play/pause button is a DOM overlay (AudioCards). */
+  private drawAudioCard(el: AudioEl): void {
+    const { ctx } = this;
+    const b = boundsOf(el);
+    ctx.beginPath();
+    ctx.roundRect(b.minX, b.minY, CARD_W, CARD_H, 10);
+    ctx.fillStyle = "#f8fafc";
+    ctx.fill();
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1 / this.camera.zoom;
+    ctx.stroke();
+    // Play icon area: a filled circle with a triangle, matching the overlay button's position.
+    const cx = b.minX + AUDIO_ICON_X;
+    const cy = b.minY + CARD_H / 2;
+    ctx.beginPath();
+    ctx.roundRect(cx - AUDIO_ICON_R, cy - AUDIO_ICON_R, AUDIO_ICON_R * 2, AUDIO_ICON_R * 2, AUDIO_ICON_R);
+    ctx.fillStyle = "#1e293b";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, cy - 9);
+    ctx.lineTo(cx + 10, cy);
+    ctx.lineTo(cx - 6, cy + 9);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.fillStyle = "#1e293b";
+    ctx.font = "18px sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.fillText(formatDuration(el.durationMs), b.minX + AUDIO_ICON_X + AUDIO_ICON_R + 14, cy);
+    ctx.textBaseline = "alphabetic";
   }
 
   private drawPlaceholder(el: CanvasElement, broken: boolean): void {

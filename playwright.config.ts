@@ -16,6 +16,9 @@ export default defineConfig({
       ...devices["Desktop Chrome"],
       // Optional: use an installed browser (e.g. PLAYWRIGHT_CHANNEL=chrome) when binaries cannot be downloaded.
       channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
+      // Fake microphone for the voice-recording spec.
+      launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] },
+      permissions: ["microphone"],
     } }],
   webServer: {
     command: `pnpm dev --port ${PORT}`,

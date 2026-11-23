@@ -8,7 +8,10 @@ import { t } from "@/i18n/en";
 import type { AttachmentService } from "../attachments/upload";
 import { createImageLoader } from "../attachments/image-loader";
 import { PhotoInserter, type PhotoStatus as PhotoState } from "../tools/insert-image";
+import { AudioRecorder, type AudioStatus } from "../tools/record-audio";
+import { AudioCards } from "./AudioCards";
 import { PhotoStatus } from "./PhotoStatus";
+import { RecordingBar } from "./RecordingBar";
 import { TextEditorOverlay } from "./TextEditorOverlay";
 import { SelectionMenu } from "./SelectionMenu";
 import { INK_COLORS, PEN_SIZES, Toolbar } from "./Toolbar";
@@ -53,6 +56,8 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
   const [files] = useState(() => attachments);
   const photosRef = useRef<PhotoInserter | null>(null);
   const [photoState, setPhotoState] = useState<PhotoState>({ kind: "idle" });
+  const audioRef = useRef<AudioRecorder | null>(null);
+  const [audioState, setAudioState] = useState<AudioStatus>({ kind: "idle" });
 
   useEffect(() => {
     const box = boxRef.current;
@@ -65,6 +70,7 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
     });
     editorRef.current = editor;
     let offPhoto = () => {};
+    let offAudio = () => {};
     if (files) {
       const photos = new PhotoInserter({
         scene: editor.scene,
@@ -76,6 +82,16 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
       });
       photosRef.current = photos;
       offPhoto = photos.onStatus(setPhotoState);
+      const audio = new AudioRecorder({
+        scene: editor.scene,
+        history: editor.history,
+        ownerId: files.ownerId,
+        pageId: files.pageId,
+        center: () => editor.viewportCenter(),
+        upload: (blob, o) => files.service.uploadAttachment(blob, o),
+      });
+      audioRef.current = audio;
+      offAudio = audio.onStatus(setAudioState);
     }
     setEditor(editor);
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
@@ -128,6 +144,9 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
       offPhoto();
       photosRef.current?.dispose();
       photosRef.current = null;
+      offAudio();
+      audioRef.current?.dispose();
+      audioRef.current = null;
       offHist();
       detach?.();
       editor.destroy();
@@ -158,6 +177,8 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
         onUndo={() => editorRef.current?.undo()}
         onRedo={() => editorRef.current?.redo()}
         onPhoto={files ? (file) => void photosRef.current?.insert(file) : undefined}
+        onRecord={files ? () => void audioRef.current?.start() : undefined}
+        recordDisabled={audioState.kind === "recording" || audioState.kind === "uploading"}
       />
       <div ref={boxRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
@@ -179,6 +200,20 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
           onRetry={() => void photosRef.current?.retry()}
           onDismiss={() => photosRef.current?.dismiss()}
         />
+        <RecordingBar
+          status={audioState}
+          onStop={() => void audioRef.current?.stop()}
+          onCancel={() => audioRef.current?.cancel()}
+          onRetry={() => void audioRef.current?.retry()}
+          onDismiss={() => audioRef.current?.dismiss()}
+        />
+        {editor && files ? (
+          <AudioCards
+            editor={editor}
+            resolveUrl={(path) => files.service.signedUrl(path)}
+            forgetUrl={(path) => files.service.forgetSignedUrl(path)}
+          />
+        ) : null}
         {editor ? <TextEditorOverlay editor={editor} /> : null}
         {editor ? <SelectionMenu editor={editor} /> : null}
       </div>

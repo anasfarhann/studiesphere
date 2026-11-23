@@ -33,12 +33,15 @@ export interface ToolbarProps {
   onRedo: () => void;
   /** Shows the Photo button when set; called with the picked (or camera) image. */
   onPhoto?: (file: File) => void;
+  /** Shows the Record button when set; called straight from the tap (microphone prompt needs the gesture). */
+  onRecord?: () => void;
+  recordDisabled?: boolean;
 }
 
 const btn =
   "inline-flex h-11 min-w-11 items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
 
-export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto }: ToolbarProps) {
+export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onRecord, recordDisabled }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   return (
     <div role="toolbar" aria-label={t("drawingTools")} className="flex flex-wrap items-center gap-2 border-b px-3 py-1">
@@ -116,6 +119,11 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
             }}
           />
         </>
+      ) : null}
+      {onRecord ? (
+        <button type="button" aria-label={t("toolRecord")} disabled={recordDisabled} onClick={onRecord} className={`${btn} px-3 text-sm disabled:opacity-40`}>
+          {t("toolRecord")}
+        </button>
       ) : null}
       <button type="button" aria-label={t("undo")} disabled={!canUndo} onClick={onUndo} className={`${btn} px-3 text-sm disabled:opacity-40`}>
         {t("undo")}
