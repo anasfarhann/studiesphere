@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickRecent } from "./queries";
+import { pickRecent, resolveDisplayName } from "./queries";
 
 describe("pickRecent", () => {
   it("takes the first distinct page ids in order with their newest time", () => {
@@ -17,4 +17,14 @@ describe("pickRecent", () => {
     ]);
   });
   it("returns [] for no rows", () => expect(pickRecent([], 3)).toEqual([]));
+});
+
+describe("resolveDisplayName", () => {
+  it("prefers the profile name, then the email local part, never empty", () => {
+    expect(resolveDisplayName(" Anas ", "a@b.co")).toBe("Anas");
+    expect(resolveDisplayName(null, "sam@b.co")).toBe("sam");
+    expect(resolveDisplayName("  ", "")).toBe("there");
+    expect(resolveDisplayName(undefined, undefined)).toBe("there");
+    expect(resolveDisplayName(null, "@b.co")).toBe("there");
+  });
 });

@@ -36,11 +36,32 @@ describe("Dashboard", () => {
     render(<Dashboard name="Anas" subjects={[]} recent={[]} today={today} />);
     expect(screen.getByText("Create your first subject to start taking notes.")).toBeTruthy();
     const btn = screen.getByRole("button", { name: "New subject" });
+    btn.focus();
     fireEvent.click(btn);
     expect(screen.getByRole("dialog", { name: "New subject" })).toBeTruthy();
     expect(screen.getByLabelText("Subject name")).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(btn);
+  });
+
+  it("returns focus to the trigger on Close and traps Tab inside the dialog", () => {
+    render(<Dashboard name="Anas" subjects={[]} recent={[]} today={today} />);
+    const trigger = screen.getByRole("button", { name: "New subject" });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const dialog = screen.getByRole("dialog");
+    const items = Array.from(dialog.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled])"));
+    const first = items[0];
+    const last = items[items.length - 1];
+    last.focus();
+    fireEvent.keyDown(document, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(document, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("chip filter narrows both the subjects and the recent pages", () => {

@@ -1,5 +1,6 @@
 import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
+import { t } from "@/i18n/en";
 import { toPastel } from "@/ui/pastel";
 
 export type RecentPage = {
@@ -109,10 +110,14 @@ export async function getSubjectSummaries(): Promise<SubjectSummary[]> {
   }));
 }
 
+/** Profile display name, else the email's local part, else a generic word; never empty. */
+export function resolveDisplayName(displayName: string | null | undefined, email: string | undefined): string {
+  return displayName?.trim() || (email ?? "").split("@")[0].trim() || t("dashGuestName");
+}
+
 export async function getDisplayName(): Promise<string> {
   const user = await getUser();
   const db = await createServerClient();
   const { data } = await db.from("profiles").select("display_name").eq("id", user.id).maybeSingle();
-  const name = data?.display_name?.trim();
-  return name || (user.email ?? "").split("@")[0];
+  return resolveDisplayName(data?.display_name, user.email);
 }

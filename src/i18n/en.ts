@@ -130,6 +130,7 @@ export const en = {
   audioPlay: "Play recording",
   audioPause: "Pause recording",
   audioPlayFailed: "Couldn't play this recording",
+  dashGuestName: "there",
   dashGreeting: "Hi, {name}!",
   dashSubtitle: "Ready to pick up where you left off?",
   dashSearch: "Search your subjects and pages",
