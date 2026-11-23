@@ -12,7 +12,7 @@ export default async function CanvasPage({ params }: { params: Promise<{ pageId:
     <main className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <div className="flex items-center gap-3 border-b px-3">
         <Link href={`/app/n/${page.notebook_id}`} className="inline-flex min-h-11 items-center text-sm underline">
-          {t("backToSubjects")}
+          {t("backToNotebook")}
         </Link>
         <h1 className="truncate text-base font-semibold">{page.title}</h1>
       </div>

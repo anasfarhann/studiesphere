@@ -33,6 +33,7 @@ export const en = {
   newPage: "New page",
   noPages: "No pages in this notebook yet.",
   backToSubjects: "All subjects",
+  backToNotebook: "Back to notebook",
   untitledPage: "Untitled",
   colorBlue: "Blue",
   colorGreen: "Green",
