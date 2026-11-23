@@ -535,6 +535,28 @@ describe("Editor history and eraser", () => {
       now.mockRestore();
     });
 
+    it("Undo with a text box still open commits the typed text first, so redo brings it back", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.draft("typed, not blurred");
+      editor.undo(); // toolbar tap: no blur on iPad Safari
+      expect(editor.text.session).toBeNull();
+      expect(editor.scene.all()).toHaveLength(0);
+      editor.redo();
+      expect(editor.scene.all().map((e) => (e as { text?: string }).text)).toEqual(["typed, not blurred"]);
+    });
+
+    it("Redo with a text box open commits the typed text first", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.draft("draft");
+      editor.redo();
+      expect(editor.text.session).toBeNull();
+      expect(editor.scene.all().map((e) => (e as { text?: string }).text)).toEqual(["draft"]);
+    });
+
     it("open text is committed when the page is hidden", () => {
       editor.setTool("text");
       fire(canvas, "pointerdown", 1, "mouse", 30, 40);

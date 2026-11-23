@@ -201,14 +201,20 @@ export class Editor {
     this.size = s;
   }
 
+  /**
+   * Open text is committed first (its own undo step): iPad Safari does not blur the textarea on a
+   * toolbar tap, so without this the typed text would be lost when undo removes or changes its box.
+   */
   undo(): void {
     if (this.drawing) return;
+    this.text.commit();
     this.selection.clear();
     this.history.undo(this.scene);
   }
 
   redo(): void {
     if (this.drawing) return;
+    this.text.commit();
     this.selection.clear();
     this.history.redo(this.scene);
   }
