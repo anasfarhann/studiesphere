@@ -1,0 +1,118 @@
+# Follow-ups from the foundation + notes canvas build (2026-11-23)
+
+Deferred review findings, rulings and pending operations, kept from the build ledger.
+
+## Pending operations
+- Apply supabase/migrations/0005_page_snapshots.sql to the live project (needs owner approval in Supabase), then regenerate src/lib/supabase/types.ts.
+
+## Rulings
+- | T2→T12 | canvas_elements.updated_at timestamptz vs CanvasElement.updatedAt number(ms) | mismatch | Ruling: column stays timestamptz; SupabaseElementStore converts ms⇄timestamptz; `data` jsonb holds the full element JSON — why: keeps model simple — cost if wrong: one conversion helper rewrite |
+- | T10↔T13 | Editor "wires history" but History created in T13 | ordering | Ruling: T10 Editor has no history; T13 adds it — why: T10 can't consume an undefined type — cost: small Editor edit in T13 |
+- | T3,T4,T10 e2e | e2e need Supabase session | env dependency | Ruling: auth/library e2e skip when SUPABASE env absent; canvas e2e use dev-only route `/dev/canvas` (404 in production) with MemoryElementStore — why: canvas tests must run in CI without secrets — cost: one extra route |
+- | T12→T19 | store/scene → snapshots | "older deleted by the save function" ambiguous | Ruling: SQL function `create_snapshot(page, elements)` inserts and prunes to latest 30 — why: one atomic place — cost: trivial |
+- | T14 | "Make flashcard" menu item | phase 4 scope | Ruling: not built now |
+- | Env | Playwright browser download / supabase local may be blocked by network allowlist | risk | Ruling: if blocked, e2e/integration specs still written; run in GitHub Actions CI; report in task report |
+- Ruling: Tailwind v4 CSS config (no tailwind.config) and system fonts instead of next/font/google — why: scaffold default + network-free builds — cost if wrong: add config/font later, trivial
+- Ruling: local e2e uses system Chrome via PLAYWRIGHT_CHANNEL=chrome (proxy blocks chromium download); CI uses bundled chromium — cost: CI e2e unverified until first push
+- Ruling: Task 2 code (migration, clients, integration test) built now; migration applied to the live project once owner connects Supabase — why: don't stall on account setup — cost: RLS integration test unproven until applied
+- Ruling: new migration 0002_lock_trigger_function.sql (revoke execute on handle_new_user from public, anon, authenticated) folded into Task 3; plan's later migrations shift: save_elements → 0003, page_snapshots → 0004 — why: live advisor WARN, migration 0001 already applied so can't edit in place — cost: renumbering only
+- Ruling: one Supabase project serves dev and prod; email confirmation stays ON. Task 3 sign-up shows "Check your email to confirm your account" when no session is returned (and goes to /app when one is); e2e asserts redirect/sign-in-error flows live, sign-up e2e accepts either outcome; no automated real-user creation beyond that — why: no service-role key, production project — cost: sign-up→/app path verified manually by owner
+- Ruling: sandbox egress blocks *.supabase.co, so live-Supabase e2e (sign-up, wrong-password) can't run here; they run after deploy (Task 6) against Vercel — cost: auth flows unverified until deploy
+- Task 6: blocked on owner granting Vercel MCP team access (consent link sent); Ruling: continue with Task 7 meanwhile — tasks 7+ don't depend on deploy
+- Ruling: Task 8 commit trailer names the model that wrote it (Haiku 5.5) — accurate attribution, keep
+- Ruling: Task 9 fix may touch Task 7's bounds.ts (highlighter pad) and add Scene.size getter — why: root cause lives there — cost: small cross-task edit, scene tests must stay green
+- Ruling: re-review "legacy no-id batches not migrated" is Minor — no queue has ever shipped (never deployed), so no old-shape batches exist — cost if wrong: none pre-launch
+- Release 2a checkpoint: deferred until deploy (Vercel access pending; fresh consent link sent). Ruling: proceed to 2b — owner feedback will be applied as fixes later
+- Ruling: fix via client-stamped tombstones (option a), not fresh ids — why: keeps one clock per author, LWW uniform for upserts and deletes, no id-mapping in History — cost if wrong: new migration 0004 + SaveBatch/Scene interface change (deletes carry stamps); no shipped data so no migration of queued batches needed
+- Ruling: re-review "legacy string-delete batches in IDB" is Minor — no pre-fix build ever ran on a real origin (never deployed; e2e browsers ephemeral) — cost if wrong: one page's saves stall until queue cleared
+- Ruling: pre-compression 50 MB check folded into the Task 16 fix round as a spec requirement (brief: reject files over 50 MB) — not a minor
+- Ruling: unified fix = durable recording outbox in IndexedDB (blob + metadata written on stop BEFORE upload; removed only after the element is persisted); dispose never discards (stops + hands off to outbox, background upload + store.save of the element when the scene is gone); recovery of pending recordings on next mount of that page; beforeunload guard while recording/uploading. Cancel button is the only discard path — why: one mechanism covers navigation, tab close, upload failure — cost: IDB blob storage up to ~30 MB per recording
+- Ruling: re-review "fake timers not restored on test failure" is Minor — only affects other tests in the same file after an already-failing test — cost: noisier failure output
+- Ruling: final fix wave = Important 1–4 + cheap minors (undo/redo commits open text; applyBatches filters by pageId; toolbar touch-action manipulation; canvas back-link label) — why: all small and user-facing — cost: slightly larger fix wave
+- Ruling: residual Important "parked batch never retired when superseded → deleted element resurrects on reload; perpetual 'some changes couldn't be saved'" PARKED as follow-up (no second fix wave) — why: only reachable after a deterministic server refusal (rare bad data); no data is lost — cost if wrong: ghost elements reappear after reload in that rare case until fixed
+
+## Deferred findings
+- Task 2: minor (deferred): policies use auth.uid() not (select auth.uid()) — advisor auth_rls_initplan
+- Task 2: minor (deferred): owner_id FKs unindexed (advisor)
+- Task 2: minor (deferred): storage path only checks segment 1; no allowed_mime_types
+- Task 2: minor (deferred): revoke execute on handle_new_user from public/anon/authenticated
+- Task 2: minor (deferred): RLS test only exercises subjects; no anon/storage-select checks
+- Task 2: minor (deferred): integration test cleanup leaves uploaded objects; deleteUser errors ignored
+- Task 2: minor (deferred): integration tests in default pnpm test include (hit live project once keys exist)
+- Task 2: minor (deferred): loadEnvFile path cwd-dependent
+- Task 2: minor (deferred): plan column lacks check constraint
+- Task 2: minor (deferred): canvas_elements lacks (page_id, owner_id) index
+- Task 3: minor (deferred): AuthForm setBusy not in finally
+- Task 3: minor (deferred): callback failure redirects to /login silently
+- Task 3: minor (deferred): proxy setAll ignores cache headers arg
+- Task 3: minor (deferred): non-null env assertions in proxy
+- Task 3: minor (deferred): /app pages must call getUser themselves (layout doesn't rerun)
+- Task 3: minor (deferred): /login,/signup don't redirect signed-in users
+- Task 3: minor (deferred): email_not_confirmed / signup_disabled fall to generic message (should say "confirm your email first")
+- Task 3: minor (deferred): weakPassword copy says 8 chars; hosted Supabase minimum may differ
+- Task 4: minor (deferred): createPage/nextOrder sort_order read-then-insert race
+- Task 4: minor (deferred): create notebook/page actions don't revalidate
+- Task 4: minor (deferred): memory repo ordering/FK drift vs supabase repo
+- Task 4: minor (deferred): "Untitled" literal not via en.ts; unused keys newNotebook/untitledPage; back links mislabelled "All subjects"
+- Task 4: minor (deferred): no rename/delete subject UI (repo only)
+- Task 4: minor (deferred): form fields reset after error (React 19 form action); no aria-invalid/describedby
+- Task 5: minor (deferred): matcher manifest alternative unanchored/unescaped; icons/ alternative redundant
+- Task 5: minor (deferred): image-extension matcher exclusion lets /app/x.png skip proxy gate (pages still call getUser)
+- Task 5: minor (deferred): icon SVG sources unreferenced; no generator script
+- Task 5: minor (deferred): 100vh children inside padded body could overflow by insets
+- Task 7: minor (deferred): getVisible equal-z order not deterministic (add id tie-break)
+- Task 7: minor (deferred): throwing onChange listener skips others and propagates after mutation
+- Task 7: minor (deferred → carry to Task 12): takeDirty destructive; autosave must keep failed batches (offline queue) — no scene requeue needed if queue holds them
+- Task 7: minor (deferred → carry to Task 13): undo via update(id, oldEl) must omit updatedAt so LWW sees a newer stamp
+- Task 7: minor (deferred): empty-points stroke zero rect at origin; add() stores caller object by reference (document immutability)
+- Task 8: minor (deferred): MIN/MAX_ZOOM not readonly; constructor zoom unguarded
+- Task 9: minor (deferred): getVisible + full live-stroke getStroke per frame (profile in Task 10/12 checkpoint)
+- Task 9: minor (deferred): globalAlpha restore not via save/restore; cache keyed only on updatedAt
+- Task 9: minor (deferred): highlighter 1.5 pad and 3x width not a shared constant
+- Task 10: minor (deferred → Task 11): prevent gesturechange/gestureend too; wheel handling
+- Task 10: minor (deferred): getBoundingClientRect per coalesced sample
+- Task 10: minor (deferred → hardware test note): crypto.randomUUID needs secure context (LAN http dev fails)
+- Task 10: minor (deferred → Task 13): Pencil eraser end (button 5) draws ink
+- Task 10: minor (deferred): void e lint workaround in PenTool.move
+- Task 10: known behaviour (check on hardware): resting palm alone after pen seen pans by drift
+- Task 10: minor (deferred): no test that a new finger pans after pen lifts with demoted palm resting
+- Task 11: minor (deferred): hand tool + single finger (penOnly false) does nothing — should pan
+- Task 11: minor (deferred): no test for blur resetting Space / window listener removal
+- Task 11: minor (deferred): Space not preventDefaulted; isEditable doesn't exclude BUTTON
+- Task 11: minor (deferred): ctrl+wheel applies deltaMode scale
+- Task 12: minor (deferred): queuedAt identity collisions across tabs/clock skew (use random batch id)
+- Task 12: minor (deferred): failed idb push never re-pushed / no warning
+- Task 12: minor (deferred): load() offset pagination can skip rows (use keyset)
+- Task 12: minor (deferred → Task 13): ghost element when queued upsert for element deleted on another device
+- Task 12: minor (deferred): page queues replay only when page reopened; not cleared on sign-out
+- Task 12: minor (deferred): permanently failing batch shown as Offline and blocks later batches
+- Task 12: minor (deferred): PageCanvas queue bound to first pageId (key on PersistentCanvas only)
+- Task 12: minor (deferred): remove(undefined) should be ignored defensively
+- Task 12: minor (deferred): hide-flush within 1s of mount waits on started while IDB hangs
+- Task 12: minor (deferred): slow-but-working IDB (>1s) drops earlier-visit strokes from view this visit (adopt late drain by id)
+- Task 12: minor (deferred): hanging-queue test final onState assertion near-vacuous
+- Task 13: minor (deferred): hand/space checks precede pencil-eraser check (eraser end pans with hand tool)
+- Task 13: minor (deferred): finger erase then pinch commits erasure step
+- Task 13: minor (deferred): erase centreline only (ignores stroke width / highlighter 3x)
+- Task 13: minor (deferred): two-finger tap timer starts at 2nd finger; paired palms could undo
+- Task 13: minor (deferred): vacuous assertion in pen eraser button test
+- Task 13: minor (deferred): extract tap tracking from editor.ts (376 lines)
+- Task 13: minor (deferred): 2 of 4 new persistence tests don't fail on old behaviour (set system time later before reconnect)
+- Task 13: minor (deferred): lastStamp map never cleared (bytes per id)
+- Task 14: minor (deferred): menu not clamped horizontally; pinned at top when box offscreen
+- Task 14: minor (deferred): remote moves don't resync menu; mid-move remote delete re-added on undo
+- Task 14: minor (deferred): pointercancel mid-lasso selects partial path; Selection.set([]) emits when unchanged
+- Task 14: minor (deferred): Editor.destroy doesn't unsubscribe prune hook / clear selection listeners
+- Task 14: minor (deferred): dead stopPropagation in SelectionMenu; no Escape/touch-move tests (finger drags pan, can't move selection on iPad w/o pen)
+- Task 14: minor (deferred): raf/caf fall back independently in Editor
+- Task 15: minor (deferred): toolbar/undo mid-edit interactions; baseline jump on commit; wrapText per-frame no cache; hit box approx; Cmd+Z test asserts weakly
+- Task 15: minor (deferred): misplaced JSDoc in editor.ts; editor-before-autosave listener order implicit
+- Task 16: minor (deferred): tab close mid-upload loses picked photo; failed blob only in memory
+- Task 16: minor (deferred): dev fake leaks object URLs; second pick during upload ignored silently; unused photoBroken string / no a11y text on broken mark; PhotoStatus naming clash
+- Task 16: minor (deferred): evict O(n^2); early-firing timer not re-armed; PersistentCanvas parallel flake not reproduced
+- Task 16: minor (deferred): releaseImages doesn't clear per-asset retry timers on prune/success/wake (one stray requestFrame each)
+- Task 17: minor (deferred): AbortError on rapid card switch evicts URL; no pause/error listeners on <audio>; webm content type vs bucket allowlist
+- Task 17: minor (deferred): permanent upload failure retried silently forever (no notice/export); recovery can resurrect deleted card if outbox remove timed out; double upload orphan on race/StrictMode; single-key outbox rewrites all blobs; Safari 7-day eviction for non-installed sites; crash mid-recording loses audio (no incremental chunk persistence); dismiss-error label unclear
+- Task 18: minor (deferred): "tap again" notice never clears; needless forget in fallback; prefetch no in-flight dedupe (request per frame on persistent failure, same in AudioCards); ellipsize per-frame measure loop + surrogate split; 44px overlay at low zoom intercepts taps; fileRef naming
+- Task 19: minor (deferred): clock skew vs other device tombstone; pre-restore snapshot doesn't update scheduler.last (server vs client clock); restore rewrites identical elements; selection not cleared on restore; pagehide RPC best effort; same-id different-type; regenerate types after apply
+- Final residual minors (deferred): 57014-parked batches only retried on reload; schema-mismatch errors park everything noisily; batch finally may mask exception; oversize Done remove failure silent; notebook page back link mislabelled; oversize blob held only in memory if IDB quota rejects (no warning)
