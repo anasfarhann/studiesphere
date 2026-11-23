@@ -103,14 +103,22 @@ describe("restoreSnapshot", () => {
 
 describe("restore after an earlier session deleted an element", () => {
   it("brings it back even though this Scene never saw the tombstone", async () => {
-    const T0 = 1_000, T1 = 5_000, T2 = 9_000;
+    // Stamps above the real clock, so Date.now() alone could never beat the tombstone.
+    const T0 = Date.now(), T1 = T0 + 60_000, T2 = T1 + 60_000;
     const elements = new MemoryElementStore();
     const snaps = new MemorySnapshotStore();
     const a: StrokeEl = { ...stroke("a"), updatedAt: T0 };
     await elements.save(PAGE, [a], []);
     await snaps.create(PAGE, [a], T0);
-    // Earlier session: delete it (tombstone at T1 reaches the server).
-    await elements.save(PAGE, [], [{ id: "a", updatedAt: T1 }]);
+    // Earlier session: its Scene deletes the element; the tombstone (stamped T1) reaches the server.
+    const earlier = new Scene(await elements.load(PAGE));
+    vi.useFakeTimers();
+    vi.setSystemTime(T1);
+    earlier.remove("a");
+    const tomb = earlier.takeDirty().deletes;
+    vi.useRealTimers();
+    expect(tomb).toEqual([{ id: "a", updatedAt: T1 }]);
+    await elements.save(PAGE, [], tomb);
     // New session: loads the live elements only.
     const scene = new Scene(await elements.load(PAGE));
     expect(scene.all()).toEqual([]);
@@ -118,6 +126,7 @@ describe("restore after an earlier session deleted an element", () => {
     await restoreSnapshot(snaps, PAGE, snap.id, scene, new History(), { now: T2 });
     const d = scene.takeDirty();
     await elements.save(PAGE, d.upserts, d.deletes);
+    expect(d.upserts.map((e) => e.updatedAt)).toEqual([T2]); // Scene.add keeps the injected clock here
     expect((await elements.load(PAGE)).map((e) => e.id)).toEqual(["a"]);
   });
 
