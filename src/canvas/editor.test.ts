@@ -1,0 +1,584 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Editor } from "./editor";
+import type { StrokeEl } from "./model/types";
+
+function fakeCtx() {
+  const noop = () => {};
+  return {
+    fillStyle: "", strokeStyle: "", globalAlpha: 1, lineWidth: 1, font: "", textBaseline: "",
+    setTransform: noop, fillRect: noop, fill: noop, fillText: noop, strokeRect: noop, setLineDash: noop,
+    beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop, moveTo: noop, lineTo: noop,
+  };
+}
+
+class FakePath { moveTo() {} lineTo() {} quadraticCurveTo() {} closePath() {} }
+
+let frames: Array<() => void> = [];
+const flushFrames = () => {
+  const f = frames;
+  frames = [];
+  f.forEach((cb) => cb());
+};
+
+type Kind = "pen" | "touch" | "mouse";
+function fire(
+  el: HTMLElement, type: string, id: number, kind: Kind, x: number, y: number,
+  extra: Partial<PointerEventInit> = {},
+) {
+  const e = new PointerEvent(type, {
+    pointerId: id, pointerType: kind, clientX: x, clientY: y, button: 0, buttons: 1,
+    pressure: kind === "pen" ? 0.6 : 0.5, bubbles: true, cancelable: true, ...extra,
+  });
+  el.dispatchEvent(e);
+  return e;
+}
+
+describe("Editor input wiring", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+
+  beforeEach(() => {
+    frames = [];
+    canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [],
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+  });
+
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+  });
+
+  it("a mouse drag adds one simulated-pressure stroke in world coordinates", () => {
+    editor.camera.x = 100;
+    editor.camera.y = 50;
+    editor.camera.zoom = 2;
+    fire(canvas, "pointerdown", 1, "mouse", 10, 10);
+    fire(canvas, "pointermove", 1, "mouse", 20, 30);
+    fire(canvas, "pointerup", 1, "mouse", 20, 30, { buttons: 0 });
+    const all = editor.scene.all();
+    expect(all).toHaveLength(1);
+    const s = all[0] as StrokeEl;
+    expect(s.simulatePressure).toBe(true);
+    expect(s.points.map(([x, y]) => [x, y])).toEqual([[105, 55], [110, 65]]);
+  });
+
+  it("pen strokes keep the Pencil pressure, falling back to 0.5 when it reports 0", () => {
+    fire(canvas, "pointerdown", 2, "pen", 0, 0, { pressure: 0 });
+    fire(canvas, "pointermove", 2, "pen", 5, 5, { pressure: 0.8 });
+    fire(canvas, "pointerup", 2, "pen", 5, 5, { pressure: 0 });
+    const s = editor.scene.all()[0] as StrokeEl;
+    expect(s.simulatePressure).toBe(false);
+    expect(s.points[0][2]).toBe(0.5);
+    expect(s.points[1][2]).toBeCloseTo(0.8);
+  });
+
+  it("uses the chosen colour and size", () => {
+    editor.setColor("#dc2626");
+    editor.setSize(8);
+    fire(canvas, "pointerdown", 1, "mouse", 0, 0);
+    fire(canvas, "pointerup", 1, "mouse", 0, 0);
+    expect(editor.scene.all()[0]).toMatchObject({ color: "#dc2626", size: 8 });
+  });
+
+  it("a second touch arriving mid-stroke cancels the finger stroke", () => {
+    fire(canvas, "pointerdown", 10, "touch", 0, 0);
+    fire(canvas, "pointermove", 10, "touch", 10, 10);
+    fire(canvas, "pointerdown", 11, "touch", 50, 50);
+    fire(canvas, "pointermove", 10, "touch", 20, 20);
+    fire(canvas, "pointerup", 10, "touch", 20, 20);
+    fire(canvas, "pointerup", 11, "touch", 50, 50);
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("palm touches never draw once a pen has been seen, and fingers pan", () => {
+    fire(canvas, "pointerdown", 2, "pen", 0, 0);
+    fire(canvas, "pointerup", 2, "pen", 0, 0);
+    expect(editor.scene.all()).toHaveLength(1);
+    fire(canvas, "pointerdown", 20, "touch", 100, 100);
+    fire(canvas, "pointermove", 20, "touch", 130, 90);
+    fire(canvas, "pointerup", 20, "touch", 130, 90);
+    expect(editor.scene.all()).toHaveLength(1);
+    expect(editor.camera.x).toBe(-30);
+    expect(editor.camera.y).toBe(10);
+  });
+
+  it("a palm resting during a pen stroke neither draws nor pans", () => {
+    fire(canvas, "pointerdown", 2, "pen", 0, 0);
+    fire(canvas, "pointerdown", 30, "touch", 200, 200);
+    fire(canvas, "pointermove", 2, "pen", 10, 10);
+    fire(canvas, "pointermove", 30, "touch", 220, 230);
+    fire(canvas, "pointerup", 2, "pen", 10, 10);
+    fire(canvas, "pointermove", 30, "touch", 240, 260);
+    fire(canvas, "pointerup", 30, "touch", 240, 260);
+    expect(editor.scene.all()).toHaveLength(1);
+    expect((editor.scene.all()[0] as StrokeEl).points).toHaveLength(2);
+    expect([editor.camera.x, editor.camera.y]).toEqual([0, 0]);
+  });
+
+  it("a palm resting before the Pencil lands stops panning once the pen writes", () => {
+    fire(canvas, "pointerdown", 2, "pen", 0, 0);
+    fire(canvas, "pointerup", 2, "pen", 0, 0);
+    fire(canvas, "pointerdown", 40, "touch", 300, 300);
+    fire(canvas, "pointerdown", 3, "pen", 10, 10);
+    fire(canvas, "pointermove", 40, "touch", 320, 340);
+    fire(canvas, "pointermove", 3, "pen", 20, 20);
+    fire(canvas, "pointermove", 40, "touch", 340, 360);
+    fire(canvas, "pointerup", 3, "pen", 20, 20);
+    fire(canvas, "pointermove", 40, "touch", 360, 380);
+    fire(canvas, "pointerup", 40, "touch", 360, 380);
+    expect([editor.camera.x, editor.camera.y]).toEqual([0, 0]);
+    expect(editor.scene.all()).toHaveLength(2);
+    expect((editor.scene.all()[1] as StrokeEl).points.map(([x, y]) => [x, y])).toEqual([[10, 10], [20, 20]]);
+  });
+
+  it("pointercancel discards the in-progress stroke", () => {
+    fire(canvas, "pointerdown", 2, "pen", 0, 0);
+    fire(canvas, "pointermove", 2, "pen", 10, 10);
+    fire(canvas, "pointercancel", 2, "pen", 10, 10);
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("reads coalesced events when the browser provides them", () => {
+    fire(canvas, "pointerdown", 1, "mouse", 0, 0);
+    const move = new PointerEvent("pointermove", { pointerId: 1, pointerType: "mouse", clientX: 3, clientY: 3, buttons: 1, bubbles: true });
+    const coalesced = [1, 2, 3].map((v) => new PointerEvent("pointermove", { pointerId: 1, pointerType: "mouse", clientX: v, clientY: v }));
+    Object.defineProperty(move, "getCoalescedEvents", { value: () => coalesced });
+    canvas.dispatchEvent(move);
+    fire(canvas, "pointerup", 1, "mouse", 3, 3);
+    expect((editor.scene.all()[0] as StrokeEl).points.map(([x]) => x)).toEqual([0, 1, 2, 3]);
+  });
+
+  it("right-click does not draw", () => {
+    fire(canvas, "pointerdown", 1, "mouse", 0, 0, { button: 2, buttons: 2 });
+    fire(canvas, "pointerup", 1, "mouse", 0, 0, { button: 2, buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("destroy() removes the listeners", () => {
+    const spy = vi.spyOn(canvas, "removeEventListener");
+    editor.destroy();
+    expect(spy).toHaveBeenCalled();
+    fire(canvas, "pointerdown", 1, "mouse", 0, 0);
+    fire(canvas, "pointerup", 1, "mouse", 0, 0);
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+});
+
+describe("Editor pan and zoom gestures", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+
+  beforeEach(() => {
+    canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [],
+      renderer: { raf: () => 1, caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+  });
+
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+  });
+
+  const wheel = (init: WheelEventInit) => {
+    const e = new WheelEvent("wheel", { bubbles: true, cancelable: true, ...init });
+    canvas.dispatchEvent(e);
+    return e;
+  };
+
+  it("two fingers moving apart zoom about their midpoint", () => {
+    fire(canvas, "pointerdown", 1, "touch", 90, 100);
+    fire(canvas, "pointerdown", 2, "touch", 110, 100);
+    const before = editor.camera.screenToWorld(100, 100);
+    fire(canvas, "pointermove", 1, "touch", 80, 100);
+    fire(canvas, "pointermove", 2, "touch", 120, 100);
+    expect(editor.camera.zoom).toBeCloseTo(2);
+    const after = editor.camera.screenToWorld(100, 100);
+    expect(after[0]).toBeCloseTo(before[0]);
+    expect(after[1]).toBeCloseTo(before[1]);
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("going from two fingers to one continues as a pan without a jump", () => {
+    fire(canvas, "pointerdown", 1, "touch", 100, 100);
+    fire(canvas, "pointerdown", 2, "touch", 200, 100);
+    fire(canvas, "pointermove", 2, "touch", 220, 100);
+    fire(canvas, "pointerup", 1, "touch", 100, 100);
+    const { x, y, zoom } = editor.camera;
+    fire(canvas, "pointermove", 2, "touch", 220, 100);
+    expect([editor.camera.x, editor.camera.y, editor.camera.zoom]).toEqual([x, y, zoom]);
+    fire(canvas, "pointermove", 2, "touch", 230, 110);
+    expect(editor.camera.x).toBeCloseTo(x - 10 / zoom);
+    expect(editor.camera.y).toBeCloseTo(y - 10 / zoom);
+    expect(editor.camera.zoom).toBe(zoom);
+  });
+
+  it("a second finger joining a one-finger pan starts a pinch without a jump", () => {
+    fire(canvas, "pointerdown", 1, "touch", 0, 0);
+    fire(canvas, "pointermove", 1, "touch", 10, 0);
+    fire(canvas, "pointerdown", 2, "touch", 110, 0);
+    const { x, y, zoom } = editor.camera;
+    fire(canvas, "pointermove", 2, "touch", 110, 0);
+    expect([editor.camera.x, editor.camera.y, editor.camera.zoom]).toEqual([x, y, zoom]);
+  });
+
+  it("ctrl+wheel zooms at the cursor", () => {
+    editor.camera.x = 30;
+    const before = editor.camera.screenToWorld(50, 60);
+    const e = wheel({ ctrlKey: true, deltaY: -100, clientX: 50, clientY: 60 });
+    expect(e.defaultPrevented).toBe(true);
+    expect(editor.camera.zoom).toBeCloseTo(Math.exp(1));
+    const after = editor.camera.screenToWorld(50, 60);
+    expect(after[0]).toBeCloseTo(before[0]);
+    expect(after[1]).toBeCloseTo(before[1]);
+  });
+
+  it("plain wheel pans", () => {
+    const e = wheel({ deltaX: 5, deltaY: 20 });
+    expect(e.defaultPrevented).toBe(true);
+    expect([editor.camera.x, editor.camera.y]).toEqual([5, 20]);
+    wheel({ deltaMode: 1, deltaY: 2 });
+    expect(editor.camera.y).toBe(20 + 32);
+  });
+
+  it("space+drag pans with the mouse instead of drawing", () => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " " }));
+    fire(canvas, "pointerdown", 1, "mouse", 10, 10);
+    fire(canvas, "pointermove", 1, "mouse", 25, 5);
+    fire(canvas, "pointerup", 1, "mouse", 25, 5, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(0);
+    expect([editor.camera.x, editor.camera.y]).toEqual([-15, 5]);
+    window.dispatchEvent(new KeyboardEvent("keyup", { code: "Space", key: " " }));
+    fire(canvas, "pointerdown", 2, "mouse", 0, 0);
+    fire(canvas, "pointermove", 2, "mouse", 5, 5);
+    fire(canvas, "pointerup", 2, "mouse", 5, 5, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("space typed into an input does not switch to panning", () => {
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent("keydown", { code: "Space", key: " ", bubbles: true }));
+    fire(canvas, "pointerdown", 1, "mouse", 0, 0);
+    fire(canvas, "pointermove", 1, "mouse", 5, 5);
+    fire(canvas, "pointerup", 1, "mouse", 5, 5, { buttons: 0 });
+    input.remove();
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("the hand tool makes mouse and pen drags pan", () => {
+    editor.setTool("hand");
+    expect(editor.tool).toBe("hand");
+    fire(canvas, "pointerdown", 1, "mouse", 10, 10);
+    fire(canvas, "pointermove", 1, "mouse", 20, 40);
+    fire(canvas, "pointerup", 1, "mouse", 20, 40, { buttons: 0 });
+    fire(canvas, "pointerdown", 2, "pen", 0, 0);
+    fire(canvas, "pointermove", 2, "pen", 5, 5);
+    fire(canvas, "pointerup", 2, "pen", 5, 5, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(0);
+    expect([editor.camera.x, editor.camera.y]).toEqual([-15, -35]);
+  });
+});
+
+describe("Editor history and eraser", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+
+  beforeEach(() => {
+    frames = [];
+    canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [],
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+  });
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+  });
+
+  function drag(id: number, kind: Kind, pts: Array<[number, number]>, extra: Partial<PointerEventInit> = {}) {
+    fire(canvas, "pointerdown", id, kind, pts[0][0], pts[0][1], extra);
+    for (const [x, y] of pts.slice(1)) fire(canvas, "pointermove", id, kind, x, y, extra);
+    fire(canvas, "pointerup", id, kind, pts.at(-1)![0], pts.at(-1)![1], { buttons: 0 });
+  }
+
+  it("Ctrl+Z undoes a stroke and Shift+Ctrl+Z redoes it", () => {
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    expect(editor.scene.all()).toHaveLength(1);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }));
+    expect(editor.scene.all()).toHaveLength(0);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Z", ctrlKey: true, shiftKey: true, bubbles: true }));
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("Cmd+Z is ignored while typing in an input", () => {
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }));
+    expect(editor.scene.all()).toHaveLength(1);
+    input.remove();
+  });
+
+  it("the highlighter tool draws highlighter strokes", () => {
+    editor.setTool("highlighter");
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    expect((editor.scene.all()[0] as StrokeEl).tool).toBe("highlighter");
+  });
+
+  it("the eraser splits a stroke and one drag is one undo step", () => {
+    drag(1, "mouse", [[0, 10], [200, 10]]);
+    editor.setTool("eraser");
+    drag(2, "mouse", [[100, 0], [100, 10], [100, 20]]);
+    expect(editor.scene.all()).toHaveLength(2);
+    editor.undo();
+    expect(editor.scene.all()).toHaveLength(1);
+    editor.undo();
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("the pen eraser button erases whatever tool is selected", () => {
+    drag(1, "mouse", [[0, 10], [200, 10]]);
+    fire(canvas, "pointerdown", 2, "pen", 100, 10, { button: 5, buttons: 32 });
+    fire(canvas, "pointerup", 2, "pen", 100, 10, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(2);
+    expect(editor.scene.all().every((e) => e.id !== undefined)).toBe(true);
+    expect(editor.tool).toBe("pen");
+  });
+
+  it("a quick two-finger tap undoes", () => {
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    fire(canvas, "pointerdown", 5, "touch", 100, 100);
+    fire(canvas, "pointerdown", 6, "touch", 140, 100);
+    fire(canvas, "pointerup", 5, "touch", 100, 100, { buttons: 0 });
+    fire(canvas, "pointerup", 6, "touch", 140, 100, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(0);
+  });
+
+  it("two fingers that move or pinch do not undo", () => {
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    fire(canvas, "pointerdown", 5, "touch", 100, 100);
+    fire(canvas, "pointerdown", 6, "touch", 140, 100);
+    fire(canvas, "pointermove", 6, "touch", 200, 100);
+    fire(canvas, "pointerup", 5, "touch", 100, 100, { buttons: 0 });
+    fire(canvas, "pointerup", 6, "touch", 200, 100, { buttons: 0 });
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("a slow two-finger touch does not undo", () => {
+    vi.useFakeTimers();
+    try {
+      drag(1, "mouse", [[10, 10], [60, 10]]);
+      fire(canvas, "pointerdown", 5, "touch", 100, 100);
+      fire(canvas, "pointerdown", 6, "touch", 140, 100);
+      vi.advanceTimersByTime(400);
+      fire(canvas, "pointerup", 5, "touch", 100, 100, { buttons: 0 });
+      fire(canvas, "pointerup", 6, "touch", 140, 100, { buttons: 0 });
+      expect(editor.scene.all()).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("onHistoryChange fires with undo/redo availability", () => {
+    const seen: Array<[boolean, boolean]> = [];
+    editor.onHistoryChange(() => seen.push([editor.canUndo(), editor.canRedo()]));
+    drag(1, "mouse", [[10, 10], [60, 10]]);
+    editor.undo();
+    expect(seen).toEqual([[true, false], [false, true]]);
+  });
+
+  describe("lasso selection", () => {
+    const seed = (id: string, x: number): StrokeEl => ({
+      id, type: "stroke", tool: "pen", color: "#000", size: 2, z: 0, updatedAt: 1, simulatePressure: true,
+      points: [[x, 10, 0.5], [x + 10, 20, 0.5], [x + 20, 30, 0.5]],
+    });
+
+    function lassoAround() {
+      editor.scene.add(seed("a", 10));
+      editor.scene.add(seed("far", 400));
+      editor.setTool("lasso");
+      fire(canvas, "pointerdown", 1, "mouse", 0, 0);
+      fire(canvas, "pointermove", 1, "mouse", 100, 0);
+      fire(canvas, "pointermove", 1, "mouse", 100, 100);
+      fire(canvas, "pointermove", 1, "mouse", 0, 100);
+      fire(canvas, "pointerup", 1, "mouse", 0, 100, { buttons: 0 });
+    }
+
+    it("selects, moves as one undo step, and notifies the overlay", () => {
+      let n = 0;
+      editor.onSelectionChange(() => n++);
+      lassoAround();
+      expect(editor.selection.ids).toEqual(["a"]);
+      expect(editor.getSelectionBounds()).not.toBeNull();
+      flushFrames();
+      expect(n).toBeGreaterThan(0);
+      fire(canvas, "pointerdown", 2, "mouse", 20, 20);
+      fire(canvas, "pointermove", 2, "mouse", 30, 20);
+      fire(canvas, "pointermove", 2, "mouse", 40, 25);
+      fire(canvas, "pointerup", 2, "mouse", 40, 25, { buttons: 0 });
+      expect((editor.scene.get("a") as StrokeEl).points[0]).toEqual([30, 15, 0.5]);
+      expect(editor.scene.all()).toHaveLength(2);
+      editor.undo();
+      expect((editor.scene.get("a") as StrokeEl).points[0]).toEqual([10, 10, 0.5]);
+      expect(editor.selection.ids).toEqual([]);
+    });
+
+    it("Delete key removes the selection in one undo step; ignored in inputs", () => {
+      lassoAround();
+      const input = document.createElement("input");
+      document.body.appendChild(input);
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Delete", bubbles: true }));
+      expect(editor.scene.get("a")).toBeDefined();
+      input.remove();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace" }));
+      expect(editor.scene.get("a")).toBeUndefined();
+      expect(editor.selection.ids).toEqual([]);
+      editor.undo();
+      expect(editor.scene.get("a")).toBeDefined();
+    });
+
+    it("coalesces selection notifications to one per frame", () => {
+      lassoAround();
+      flushFrames();
+      let n = 0;
+      editor.onSelectionChange(() => n++);
+      for (let i = 0; i < 5; i++) canvas.dispatchEvent(new WheelEvent("wheel", { deltaY: 10, bubbles: true, cancelable: true }));
+      fire(canvas, "pointerdown", 7, "mouse", 5, 5, { buttons: 4 });
+      expect(n).toBe(0);
+      flushFrames();
+      expect(n).toBe(1);
+      flushFrames();
+      expect(n).toBe(1);
+    });
+
+    it("changing tool away from lasso clears the selection", () => {
+      lassoAround();
+      editor.setTool("pen");
+      expect(editor.selection.ids).toEqual([]);
+    });
+
+    it("selected elements erased elsewhere drop out of the selection", () => {
+      lassoAround();
+      editor.scene.remove("a");
+      expect(editor.selection.ids).toEqual([]);
+    });
+  });
+
+  describe("text tool", () => {
+    it("tap with the text tool opens a session on pointer up; typed text commits on the next canvas press", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      expect(editor.text.session).toBeNull();
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      expect(editor.text.session).toMatchObject({ id: null, x: 30, y: 40 });
+      editor.text.commit("hi");
+      expect(editor.scene.all()).toHaveLength(1);
+      editor.undo();
+      expect(editor.scene.all()).toHaveLength(0);
+    });
+
+    it("double tap on a text box edits it even with the pen tool, without drawing", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.commit("hi");
+      editor.setTool("pen");
+      const now = vi.spyOn(Date, "now");
+      const t0 = Date.now();
+      now.mockReturnValue(t0 + 2000); // not a double tap with the creating tap
+      fire(canvas, "pointerdown", 2, "mouse", 35, 45);
+      fire(canvas, "pointerup", 2, "mouse", 35, 45, { buttons: 0 });
+      const strokes = editor.scene.all().length;
+      now.mockReturnValue(t0 + 2100);
+      fire(canvas, "pointerdown", 3, "mouse", 35, 45);
+      fire(canvas, "pointerup", 3, "mouse", 35, 45, { buttons: 0 });
+      expect(editor.text.session).toMatchObject({ id: expect.any(String), text: "hi" });
+      expect(editor.scene.all().length).toBe(strokes - 1); // the first tap's dot is gone
+      now.mockRestore();
+    });
+
+    it("pen double tap on a text box leaves no dot and only the edit step", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.commit("hi");
+      editor.setTool("pen");
+      const now = vi.spyOn(Date, "now");
+      const t0 = Date.now();
+      now.mockReturnValue(t0 + 2000);
+      fire(canvas, "pointerdown", 2, "mouse", 35, 45);
+      fire(canvas, "pointerup", 2, "mouse", 35, 45, { buttons: 0 });
+      expect(editor.scene.all().filter((e) => e.type === "stroke")).toHaveLength(1); // the first tap's dot
+      now.mockReturnValue(t0 + 2100);
+      fire(canvas, "pointerdown", 3, "mouse", 35, 45);
+      expect(editor.scene.all().filter((e) => e.type === "stroke")).toHaveLength(0);
+      fire(canvas, "pointerup", 3, "mouse", 35, 45, { buttons: 0 });
+      editor.text.commit("hi there");
+      expect(editor.scene.all()).toHaveLength(1);
+      editor.undo(); // the edit
+      expect((editor.scene.all()[0] as { text: string }).text).toBe("hi");
+      editor.undo(); // the creation: no dot step in between
+      expect(editor.scene.all()).toHaveLength(0);
+      expect(editor.canUndo()).toBe(false);
+      now.mockRestore();
+    });
+
+    it("Undo with a text box still open commits the typed text first, so redo brings it back", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.draft("typed, not blurred");
+      editor.undo(); // toolbar tap: no blur on iPad Safari
+      expect(editor.text.session).toBeNull();
+      expect(editor.scene.all()).toHaveLength(0);
+      editor.redo();
+      expect(editor.scene.all().map((e) => (e as { text?: string }).text)).toEqual(["typed, not blurred"]);
+    });
+
+    it("Redo with a text box open commits the typed text first", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.draft("draft");
+      editor.redo();
+      expect(editor.text.session).toBeNull();
+      expect(editor.scene.all().map((e) => (e as { text?: string }).text)).toEqual(["draft"]);
+    });
+
+    it("open text is committed when the page is hidden", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.draft("typed");
+      window.dispatchEvent(new Event("pagehide"));
+      expect(editor.scene.all()).toHaveLength(1);
+    });
+
+    it("Delete, Backspace and Cmd+Z are left to the textarea while typing", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.commit("hi");
+      const ta = document.createElement("textarea");
+      document.body.appendChild(ta);
+      const keys = ["Delete", "Backspace"].map((key) => new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+      const undo = new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true, cancelable: true });
+      for (const k of [...keys, undo]) ta.dispatchEvent(k);
+      expect(undo.defaultPrevented).toBe(false);
+      expect(editor.scene.all()).toHaveLength(1);
+      ta.remove();
+    });
+  });
+});

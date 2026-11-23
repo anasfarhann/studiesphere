@@ -1,0 +1,479 @@
+import type { Scene } from "../model/scene";
+import type { AudioEl, CanvasElement, FileEl, StrokeEl } from "../model/types";
+import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, FILE_ICON_X, TEXT_LINE_HEIGHT } from "../model/bounds";
+import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
+import { formatDuration } from "../model/format-duration";
+import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
+import type { Camera } from "./camera";
+import { HANDLE_DRAW_PX } from "../tools/image-resize";
+import { outlineToPath, strokeOutline, type PathFactory } from "./stroke-path";
+
+export interface RendererOptions {
+  raf?: (cb: () => void) => number;
+  caf?: (id: number) => void;
+  createPath?: PathFactory;
+  /** Resolves an asset path to a decoded image. Without it, photos stay grey placeholders. */
+  loadImage?: ImageLoader;
+  /** Called before a failed image is retried, so cached signed URLs for it can be dropped. */
+  forgetImage?: (assetPath: string) => void;
+  /** Estimated decoded size (w*h*4) kept in memory; least recently drawn photos are evicted beyond it. */
+  imageBudgetBytes?: number;
+}
+
+/** ~96 MB of decoded pixels: a handful of 2048 px photos, safe for iPad Safari. */
+export const IMAGE_BUDGET_BYTES = 96 * 1024 * 1024;
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 60_000;
+
+const BADGE_COLOR: Record<FileKind, string> = {
+  pdf: "#dc2626",
+  image: "#0891b2",
+  audio: "#7c3aed",
+  video: "#db2777",
+  doc: "#2563eb",
+  sheet: "#16a34a",
+  slides: "#ea580c",
+  other: "#64748b",
+};
+
+export type ImageLoader = (assetPath: string) => Promise<ImageBitmap | HTMLImageElement>;
+type ImageEntry =
+  | { state: "loading"; failures: number }
+  | { state: "ready"; img: ImageBitmap | HTMLImageElement; bytes: number; lastUsed: number }
+  | { state: "error"; failures: number; retryAt: number };
+
+const HIGHLIGHTER_ALPHA = 0.35;
+
+export class Renderer {
+  private ctx: CanvasRenderingContext2D;
+  private cssW = 0;
+  private cssH = 0;
+  private dpr = 1;
+  private pending: number | null = null;
+  private live: StrokeEl | null = null;
+  private selection: string[] = [];
+  private lasso: [number, number][] | null = null;
+  private hidden: string | null = null;
+  private cache = new Map<string, { updatedAt: number; path: Path2D }>();
+  private maybeRemoved = false;
+  private unsubscribe: () => void;
+  private raf: (cb: () => void) => number;
+  private caf: (id: number) => void;
+  private createPath: PathFactory;
+  private loadImage: ImageLoader | undefined;
+  /** Decoded photos by assetPath, so each is fetched and decoded once. */
+  private images = new Map<string, ImageEntry>();
+  private frameNo = 0;
+  private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private destroyed = false;
+  private forgetImage: ((assetPath: string) => void) | undefined;
+  private budget: number;
+  private onWake = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    let any = false;
+    for (const e of this.images.values()) {
+      if (e.state === "error") {
+        e.retryAt = 0;
+        any = true;
+      }
+    }
+    if (any) this.requestFrame();
+  };
+
+  constructor(
+    private canvas: HTMLCanvasElement,
+    private scene: Scene,
+    private camera: Camera,
+    opts: RendererOptions = {},
+  ) {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("2D canvas context unavailable");
+    this.ctx = ctx;
+    this.raf = opts.raf ?? ((cb) => window.requestAnimationFrame(cb));
+    this.caf = opts.caf ?? ((id) => window.cancelAnimationFrame(id));
+    this.createPath = opts.createPath ?? (() => new Path2D());
+    this.loadImage = opts.loadImage;
+    this.forgetImage = opts.forgetImage;
+    this.budget = opts.imageBudgetBytes ?? IMAGE_BUDGET_BYTES;
+    if (this.loadImage) {
+      window.addEventListener("online", this.onWake);
+      document.addEventListener("visibilitychange", this.onWake);
+    }
+    this.unsubscribe = scene.onChange(() => {
+      this.maybeRemoved = true;
+      this.requestFrame();
+    });
+  }
+
+  resize(cssW: number, cssH: number, dpr: number): void {
+    this.cssW = cssW;
+    this.cssH = cssH;
+    this.dpr = dpr;
+    this.canvas.width = Math.round(cssW * dpr);
+    this.canvas.height = Math.round(cssH * dpr);
+    this.canvas.style.width = `${cssW}px`;
+    this.canvas.style.height = `${cssH}px`;
+    this.requestFrame();
+  }
+
+  requestFrame(): void {
+    if (this.destroyed) return;
+    if (this.pending !== null) return;
+    this.pending = this.raf(() => {
+      this.pending = null;
+      this.draw();
+    });
+  }
+
+  setLive(stroke: StrokeEl | null): void {
+    this.live = stroke;
+    this.requestFrame();
+  }
+
+  setSelection(ids: string[]): void {
+    this.selection = ids;
+    this.requestFrame();
+  }
+
+  /** An element not to draw (the text box being edited in the overlay), or null. */
+  setHidden(id: string | null): void {
+    this.hidden = id;
+    this.requestFrame();
+  }
+
+  /** The lasso path being drawn (world coordinates), or null. */
+  setLasso(points: [number, number][] | null): void {
+    this.lasso = points;
+    this.requestFrame();
+  }
+
+  destroy(): void {
+    this.destroyed = true;
+    this.unsubscribe();
+    if (this.pending !== null) {
+      this.caf(this.pending);
+      this.pending = null;
+    }
+    this.cache.clear();
+    this.releaseImages(() => true);
+    window.removeEventListener("online", this.onWake);
+    document.removeEventListener("visibilitychange", this.onWake);
+    for (const id of this.retryTimers.values()) clearTimeout(id);
+    this.retryTimers.clear();
+  }
+
+  private releaseImages(drop: (assetPath: string) => boolean): void {
+    for (const [path, e] of this.images) {
+      if (!drop(path)) continue;
+      if (e.state === "ready" && "close" in e.img) e.img.close();
+      this.images.delete(path);
+    }
+  }
+
+  /** The decoded image if it is ready; starts (or, after a cooldown, retries) loading. Only drawn images get here. */
+  private imageFor(assetPath: string): ImageEntry {
+    const hit = this.images.get(assetPath);
+    if (hit?.state === "ready") {
+      hit.lastUsed = this.frameNo;
+      return hit;
+    }
+    if (hit?.state === "loading") return hit;
+    const load = this.loadImage;
+    if (!load) return { state: "loading", failures: 0 };
+    if (hit && hit.state === "error") {
+      const wait = hit.retryAt - Date.now();
+      if (wait > 0) {
+        // A timer that fired early must not strand the retry.
+        if (!this.retryTimers.has(assetPath)) this.scheduleRetry(assetPath, wait);
+        return hit;
+      }
+      // Re-sign: the failure may have been an expired or never-issued URL.
+      this.forgetImage?.(assetPath);
+    }
+    const failures = hit?.failures ?? 0;
+    const loading: ImageEntry = { state: "loading", failures };
+    this.images.set(assetPath, loading);
+    load(assetPath).then(
+      (img) => {
+        const bytes = Math.max(1, img.width * img.height * 4);
+        this.settleImage(assetPath, loading, { state: "ready", img, bytes, lastUsed: this.frameNo });
+      },
+      () => {
+        const n = failures + 1;
+        const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (n - 1));
+        // Destroyed, or the entry was dropped while loading: nothing to retry.
+        if (this.destroyed || this.images.get(assetPath) !== loading) return;
+        this.settleImage(assetPath, loading, { state: "error", failures: n, retryAt: Date.now() + delay });
+        this.scheduleRetry(assetPath, delay);
+      },
+    );
+    return loading;
+  }
+
+  private scheduleRetry(assetPath: string, delay: number): void {
+    const old = this.retryTimers.get(assetPath);
+    if (old !== undefined) clearTimeout(old);
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(assetPath);
+      this.requestFrame();
+    }, delay);
+    this.retryTimers.set(assetPath, timer);
+  }
+
+  private settleImage(assetPath: string, was: ImageEntry, next: ImageEntry): void {
+    // Dropped (destroyed or no longer on the page) while loading: discard the result.
+    if (this.images.get(assetPath) !== was) {
+      if (next.state === "ready" && "close" in next.img) next.img.close();
+      return;
+    }
+    this.images.set(assetPath, next);
+    this.requestFrame();
+  }
+
+  /** Over budget: drop least recently drawn photos, never one drawn in the current frame. */
+  private evictImages(): void {
+    let total = 0;
+    const ready: Array<[string, Extract<ImageEntry, { state: "ready" }>]> = [];
+    for (const [path, e] of this.images) {
+      if (e.state !== "ready") continue;
+      total += e.bytes;
+      ready.push([path, e]);
+    }
+    if (total <= this.budget) return;
+    ready.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    for (const [path, e] of ready) {
+      if (total <= this.budget || e.lastUsed === this.frameNo) break;
+      total -= e.bytes;
+      this.releaseImages((p) => p === path);
+    }
+  }
+
+  private draw(): void {
+    if (this.destroyed) return;
+    this.frameNo++;
+    const { ctx, camera, dpr } = this;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    const k = dpr * camera.zoom;
+    ctx.setTransform(k, 0, 0, k, -camera.x * k, -camera.y * k);
+
+    for (const el of this.scene.getVisible(camera.viewRect(this.cssW, this.cssH))) {
+      if (el.id !== this.hidden) this.drawElement(el);
+    }
+    if (this.live) this.drawStroke(this.live, this.createStrokePath(this.live));
+    this.drawSelection();
+    this.drawLasso();
+    this.prune();
+    this.evictImages();
+  }
+
+  private createStrokePath(el: StrokeEl): Path2D {
+    return outlineToPath(strokeOutline(el), this.createPath);
+  }
+
+  /** Test/diagnostic hook: number of cached stroke paths. */
+  get cachedPathCount(): number {
+    return this.cache.size;
+  }
+
+  private cachedPath(el: StrokeEl): Path2D {
+    const hit = this.cache.get(el.id);
+    if (hit && hit.updatedAt === el.updatedAt) return hit.path;
+    const path = this.createStrokePath(el);
+    this.cache.set(el.id, { updatedAt: el.updatedAt, path });
+    return path;
+  }
+
+  /** Drops cache entries for elements no longer in the scene. */
+  private prune(): void {
+    if (!this.maybeRemoved) return;
+    this.maybeRemoved = false;
+    for (const id of this.cache.keys()) if (!this.scene.get(id)) this.cache.delete(id);
+    if (this.images.size > 0) {
+      const used = new Set<string>();
+      for (const el of this.scene.all()) if (el.type === "image") used.add(el.assetPath);
+      this.releaseImages((path) => !used.has(path));
+    }
+  }
+
+  private drawStroke(el: StrokeEl, path: Path2D): void {
+    const { ctx } = this;
+    ctx.fillStyle = el.color;
+    if (el.tool === "highlighter") {
+      ctx.globalAlpha = HIGHLIGHTER_ALPHA;
+      ctx.fill(path);
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fill(path);
+    }
+  }
+
+  private drawElement(el: CanvasElement): void {
+    const { ctx } = this;
+    if (el.type === "stroke") {
+      this.drawStroke(el, this.cachedPath(el));
+    } else if (el.type === "text") {
+      ctx.fillStyle = el.color;
+      ctx.font = `${el.fontSize}px sans-serif`;
+      ctx.textBaseline = "alphabetic";
+      const measure: Measure = typeof ctx.measureText === "function" ? (str) => ctx.measureText(str).width : approxMeasure;
+      const lines = wrapText(measure, el.text, el.w, el.fontSize);
+      lines.forEach((line, i) => ctx.fillText(line, el.x, el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1)));
+    } else if (el.type === "image") {
+      const entry = this.imageFor(el.assetPath);
+      if (entry.state === "ready") ctx.drawImage(entry.img, el.x, el.y, el.w, el.h);
+      else this.drawPlaceholder(el, entry.state === "error");
+    } else if (el.type === "audio") {
+      this.drawAudioCard(el);
+    } else if (el.type === "file") {
+      this.drawFileCard(el);
+    } else {
+      this.drawPlaceholder(el, false);
+    }
+  }
+
+  /** Card shell: type badge (opened by a DOM overlay, see FileCards), file name and size. */
+  private drawFileCard(el: FileEl): void {
+    const { ctx } = this;
+    const b = boundsOf(el);
+    ctx.beginPath();
+    ctx.roundRect(b.minX, b.minY, CARD_W, CARD_H, 10);
+    ctx.fillStyle = "#f8fafc";
+    ctx.fill();
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1 / this.camera.zoom;
+    ctx.stroke();
+    const kind = fileKind(el.mime, el.fileName);
+    const cx = b.minX + FILE_ICON_X;
+    const cy = b.minY + CARD_H / 2;
+    const half = FILE_ICON_SIZE / 2;
+    ctx.beginPath();
+    ctx.roundRect(cx - half, cy - half, FILE_ICON_SIZE, FILE_ICON_SIZE, 8);
+    ctx.fillStyle = BADGE_COLOR[kind];
+    ctx.fill();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(FILE_BADGE[kind], cx, cy);
+    ctx.textAlign = "left";
+    const tx = cx + half + 10;
+    const maxW = b.minX + CARD_W - 10 - tx;
+    const measure = typeof ctx.measureText === "function" ? (str: string) => ctx.measureText(str).width : (str: string) => approxMeasure(str, 15);
+    ctx.fillStyle = "#1e293b";
+    ctx.font = "15px sans-serif";
+    ctx.fillText(ellipsize(measure, el.fileName, maxW), tx, cy - 9);
+    ctx.fillStyle = "#64748b";
+    ctx.font = "13px sans-serif";
+    ctx.fillText(formatBytes(el.bytes), tx, cy + 12);
+    ctx.textBaseline = "alphabetic";
+  }
+
+  /** Card shell, play icon and duration; the real play/pause button is a DOM overlay (AudioCards). */
+  private drawAudioCard(el: AudioEl): void {
+    const { ctx } = this;
+    const b = boundsOf(el);
+    ctx.beginPath();
+    ctx.roundRect(b.minX, b.minY, CARD_W, CARD_H, 10);
+    ctx.fillStyle = "#f8fafc";
+    ctx.fill();
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 1 / this.camera.zoom;
+    ctx.stroke();
+    // Play icon area: a filled circle with a triangle, matching the overlay button's position.
+    const cx = b.minX + AUDIO_ICON_X;
+    const cy = b.minY + CARD_H / 2;
+    ctx.beginPath();
+    ctx.roundRect(cx - AUDIO_ICON_R, cy - AUDIO_ICON_R, AUDIO_ICON_R * 2, AUDIO_ICON_R * 2, AUDIO_ICON_R);
+    ctx.fillStyle = "#1e293b";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(cx - 6, cy - 9);
+    ctx.lineTo(cx + 10, cy);
+    ctx.lineTo(cx - 6, cy + 9);
+    ctx.fillStyle = "#ffffff";
+    ctx.fill();
+    ctx.fillStyle = "#1e293b";
+    ctx.font = "18px sans-serif";
+    ctx.textBaseline = "middle";
+    ctx.fillText(formatDuration(el.durationMs), b.minX + AUDIO_ICON_X + AUDIO_ICON_R + 14, cy);
+    ctx.textBaseline = "alphabetic";
+  }
+
+  private drawPlaceholder(el: CanvasElement, broken: boolean): void {
+    const { ctx } = this;
+    const b = boundsOf(el);
+    ctx.beginPath();
+    ctx.roundRect(b.minX, b.minY, b.maxX - b.minX, b.maxY - b.minY, 6);
+    ctx.fillStyle = "#f1f1f1";
+    ctx.fill();
+    ctx.strokeStyle = "#c8c8c8";
+    ctx.lineWidth = 1 / this.camera.zoom;
+    ctx.stroke();
+    if (!broken) return;
+    // A small "x" in the middle: the picture could not be loaded.
+    const r = Math.min(12 / this.camera.zoom, (b.maxX - b.minX) / 4, (b.maxY - b.minY) / 4);
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - r, cy - r);
+    ctx.lineTo(cx + r, cy + r);
+    ctx.moveTo(cx + r, cy - r);
+    ctx.lineTo(cx - r, cy + r);
+    ctx.strokeStyle = "#9ca3af";
+    ctx.lineWidth = 2 / this.camera.zoom;
+    ctx.stroke();
+  }
+
+  /** One dashed box around the whole selection. */
+  private drawSelection(): void {
+    const { ctx, camera } = this;
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (const id of this.selection) {
+      const el = this.scene.get(id);
+      if (!el) continue;
+      const b = boundsOf(el);
+      minX = Math.min(minX, b.minX);
+      minY = Math.min(minY, b.minY);
+      maxX = Math.max(maxX, b.maxX);
+      maxY = Math.max(maxY, b.maxY);
+    }
+    if (minX === Infinity) return;
+    ctx.save();
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.setLineDash([4 / camera.zoom, 3 / camera.zoom]);
+    ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
+    ctx.restore();
+    this.drawResizeHandle(maxX, maxY);
+  }
+
+  /** Corner grip for a single selected photo (the touch target is larger than what is drawn). */
+  private drawResizeHandle(cx: number, cy: number): void {
+    if (this.selection.length !== 1 || this.scene.get(this.selection[0])?.type !== "image") return;
+    const { ctx, camera } = this;
+    const s = HANDLE_DRAW_PX / camera.zoom;
+    ctx.fillStyle = "#2563eb";
+    ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
+  }
+
+  private drawLasso(): void {
+    const { ctx, camera } = this;
+    const pts = this.lasso;
+    if (!pts || pts.length < 2) return;
+    ctx.save();
+    ctx.strokeStyle = "#2563eb";
+    ctx.lineWidth = 1 / camera.zoom;
+    ctx.setLineDash([4 / camera.zoom, 3 / camera.zoom]);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
