@@ -1,5 +1,5 @@
 import { compressImageWithSize, type CompressedImage } from "../attachments/compress-image";
-import { AttachmentError, type UploadOptions } from "../attachments/upload";
+import { AttachmentError, MAX_ATTACHMENT_BYTES, type UploadOptions } from "../attachments/upload";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
 import type { ImageEl } from "../model/types";
@@ -66,6 +66,12 @@ export class PhotoInserter {
 
   async insert(file: File): Promise<void> {
     if (this.busy || this.disposed) return;
+    // Refuse before decoding: a huge original should never reach the image decoder.
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      this.pending = null;
+      this.setStatus({ kind: "error", message: t("attachmentTooLarge"), retryable: false });
+      return;
+    }
     this.busy = true;
     this.setStatus({ kind: "uploading" });
     try {

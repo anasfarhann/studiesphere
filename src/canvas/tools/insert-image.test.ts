@@ -70,6 +70,20 @@ describe("PhotoInserter", () => {
     expect(photos.status).toEqual({ kind: "error", message: "This file is larger than 50 MB", retryable: false });
   });
 
+  it("rejects a 51 MB original before compressing or uploading", async () => {
+    const upload = vi.fn();
+    const compress = vi.fn();
+    const photos = new PhotoInserter({
+      scene: new Scene(), history: new History(), ownerId: "o", pageId: "p", center: () => [0, 0], upload, compress,
+    });
+    const big = new File(["x"], "big.jpg", { type: "image/jpeg" });
+    Object.defineProperty(big, "size", { value: 51 * 1024 * 1024 });
+    await photos.insert(big);
+    expect(compress).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+    expect(photos.status).toEqual({ kind: "error", message: "This file is larger than 50 MB", retryable: false });
+  });
+
   it("an unreadable image reports an error and never uploads", async () => {
     const upload = vi.fn();
     const photos = new PhotoInserter({

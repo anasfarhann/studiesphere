@@ -23,6 +23,8 @@ export interface EditorOptions {
   renderer?: RendererOptions;
   /** Loads photo cards' images; without it they stay grey placeholders. */
   loadImage?: ImageLoader;
+  /** Drops cached signed URLs for an asset before its image load is retried. */
+  forgetImage?: (assetPath: string) => void;
 }
 
 type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number; lastY: number };
@@ -95,7 +97,7 @@ export class Editor {
     this.scene = new Scene(opts.elements);
     this.raf = opts.renderer?.raf ?? ((cb) => window.requestAnimationFrame(cb));
     this.caf = opts.renderer?.caf ?? ((id) => window.cancelAnimationFrame(id));
-    this.renderer = new Renderer(canvas, this.scene, this.camera, { loadImage: opts.loadImage, ...opts.renderer });
+    this.renderer = new Renderer(canvas, this.scene, this.camera, { loadImage: opts.loadImage, forgetImage: opts.forgetImage, ...opts.renderer });
     this.selection = new Selection(this.scene);
     this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.color });
     this.text.onChange(() => {

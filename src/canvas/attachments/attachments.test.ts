@@ -43,6 +43,15 @@ describe("AttachmentService", () => {
     });
   });
 
+  it("forgetSignedUrl makes the next call re-sign", async () => {
+    const storage = fakeStorage();
+    const svc = new AttachmentService(storage);
+    await svc.signedUrl("a");
+    svc.forgetSignedUrl("a");
+    await svc.signedUrl("a");
+    expect(storage.createSignedUrl).toHaveBeenCalledTimes(2);
+  });
+
   it("caches signed urls for 50 minutes", async () => {
     const storage = fakeStorage();
     let now = 1_000;

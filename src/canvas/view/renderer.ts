@@ -12,10 +12,22 @@ export interface RendererOptions {
   createPath?: PathFactory;
   /** Resolves an asset path to a decoded image. Without it, photos stay grey placeholders. */
   loadImage?: ImageLoader;
+  /** Called before a failed image is retried, so cached signed URLs for it can be dropped. */
+  forgetImage?: (assetPath: string) => void;
+  /** Estimated decoded size (w*h*4) kept in memory; least recently drawn photos are evicted beyond it. */
+  imageBudgetBytes?: number;
 }
 
+/** ~96 MB of decoded pixels: a handful of 2048 px photos, safe for iPad Safari. */
+export const IMAGE_BUDGET_BYTES = 96 * 1024 * 1024;
+const RETRY_BASE_MS = 5_000;
+const RETRY_MAX_MS = 60_000;
+
 export type ImageLoader = (assetPath: string) => Promise<ImageBitmap | HTMLImageElement>;
-type ImageEntry = { state: "loading" } | { state: "ready"; img: ImageBitmap | HTMLImageElement } | { state: "error" };
+type ImageEntry =
+  | { state: "loading"; failures: number }
+  | { state: "ready"; img: ImageBitmap | HTMLImageElement; bytes: number; lastUsed: number }
+  | { state: "error"; failures: number; retryAt: number };
 
 const HIGHLIGHTER_ALPHA = 0.35;
 
@@ -38,6 +50,21 @@ export class Renderer {
   private loadImage: ImageLoader | undefined;
   /** Decoded photos by assetPath, so each is fetched and decoded once. */
   private images = new Map<string, ImageEntry>();
+  private frameNo = 0;
+  private retryTimers = new Set<ReturnType<typeof setTimeout>>();
+  private forgetImage: ((assetPath: string) => void) | undefined;
+  private budget: number;
+  private onWake = () => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    let any = false;
+    for (const e of this.images.values()) {
+      if (e.state === "error") {
+        e.retryAt = 0;
+        any = true;
+      }
+    }
+    if (any) this.requestFrame();
+  };
 
   constructor(
     private canvas: HTMLCanvasElement,
@@ -52,6 +79,12 @@ export class Renderer {
     this.caf = opts.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.createPath = opts.createPath ?? (() => new Path2D());
     this.loadImage = opts.loadImage;
+    this.forgetImage = opts.forgetImage;
+    this.budget = opts.imageBudgetBytes ?? IMAGE_BUDGET_BYTES;
+    if (this.loadImage) {
+      window.addEventListener("online", this.onWake);
+      document.addEventListener("visibilitychange", this.onWake);
+    }
     this.unsubscribe = scene.onChange(() => {
       this.maybeRemoved = true;
       this.requestFrame();
@@ -107,6 +140,10 @@ export class Renderer {
     }
     this.cache.clear();
     this.releaseImages(() => true);
+    window.removeEventListener("online", this.onWake);
+    document.removeEventListener("visibilitychange", this.onWake);
+    for (const id of this.retryTimers) clearTimeout(id);
+    this.retryTimers.clear();
   }
 
   private releaseImages(drop: (assetPath: string) => boolean): void {
@@ -117,17 +154,39 @@ export class Renderer {
     }
   }
 
-  /** The decoded image if it is ready; starts loading it the first time it is asked for. */
+  /** The decoded image if it is ready; starts (or, after a cooldown, retries) loading. Only drawn images get here. */
   private imageFor(assetPath: string): ImageEntry {
     const hit = this.images.get(assetPath);
-    if (hit) return hit;
+    if (hit?.state === "ready") {
+      hit.lastUsed = this.frameNo;
+      return hit;
+    }
+    if (hit?.state === "loading") return hit;
     const load = this.loadImage;
-    const loading: ImageEntry = { state: "loading" };
-    if (!load) return loading;
+    if (!load) return { state: "loading", failures: 0 };
+    if (hit && hit.state === "error") {
+      if (Date.now() < hit.retryAt) return hit;
+      // Re-sign: the failure may have been an expired or never-issued URL.
+      this.forgetImage?.(assetPath);
+    }
+    const failures = hit?.failures ?? 0;
+    const loading: ImageEntry = { state: "loading", failures };
     this.images.set(assetPath, loading);
     load(assetPath).then(
-      (img) => this.settleImage(assetPath, loading, { state: "ready", img }),
-      () => this.settleImage(assetPath, loading, { state: "error" }),
+      (img) => {
+        const bytes = Math.max(1, img.width * img.height * 4);
+        this.settleImage(assetPath, loading, { state: "ready", img, bytes, lastUsed: this.frameNo });
+      },
+      () => {
+        const n = failures + 1;
+        const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (n - 1));
+        this.settleImage(assetPath, loading, { state: "error", failures: n, retryAt: Date.now() + delay });
+        const timer = setTimeout(() => {
+          this.retryTimers.delete(timer);
+          this.requestFrame();
+        }, delay);
+        this.retryTimers.add(timer);
+      },
     );
     return loading;
   }
@@ -142,7 +201,26 @@ export class Renderer {
     this.requestFrame();
   }
 
+  /** Over budget: drop least recently drawn photos, never one drawn in the current frame. */
+  private evictImages(): void {
+    let total = 0;
+    const ready: Array<[string, Extract<ImageEntry, { state: "ready" }>]> = [];
+    for (const [path, e] of this.images) {
+      if (e.state !== "ready") continue;
+      total += e.bytes;
+      ready.push([path, e]);
+    }
+    if (total <= this.budget) return;
+    ready.sort((a, b) => a[1].lastUsed - b[1].lastUsed);
+    for (const [path, e] of ready) {
+      if (total <= this.budget || e.lastUsed === this.frameNo) break;
+      total -= e.bytes;
+      this.releaseImages((p) => p === path);
+    }
+  }
+
   private draw(): void {
+    this.frameNo++;
     const { ctx, camera, dpr } = this;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.fillStyle = "#ffffff";
@@ -158,6 +236,7 @@ export class Renderer {
     this.drawSelection();
     this.drawLasso();
     this.prune();
+    this.evictImages();
   }
 
   private createStrokePath(el: StrokeEl): Path2D {

@@ -58,6 +58,11 @@ export class AttachmentService {
     return { assetPath };
   }
 
+  /** Drops the cached URL so the next signedUrl() asks the server again. */
+  forgetSignedUrl(assetPath: string): void {
+    this.urls.delete(assetPath);
+  }
+
   /** Cached for 50 minutes per path. */
   async signedUrl(assetPath: string): Promise<string> {
     const hit = this.urls.get(assetPath);

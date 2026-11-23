@@ -60,6 +60,7 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
     if (!box || !canvas) return;
     const editor = new Editor(canvas, {
       elements: initial,
+      forgetImage: files ? (path) => files.service.forgetSignedUrl(path) : undefined,
       loadImage: files ? createImageLoader((path) => files.service.signedUrl(path)) : undefined,
     });
     editorRef.current = editor;

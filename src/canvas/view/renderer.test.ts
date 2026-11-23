@@ -183,6 +183,91 @@ describe("Renderer", () => {
       expect(load).toHaveBeenCalledTimes(1);
     });
 
+    it("never loads images that are off screen", async () => {
+      scene.add({ ...photo, id: "far", x: 5000, assetPath: "far.jpg" });
+      const load = vi.fn(async () => bitmap);
+      const r = makeWith(load);
+      r.resize(400, 400, 1);
+      flush();
+      await settle();
+      expect(load).not.toHaveBeenCalled();
+    });
+
+    it("evicts the least recently drawn image over budget, closes it, and reloads it on return", async () => {
+      const mk = () => ({ width: 400, height: 200, close: vi.fn() }) as unknown as ImageBitmap;
+      const bitmaps: Record<string, ImageBitmap> = { "a.jpg": mk(), "b.jpg": mk() };
+      const load = vi.fn(async (p: string) => bitmaps[p]);
+      scene.add({ ...photo, id: "a", x: 10, assetPath: "a.jpg" });
+      scene.add({ ...photo, id: "b", x: 3000, assetPath: "b.jpg" });
+      // 400*200*4 = 320 000 bytes each; budget fits one.
+      const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: load, imageBudgetBytes: 500_000 });
+      r.resize(400, 400, 1);
+      flush(); await settle(); flush();
+      expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+      camera.x = 3000;
+      r.requestFrame(); flush(); await settle(); flush();
+      expect(ctx.drawImage).toHaveBeenCalledTimes(2);
+      expect((bitmaps["a.jpg"] as unknown as { close: () => void }).close).toHaveBeenCalledTimes(1);
+      expect((bitmaps["b.jpg"] as unknown as { close: () => void }).close).not.toHaveBeenCalled();
+      camera.x = 0;
+      r.requestFrame(); flush(); await settle(); flush();
+      expect(load.mock.calls.filter((c) => c[0] === "a.jpg")).toHaveLength(2);
+      expect(ctx.drawImage).toHaveBeenCalledTimes(3);
+    });
+
+    it("keeps every visible image even when over budget", async () => {
+      const mk = () => ({ width: 400, height: 200, close: vi.fn() }) as unknown as ImageBitmap;
+      scene.add({ ...photo, id: "a", x: 10, assetPath: "a.jpg" });
+      scene.add({ ...photo, id: "b", x: 10, y: 200, assetPath: "b.jpg" });
+      const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: async () => mk(), imageBudgetBytes: 1 });
+      r.resize(400, 400, 1);
+      flush(); await settle(); flush();
+      expect(ctx.drawImage).toHaveBeenCalledTimes(2);
+    });
+
+    describe("retry", () => {
+      it("retries a failed load after a cooldown (backing off), forgetting the signed url", async () => {
+        vi.useFakeTimers();
+        try {
+          scene.add(photo);
+          const load = vi.fn<(p: string) => Promise<ImageBitmap>>().mockRejectedValue(new Error("5xx"));
+          const forget = vi.fn();
+          const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: load, forgetImage: forget });
+          r.resize(400, 400, 1);
+          flush(); await vi.advanceTimersByTimeAsync(0); flush();
+          expect(load).toHaveBeenCalledTimes(1);
+          await vi.advanceTimersByTimeAsync(4_900); flush();
+          expect(load).toHaveBeenCalledTimes(1);
+          await vi.advanceTimersByTimeAsync(200); flush();
+          expect(forget).toHaveBeenCalledWith("o/p/a.jpg");
+          expect(load).toHaveBeenCalledTimes(2);
+          // second failure: next retry only after 10 s
+          await vi.advanceTimersByTimeAsync(0); flush();
+          await vi.advanceTimersByTimeAsync(9_000); flush();
+          expect(load).toHaveBeenCalledTimes(2);
+          load.mockResolvedValue(bitmap);
+          await vi.advanceTimersByTimeAsync(1_500); flush();
+          await vi.advanceTimersByTimeAsync(0); flush();
+          expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("retries immediately when the browser comes back online", async () => {
+        scene.add(photo);
+        const load = vi.fn<(p: string) => Promise<ImageBitmap>>().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(bitmap);
+        const r = makeWith(load);
+        r.resize(400, 400, 1);
+        flush(); await settle(); flush();
+        window.dispatchEvent(new Event("online"));
+        flush(); await settle(); flush();
+        expect(load).toHaveBeenCalledTimes(2);
+        expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+        r.destroy();
+      });
+    });
+
     it("draws a resize handle only for a single selected image", async () => {
       scene.add(photo);
       const r = makeWith(async () => bitmap);
