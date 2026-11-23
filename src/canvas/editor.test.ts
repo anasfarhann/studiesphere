@@ -505,8 +505,43 @@ describe("Editor history and eraser", () => {
       fire(canvas, "pointerdown", 3, "mouse", 35, 45);
       fire(canvas, "pointerup", 3, "mouse", 35, 45, { buttons: 0 });
       expect(editor.text.session).toMatchObject({ id: expect.any(String), text: "hi" });
-      expect(editor.scene.all().length).toBe(strokes);
+      expect(editor.scene.all().length).toBe(strokes - 1); // the first tap's dot is gone
       now.mockRestore();
+    });
+
+    it("pen double tap on a text box leaves no dot and only the edit step", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.commit("hi");
+      editor.setTool("pen");
+      const now = vi.spyOn(Date, "now");
+      const t0 = Date.now();
+      now.mockReturnValue(t0 + 2000);
+      fire(canvas, "pointerdown", 2, "mouse", 35, 45);
+      fire(canvas, "pointerup", 2, "mouse", 35, 45, { buttons: 0 });
+      expect(editor.scene.all().filter((e) => e.type === "stroke")).toHaveLength(1); // the first tap's dot
+      now.mockReturnValue(t0 + 2100);
+      fire(canvas, "pointerdown", 3, "mouse", 35, 45);
+      expect(editor.scene.all().filter((e) => e.type === "stroke")).toHaveLength(0);
+      fire(canvas, "pointerup", 3, "mouse", 35, 45, { buttons: 0 });
+      editor.text.commit("hi there");
+      expect(editor.scene.all()).toHaveLength(1);
+      editor.undo(); // the edit
+      expect((editor.scene.all()[0] as { text: string }).text).toBe("hi");
+      editor.undo(); // the creation: no dot step in between
+      expect(editor.scene.all()).toHaveLength(0);
+      expect(editor.canUndo()).toBe(false);
+      now.mockRestore();
+    });
+
+    it("open text is committed when the page is hidden", () => {
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.draft("typed");
+      window.dispatchEvent(new Event("pagehide"));
+      expect(editor.scene.all()).toHaveLength(1);
     });
 
     it("Delete, Backspace and Cmd+Z are left to the textarea while typing", () => {

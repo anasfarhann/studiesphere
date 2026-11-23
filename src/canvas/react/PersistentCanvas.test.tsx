@@ -2,7 +2,8 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Scene } from "../model/scene";
-import type { StrokeEl } from "../model/types";
+import type { StrokeEl, TextEl } from "../model/types";
+import type { Editor } from "../editor";
 import type { OfflineQueue } from "../persistence/store";
 import { MemoryElementStore, MemoryOfflineQueue } from "../persistence/memory-store";
 import { PersistentCanvas } from "./PersistentCanvas";
@@ -74,6 +75,32 @@ describe("PersistentCanvas", () => {
     act(() => scene.add(stroke("new", Date.now())));
     await waitFor(async () => expect((await store.load("p")).map((e) => e.id)).toContain("new"), { timeout: 3000 });
     expect(Date.now() - before).toBeLessThanOrEqual(2000);
+  });
+
+  it("text still being typed when the page unmounts is saved", async () => {
+    const store = new MemoryElementStore();
+    const { unmount } = render(<PersistentCanvas pageId="p" store={store} queue={new MemoryOfflineQueue("p")} />);
+    await screen.findByTestId("canvas");
+    const editor = (window as unknown as { __editor: Editor }).__editor;
+    act(() => editor.text.beginAt(10, 10));
+    const ta = (await screen.findByTestId("text-editor")) as HTMLTextAreaElement;
+    await userEvent.type(ta, "Mitochondria");
+    unmount();
+    await waitFor(async () => expect((await store.load("p")).map((e) => (e as TextEl).text)).toEqual(["Mitochondria"]));
+  });
+
+  it("text being typed is saved when the page is hidden", async () => {
+    const store = new MemoryElementStore();
+    render(<PersistentCanvas pageId="p" store={store} queue={new MemoryOfflineQueue("p")} />);
+    await screen.findByTestId("canvas");
+    const editor = (window as unknown as { __editor: Editor }).__editor;
+    act(() => editor.text.beginAt(10, 10));
+    await userEvent.type(await screen.findByTestId("text-editor"), "Ribosome");
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    act(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await waitFor(async () => expect((await store.load("p")).map((e) => (e as TextEl).text)).toEqual(["Ribosome"]));
   });
 
   it("never shows an empty canvas when loading fails; offers a retry", async () => {

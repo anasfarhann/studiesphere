@@ -64,6 +64,8 @@ export class Editor {
   /** Two quick taps on a text box edit it, whatever tool is selected. */
   private doubleTap = new DoubleTap();
   /** A second tap that landed on a text box: edit it when that pointer lifts. */
+  /** The stroke step committed by the previous pointer, for undoing a double-tap's first-tap dot. */
+  private lastStroke: Change | null = null;
   private dbl: { pointerId: number; textId: string } | null = null;
   private renderer: Renderer;
   private tools: Partial<Record<ToolId, Tool>>;
@@ -106,7 +108,10 @@ export class Editor {
       scene: this.scene,
       style: () => ({ color: this.color, size: this.size }),
       setLive: (s: StrokeEl | null) => this.renderer.setLive(s),
-      onCommit: (c: Change) => this.history.push(c),
+      onCommit: (c: Change) => {
+        this.history.push(c);
+        this.lastStroke = c;
+      },
     };
     this.tools = {
       pen: new PenTool(stroke),
@@ -135,6 +140,9 @@ export class Editor {
     window.addEventListener("keydown", this.onKey);
     window.addEventListener("keyup", this.onKey);
     window.addEventListener("blur", this.onBlur);
+    // Registered before autosave's own listeners, so open text reaches the scene before its flush.
+    document.addEventListener("visibilitychange", this.onHide);
+    window.addEventListener("pagehide", this.onHide);
   }
 
   get tool(): ToolId {
@@ -232,6 +240,8 @@ export class Editor {
     window.removeEventListener("keydown", this.onKey);
     window.removeEventListener("keyup", this.onKey);
     window.removeEventListener("blur", this.onBlur);
+    document.removeEventListener("visibilitychange", this.onHide);
+    window.removeEventListener("pagehide", this.onHide);
     this.renderer.destroy();
   }
 
@@ -296,7 +306,9 @@ export class Editor {
     // Pressing the canvas ends any text being typed (blur does not reliably fire when pointerdown is cancelled).
     this.text.commit();
     this.doubleTap.down(e.pointerId, sx, sy);
-    if (this.detectDoubleTap(e, kind, sx, sy, touches)) return;
+    const prevStroke = this.lastStroke;
+    this.lastStroke = null;
+    if (this.detectDoubleTap(e, kind, sx, sy, touches, prevStroke)) return;
 
     const gesture = this.router.classify({ pointerType: kind, activeTouches: touches });
 
@@ -334,11 +346,13 @@ export class Editor {
   };
 
   /** Second quick tap on a text box: claim the pointer (no stroke) and edit on pointer up. */
-  private detectDoubleTap(e: PointerEvent, kind: InputKind, sx: number, sy: number, touches: number): boolean {
+  private detectDoubleTap(e: PointerEvent, kind: InputKind, sx: number, sy: number, touches: number, prevStroke: Change | null): boolean {
     if (touches > 1 || this.pointers.size > 0 || !this.doubleTap.isSecond(sx, sy)) return false;
     const [wx, wy] = this.camera.screenToWorld(sx, sy);
     const textId = textAt(this.scene, wx, wy);
     if (!textId) return false;
+    // The first tap already drew a dot (own undo step): the double tap must leave only the edit.
+    if (prevStroke && this.history.discard(prevStroke)) for (const el of prevStroke.after) this.scene.remove(el.id);
     this.capture(e);
     this.dbl = { pointerId: e.pointerId, textId };
     this.pointers.set(e.pointerId, { kind, mode: "ignore", lastX: sx, lastY: sy });
@@ -421,6 +435,10 @@ export class Editor {
     if (e.code !== "Space") return;
     if (e.type === "keydown" && isEditable(e.target)) return;
     this.spaceDown = e.type === "keydown";
+  };
+
+  private onHide = (e: Event): void => {
+    if (e.type === "pagehide" || document.visibilityState === "hidden") this.text.commit();
   };
 
   private onBlur = (): void => {

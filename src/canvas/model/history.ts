@@ -35,6 +35,14 @@ export class History {
     this.emit();
   }
 
+  /** Drops `c` if it is the newest undo step (it is not applied or undone). Returns whether it was dropped. */
+  discard(c: Change): boolean {
+    if (this.undos[this.undos.length - 1] !== c) return false;
+    this.undos.pop();
+    this.emit();
+    return true;
+  }
+
   private apply(scene: Scene, from: CanvasElement[], to: CanvasElement[]): void {
     const fromIds = new Set(from.map((e) => e.id));
     const toIds = new Set(to.map((e) => e.id));

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it } from "vitest";
 import { boundsOf } from "../model/bounds";
 import { History } from "../model/history";
@@ -16,6 +17,11 @@ describe("wrapText", () => {
   });
   it("wraps at word boundaries to the width", () => {
     expect(wrapText(fixed, "aa bb cc", 5, 1)).toEqual(["aa bb", "cc"]);
+  });
+  it("keeps leading and repeated spaces, and does not use regex lookbehind", () => {
+    expect(wrapText(fixed, " a  b", 1000, 1)).toEqual([" a  b"]);
+    expect(wrapText(fixed, "aaa bbb", 3, 1)).toEqual(["aaa", "bbb"]);
+    expect(readFileSync("src/canvas/model/wrap-text.ts", "utf8")).not.toMatch(/\(\?<[=!]/);
   });
   it("breaks a word longer than the width by characters", () => {
     expect(wrapText(fixed, "abcdefg", 3, 1)).toEqual(["abc", "def", "g"]);

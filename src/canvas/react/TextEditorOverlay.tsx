@@ -82,7 +82,10 @@ export function TextEditorOverlay({ editor }: { editor: Editor }) {
       tabIndex={active ? 0 : -1}
       rows={1}
       spellCheck
-      onInput={grow}
+      onInput={(e) => {
+        editor.text.draft(e.currentTarget.value);
+        grow();
+      }}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && e.key === "Enter")) {

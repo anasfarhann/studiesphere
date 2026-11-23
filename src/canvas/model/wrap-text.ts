@@ -19,7 +19,7 @@ export function wrapText(measure: Measure, text: string, w: number, fontSize: nu
       continue;
     }
     let line = "";
-    for (const word of para.split(/(?<= )/)) {
+    for (const word of para.match(/\S+\s*|\s+/g) ?? []) {
       const trial = line + word;
       if (line === "" || measure(trial.trimEnd(), fontSize) <= w) {
         line = trial;

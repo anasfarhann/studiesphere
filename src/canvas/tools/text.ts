@@ -50,6 +50,8 @@ export function textAt(scene: Scene, x: number, y: number): string | null {
 export class TextEditing {
   private _session: TextSession | null = null;
   private input: TextInput | null = null;
+  /** Latest text typed in the overlay; used if the overlay is already gone when we commit. */
+  private draftText: string | null = null;
   private listeners = new Set<() => void>();
   private newId: () => string;
   private now: () => number;
@@ -72,6 +74,11 @@ export class TextEditing {
     this.input = input;
   }
 
+  /** The overlay reports every edit, so an unmount cannot lose what was typed. */
+  draft(text: string): void {
+    if (this._session) this.draftText = text;
+  }
+
   onChange(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => {
@@ -81,6 +88,7 @@ export class TextEditing {
 
   private open(s: TextSession): void {
     this._session = s;
+    this.draftText = null;
     this.emit();
     this.input?.focus();
   }
@@ -106,7 +114,7 @@ export class TextEditing {
   commit(text?: string): void {
     const s = this._session;
     if (!s) return;
-    const value = text ?? this.input?.value() ?? s.text;
+    const value = text ?? this.input?.value() ?? this.draftText ?? s.text;
     this._session = null;
     const { scene, history } = this.ctx;
     const blank = value.trim() === "";

@@ -91,6 +91,8 @@ export function CanvasView({ elements, onEditor }: CanvasViewProps) {
       canvas.removeEventListener("gestureend", preventDefault);
       canvas.removeEventListener("dblclick", preventDefault);
       canvas.removeEventListener("contextmenu", preventDefault);
+      // Open text goes into the scene before the autosave detach does its final flush.
+      editor.text.commit();
       offHist();
       detach?.();
       editor.destroy();
