@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { AttachmentService, supabaseAttachmentStorage } from "@/canvas/attachments/upload";
 import { IdbRecordingOutbox } from "@/canvas/attachments/recording-outbox";
@@ -10,7 +10,7 @@ import { SupabaseElementStore } from "@/canvas/persistence/supabase-store";
 import { PersistentCanvas } from "@/canvas/react/PersistentCanvas";
 
 /** The page's canvas, saved to Supabase with an IndexedDB offline queue. */
-export function PageCanvas({ pageId, ownerId }: { pageId: string; ownerId: string }) {
+export function PageCanvas({ pageId, ownerId, header }: { pageId: string; ownerId: string; header?: ReactNode }) {
   const [client] = useState(() => createBrowserClient());
   const [store] = useState(() => new SupabaseElementStore(client));
   const [snapshots] = useState(() => new SupabaseSnapshotStore(client));
@@ -21,5 +21,5 @@ export function PageCanvas({ pageId, ownerId }: { pageId: string; ownerId: strin
   }));
   const [queue] = useState(() => new IdbOfflineQueue(pageId));
   const [outbox] = useState(() => new IdbRecordingOutbox(pageId));
-  return <PersistentCanvas key={pageId} pageId={pageId} store={store} queue={queue} attachments={attachments} outbox={outbox} snapshots={snapshots} />;
+  return <PersistentCanvas key={pageId} pageId={pageId} store={store} queue={queue} attachments={attachments} outbox={outbox} snapshots={snapshots} header={header} />;
 }

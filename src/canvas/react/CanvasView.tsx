@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Editor } from "../editor";
 import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
@@ -50,10 +50,14 @@ export interface CanvasViewProps {
   onEditor?: (editor: Editor) => (() => void) | void;
   /** Enables the Page history button and panel. */
   snapshots?: { store: SnapshotStore; pageId: string };
+  /** Left of the top bar: the title pill. */
+  topLeft?: ReactNode;
+  /** Right of the top bar: the save status pill. */
+  status?: ReactNode;
 }
 
-/** Toolbar + full-size drawing canvas. Fills its (flex) container. */
-export function CanvasView({ elements, attachments, onEditor, snapshots }: CanvasViewProps) {
+/** Full-size drawing canvas with the top bar floating over it. Fills its (flex) container. */
+export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft, status }: CanvasViewProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -215,17 +219,6 @@ export function CanvasView({ elements, attachments, onEditor, snapshots }: Canva
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Toolbar tool={tool} onTool={pickTool} color={color} size={size} onColor={pickColor} onSize={pickSize}
-        canUndo={hist.canUndo}
-        canRedo={hist.canRedo}
-        onUndo={() => editorRef.current?.undo()}
-        onRedo={() => editorRef.current?.redo()}
-        onPhoto={files ? (file) => void photosRef.current?.insert(file) : undefined}
-        onFile={files ? (file) => void fileInsRef.current?.insert(file) : undefined}
-        onRecord={files ? () => void audioRef.current?.start() : undefined}
-        onHistory={snapshots ? () => setHistoryOpen((o) => !o) : undefined}
-        recordDisabled={audioState.kind === "recording" || audioState.kind === "uploading" || audioState.kind === "oversize"}
-      />
       <div ref={boxRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
           ref={canvasRef}
@@ -240,6 +233,17 @@ export function CanvasView({ elements, attachments, onEditor, snapshots }: Canva
             WebkitTapHighlightColor: "transparent",
             overscrollBehavior: "none",
           }}
+        />
+        <Toolbar left={topLeft} status={status} tool={tool} onTool={pickTool} color={color} size={size} onColor={pickColor} onSize={pickSize}
+          canUndo={hist.canUndo}
+          canRedo={hist.canRedo}
+          onUndo={() => editorRef.current?.undo()}
+          onRedo={() => editorRef.current?.redo()}
+          onPhoto={files ? (file) => void photosRef.current?.insert(file) : undefined}
+          onFile={files ? (file) => void fileInsRef.current?.insert(file) : undefined}
+          onRecord={files ? () => void audioRef.current?.start() : undefined}
+          onHistory={snapshots ? () => setHistoryOpen((o) => !o) : undefined}
+          recordDisabled={audioState.kind === "recording" || audioState.kind === "uploading" || audioState.kind === "oversize"}
         />
         <PhotoStatus
           status={photoState}

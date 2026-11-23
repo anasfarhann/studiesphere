@@ -18,7 +18,7 @@ function fakeCtx() {
     fillText: vi.fn(rec("fillText")), strokeRect: vi.fn(rec("strokeRect")), setLineDash: vi.fn(rec("setLineDash")),
     beginPath: vi.fn(rec("beginPath")), roundRect: vi.fn(rec("roundRect")), stroke: vi.fn(rec("stroke")),
     save: vi.fn(rec("save")), restore: vi.fn(rec("restore")), drawImage: vi.fn(rec("drawImage")),
-    moveTo: vi.fn(rec("moveTo")), lineTo: vi.fn(rec("lineTo")),
+    moveTo: vi.fn(rec("moveTo")), lineTo: vi.fn(rec("lineTo")), arc: vi.fn(rec("arc")),
   };
   return ctx;
 }
@@ -65,6 +65,57 @@ describe("Renderer", () => {
     expect(frames).toHaveLength(1);
   });
 
+  describe("dot-grid background", () => {
+    const dots = () => ctx.arc.mock.calls.map((c) => [c[0] as number, c[1] as number]);
+
+    it("fills the ground colour then draws dots only inside the view, 28 world px apart", () => {
+      const r = make();
+      r.resize(100, 100, 1);
+      camera.x = 50;
+      camera.y = 50;
+      flush();
+      expect(ctx.fillRect.mock.calls[0]).toEqual([0, 0, 100, 100]);
+      const pts = dots();
+      expect(pts.length).toBeGreaterThan(0);
+      // view is world 50..150; allow the dot radius at the edges
+      for (const [x, y] of pts) {
+        expect(x % 28).toBe(0);
+        expect(y % 28).toBe(0);
+        expect(x).toBeGreaterThanOrEqual(50 - 2);
+        expect(x).toBeLessThanOrEqual(150 + 2);
+        expect(y).toBeGreaterThanOrEqual(50 - 2);
+        expect(y).toBeLessThanOrEqual(150 + 2);
+      }
+      // 56, 84, 112, 140 in each axis
+      expect(pts).toHaveLength(16);
+    });
+
+    it("is one path: no per-dot save/restore", () => {
+      const r = make();
+      r.resize(300, 300, 1);
+      flush();
+      expect(ctx.arc.mock.calls.length).toBeGreaterThan(50);
+      expect(ctx.save).not.toHaveBeenCalled();
+      expect(ctx.calls.filter((c) => c === "beginPath")).toHaveLength(1);
+    });
+
+    it("draws no dots below zoom 0.35", () => {
+      const r = make();
+      r.resize(300, 300, 1);
+      camera.zoom = 0.3;
+      flush();
+      expect(ctx.arc).not.toHaveBeenCalled();
+    });
+
+    it("draws dots at zoom 0.35", () => {
+      const r = make();
+      r.resize(300, 300, 1);
+      camera.zoom = 0.35;
+      flush();
+      expect(ctx.arc).toHaveBeenCalled();
+    });
+  });
+
   it("coalesces requestFrame calls", () => {
     const r = make();
     r.resize(100, 100, 1);
@@ -80,7 +131,7 @@ describe("Renderer", () => {
     r.resize(200, 200, 2);
     camera.zoom = 2; camera.x = 5; camera.y = 3;
     flush();
-    expect(ctx.fill).toHaveBeenCalledTimes(1);
+    expect(ctx.fill).toHaveBeenCalledTimes(2); // dot grid + the visible stroke
     expect(ctx.setTransform).toHaveBeenCalledWith(4, 0, 0, 4, -20, -12);
   });
 
@@ -116,7 +167,7 @@ describe("Renderer", () => {
     const r = make();
     r.resize(200, 200, 1);
     flush();
-    expect(alphas).toEqual([0.35]);
+    expect(alphas).toEqual([1, 0.35]); // dot grid, then the highlighter
     expect(ctx.globalAlpha).toBe(1);
   });
 
@@ -127,10 +178,10 @@ describe("Renderer", () => {
     r.setLive(stroke("live", 30));
     r.setSelection(["a"]);
     flush();
-    expect(ctx.fill).toHaveBeenCalledTimes(2);
+    expect(ctx.fill).toHaveBeenCalledTimes(3); // dot grid + stroke + live stroke
     expect(ctx.strokeRect).toHaveBeenCalledTimes(1);
     r.requestFrame(); flush();
-    expect(ctx.fill).toHaveBeenCalledTimes(4);
+    expect(ctx.fill).toHaveBeenCalledTimes(6);
   });
 
   it("draws text lines and a file card (badge, name, size)", () => {

@@ -24,7 +24,7 @@ describe("PersistentCanvas", () => {
       () =>
         ({
           setTransform: noop, fillRect: noop, fill: noop, fillText: noop, strokeRect: noop, setLineDash: noop,
-          beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop, clearRect: noop,
+          beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop, clearRect: noop, moveTo: noop, lineTo: noop, arc: noop,
         }) as unknown as CanvasRenderingContext2D,
     );
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -147,7 +147,7 @@ describe("PersistentCanvas recording recovery", () => {
   it("recovers a recording left in the outbox: uploads, adds the card, saves it and says so", async () => {
     const noop = () => {};
     vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
-      () => ({ setTransform: noop, fillRect: noop, fill: noop, fillText: noop, strokeRect: noop, setLineDash: noop, beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop, clearRect: noop, moveTo: noop, lineTo: noop }) as unknown as CanvasRenderingContext2D,
+      () => ({ setTransform: noop, fillRect: noop, fill: noop, fillText: noop, strokeRect: noop, setLineDash: noop, beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop, clearRect: noop, moveTo: noop, lineTo: noop, arc: noop }) as unknown as CanvasRenderingContext2D,
     );
     vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
     vi.stubGlobal("matchMedia", () => ({ addEventListener() {}, removeEventListener() {} }));

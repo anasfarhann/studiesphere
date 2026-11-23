@@ -27,7 +27,7 @@ export function OversizeRecordings({ entries, outbox, onRemoved, download = down
       role="status"
       aria-label={t("oversizeRecordingsLabel")}
       data-testid="oversize-recordings"
-      className="absolute bottom-20 left-1/2 z-10 flex touch-manipulation -translate-x-1/2 flex-col gap-2 rounded-lg border bg-white px-3 py-2 text-sm text-gray-900 shadow"
+      className="absolute bottom-20 left-1/2 z-10 flex max-w-[calc(100%-1.5rem)] touch-manipulation -translate-x-1/2 flex-col gap-2 rounded-3xl bg-card px-4 py-3 text-sm text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
     >
       {entries.map((e) => (
         <OversizeActions

@@ -37,14 +37,14 @@ export function SelectionMenu({ editor }: { editor: Editor }) {
     <div
       role="toolbar"
       aria-label={t("selectionActions")}
-      className="absolute z-10 flex -translate-x-1/2 touch-manipulation gap-1 rounded-lg border bg-white p-1 text-gray-900 shadow"
+      className="absolute z-10 flex -translate-x-1/2 touch-manipulation gap-1 rounded-3xl bg-card p-1.5 text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
       style={{ left: pos.left, top: pos.top }}
       onPointerDown={(e) => e.stopPropagation()}
     >
       <button
         type="button"
         onClick={() => editor.deleteSelection()}
-        className="inline-flex h-11 min-w-11 items-center justify-center rounded-md px-3 text-sm text-red-600"
+        className="inline-flex h-11 min-w-11 items-center justify-center gap-2 rounded-full bg-pink px-4 text-sm font-medium text-ink"
       >
         {t("deleteSelection")}
       </button>
