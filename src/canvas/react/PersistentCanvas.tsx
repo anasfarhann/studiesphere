@@ -15,9 +15,13 @@ import {
   type SaveState,
 } from "../persistence/store";
 import { MemoryRecordingOutbox, type RecordingOutbox } from "../attachments/recording-outbox";
+import type { SnapshotStore } from "../persistence/snapshot-store";
+import { SnapshotScheduler } from "../persistence/snapshots";
 import { recoverRecordings } from "../tools/recover-recordings";
 import { CanvasView, type AttachmentConfig } from "./CanvasView";
 import { SaveStatus } from "./SaveStatus";
+
+const SNAPSHOT_CHECK_MS = 60_000;
 
 type Load = { status: "loading" } | { status: "error" } | { status: "ready"; elements: CanvasElement[] };
 
@@ -29,6 +33,8 @@ export interface PersistentCanvasProps {
   attachments?: AttachmentConfig;
   /** Durable store for finished recordings; defaults to an in-memory one (survives nothing). */
   outbox?: RecordingOutbox;
+  /** Version history; omit to hide it. */
+  snapshots?: SnapshotStore;
 }
 
 /**
@@ -36,7 +42,7 @@ export interface PersistentCanvasProps {
  * canvas with autosave. The editor is never shown before the load finished, so an empty canvas
  * always means an empty page.
  */
-export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox }: PersistentCanvasProps) {
+export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox, snapshots }: PersistentCanvasProps) {
   const [attachments] = useState<AttachmentConfig | undefined>(() =>
     attachmentProps ? { ...attachmentProps, store, outbox: outbox ?? new MemoryRecordingOutbox() } : undefined,
   );
@@ -71,6 +77,17 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
       const autosave = new Autosave(editor.scene, store, pageId, { queue });
       const off = autosave.onState(setSaveState);
       let mounted = true;
+      let scheduler: SnapshotScheduler | null = null;
+      let timer: ReturnType<typeof setInterval> | null = null;
+      const onHide = () => {
+        if (document.visibilityState === "hidden") void scheduler?.check();
+      };
+      if (snapshots) {
+        scheduler = new SnapshotScheduler(editor.scene, snapshots, pageId);
+        timer = setInterval(() => void scheduler?.check(), SNAPSHOT_CHECK_MS);
+        document.addEventListener("visibilitychange", onHide);
+        window.addEventListener("pagehide", onHide);
+      }
       if (attachments?.outbox) {
         const { service, ownerId, outbox: box } = attachments;
         void recoverRecordings({
@@ -87,12 +104,16 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
       }
       return () => {
         mounted = false;
+        if (timer) clearInterval(timer);
+        document.removeEventListener("visibilitychange", onHide);
+        window.removeEventListener("pagehide", onHide);
+        scheduler?.dispose();
         off();
         // Final flush; whatever cannot be saved now stays queued for the next visit.
         void autosave.dispose();
       };
     },
-    [store, pageId, queue, attachments],
+    [store, pageId, queue, attachments, snapshots],
   );
 
   if (load.status === "loading") {
@@ -121,7 +142,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
   }
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <CanvasView elements={load.elements} attachments={attachments} onEditor={onEditor} />
+      <CanvasView elements={load.elements} attachments={attachments} onEditor={onEditor} snapshots={snapshots ? { store: snapshots, pageId } : undefined} />
       {recovered > 0 ? (
         <p role="status" className="absolute left-1/2 top-14 z-10 -translate-x-1/2 rounded bg-white px-3 py-2 text-sm shadow">
           {t("recoveredRecordings").replace("{n}", String(recovered))}

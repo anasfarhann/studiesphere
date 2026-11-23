@@ -5,6 +5,7 @@ import { AttachmentService, type AttachmentStorage } from "@/canvas/attachments/
 import type { CanvasElement } from "@/canvas/model/types";
 import { MemoryElementStore, MemoryOfflineQueue } from "@/canvas/persistence/memory-store";
 import type { ElementStore, Tombstone } from "@/canvas/persistence/store";
+import { MemorySnapshotStore } from "@/canvas/persistence/memory-snapshot-store";
 import { PersistentCanvas } from "@/canvas/react/PersistentCanvas";
 
 const DEV_PAGE = "dev-page";
@@ -57,10 +58,11 @@ function memoryAttachmentStorage(): AttachmentStorage {
 export function DevCanvas() {
   const [store] = useState(() => new SessionElementStore());
   const [queue] = useState(() => new MemoryOfflineQueue(DEV_PAGE));
+  const [snapshots] = useState(() => new MemorySnapshotStore());
   const [attachments] = useState(() => ({
     service: new AttachmentService(memoryAttachmentStorage()),
     ownerId: "dev-owner",
     pageId: DEV_PAGE,
   }));
-  return <PersistentCanvas pageId={DEV_PAGE} store={store} queue={queue} attachments={attachments} />;
+  return <PersistentCanvas pageId={DEV_PAGE} store={store} queue={queue} attachments={attachments} snapshots={snapshots} />;
 }

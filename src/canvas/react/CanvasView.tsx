@@ -18,6 +18,8 @@ import { FileStatus } from "./FileStatus";
 import { PhotoStatus } from "./PhotoStatus";
 import { RecordingBar } from "./RecordingBar";
 import { TextEditorOverlay } from "./TextEditorOverlay";
+import { HistoryPanel } from "./HistoryPanel";
+import type { SnapshotStore } from "../persistence/snapshot-store";
 import { SelectionMenu } from "./SelectionMenu";
 import { INK_COLORS, PEN_SIZES, Toolbar } from "./Toolbar";
 
@@ -46,10 +48,13 @@ export interface CanvasViewProps {
   attachments?: AttachmentConfig;
   /** Called once the editor exists; the returned cleanup runs before the editor is destroyed. */
   onEditor?: (editor: Editor) => (() => void) | void;
+  /** Enables the Page history button and panel. */
+  snapshots?: { store: SnapshotStore; pageId: string };
 }
 
 /** Toolbar + full-size drawing canvas. Fills its (flex) container. */
-export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps) {
+export function CanvasView({ elements, attachments, onEditor, snapshots }: CanvasViewProps) {
+  const [historyOpen, setHistoryOpen] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const editorRef = useRef<Editor | null>(null);
@@ -218,6 +223,7 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
         onPhoto={files ? (file) => void photosRef.current?.insert(file) : undefined}
         onFile={files ? (file) => void fileInsRef.current?.insert(file) : undefined}
         onRecord={files ? () => void audioRef.current?.start() : undefined}
+        onHistory={snapshots ? () => setHistoryOpen((o) => !o) : undefined}
         recordDisabled={audioState.kind === "recording" || audioState.kind === "uploading"}
       />
       <div ref={boxRef} className="relative min-h-0 flex-1 overflow-hidden">
@@ -268,6 +274,9 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
         ) : null}
         {editor ? <TextEditorOverlay editor={editor} /> : null}
         {editor ? <SelectionMenu editor={editor} /> : null}
+        {editor && snapshots && historyOpen ? (
+          <HistoryPanel store={snapshots.store} pageId={snapshots.pageId} editor={editor} onClose={() => setHistoryOpen(false)} />
+        ) : null}
       </div>
     </div>
   );

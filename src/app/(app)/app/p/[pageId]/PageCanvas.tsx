@@ -5,6 +5,7 @@ import { createBrowserClient } from "@/lib/supabase/client";
 import { AttachmentService, supabaseAttachmentStorage } from "@/canvas/attachments/upload";
 import { IdbRecordingOutbox } from "@/canvas/attachments/recording-outbox";
 import { IdbOfflineQueue } from "@/canvas/persistence/idb-queue";
+import { SupabaseSnapshotStore } from "@/canvas/persistence/supabase-snapshot-store";
 import { SupabaseElementStore } from "@/canvas/persistence/supabase-store";
 import { PersistentCanvas } from "@/canvas/react/PersistentCanvas";
 
@@ -12,6 +13,7 @@ import { PersistentCanvas } from "@/canvas/react/PersistentCanvas";
 export function PageCanvas({ pageId, ownerId }: { pageId: string; ownerId: string }) {
   const [client] = useState(() => createBrowserClient());
   const [store] = useState(() => new SupabaseElementStore(client));
+  const [snapshots] = useState(() => new SupabaseSnapshotStore(client));
   const [attachments] = useState(() => ({
     service: new AttachmentService(supabaseAttachmentStorage(client)),
     ownerId,
@@ -19,5 +21,5 @@ export function PageCanvas({ pageId, ownerId }: { pageId: string; ownerId: strin
   }));
   const [queue] = useState(() => new IdbOfflineQueue(pageId));
   const [outbox] = useState(() => new IdbRecordingOutbox(pageId));
-  return <PersistentCanvas key={pageId} pageId={pageId} store={store} queue={queue} attachments={attachments} outbox={outbox} />;
+  return <PersistentCanvas key={pageId} pageId={pageId} store={store} queue={queue} attachments={attachments} outbox={outbox} snapshots={snapshots} />;
 }

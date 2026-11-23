@@ -38,12 +38,14 @@ export interface ToolbarProps {
   /** Shows the Record button when set; called straight from the tap (microphone prompt needs the gesture). */
   onRecord?: () => void;
   recordDisabled?: boolean;
+  /** Shows the Page history button when set. */
+  onHistory?: () => void;
 }
 
 const btn =
   "inline-flex h-11 min-w-11 items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
 
-export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled }: ToolbarProps) {
+export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const anyFileRef = useRef<HTMLInputElement>(null);
   return (
@@ -153,6 +155,11 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
       <button type="button" aria-label={t("redo")} disabled={!canRedo} onClick={onRedo} className={`${btn} px-3 text-sm disabled:opacity-40`}>
         {t("redo")}
       </button>
+      {onHistory ? (
+        <button type="button" aria-label={t("toolHistory")} onClick={onHistory} className={`${btn} px-3 text-sm`}>
+          {t("toolHistory")}
+        </button>
+      ) : null}
       <div role="group" aria-label={t("inkColors")} className="flex items-center gap-1">
         {INK_COLORS.map((c) => (
           <button
