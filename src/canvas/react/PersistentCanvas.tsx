@@ -14,11 +14,12 @@ import {
   type SaveBatch,
   type SaveState,
 } from "../persistence/store";
-import { MemoryRecordingOutbox, type RecordingOutbox } from "../attachments/recording-outbox";
+import { MemoryRecordingOutbox, type OutboxEntry, type RecordingOutbox } from "../attachments/recording-outbox";
 import type { SnapshotStore } from "../persistence/snapshot-store";
 import { SnapshotScheduler } from "../persistence/snapshots";
 import { recoverRecordings } from "../tools/recover-recordings";
 import { CanvasView, type AttachmentConfig } from "./CanvasView";
+import { OversizeRecordings } from "./OversizeRecordings";
 import { SaveStatus } from "./SaveStatus";
 
 const SNAPSHOT_CHECK_MS = 60_000;
@@ -47,6 +48,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
     attachmentProps ? { ...attachmentProps, store, outbox: outbox ?? new MemoryRecordingOutbox() } : undefined,
   );
   const [recovered, setRecovered] = useState(0);
+  const [oversize, setOversize] = useState<OutboxEntry[]>([]);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -98,6 +100,9 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
           pageId,
           upload: (blob, o) => service.uploadAttachment(blob, o),
           isMounted: () => mounted,
+          onOversize: (entries) => {
+            if (mounted) setOversize(entries);
+          },
         }).then((n) => {
           if (n > 0 && mounted) setRecovered((c) => c + n);
         }, () => {});
@@ -147,6 +152,13 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
         <p role="status" className="absolute left-1/2 top-14 z-10 -translate-x-1/2 rounded bg-white px-3 py-2 text-sm text-gray-900 shadow">
           {t("recoveredRecordings").replace("{n}", String(recovered))}
         </p>
+      ) : null}
+      {attachments?.outbox ? (
+        <OversizeRecordings
+          entries={oversize}
+          outbox={attachments.outbox}
+          onRemoved={(id) => setOversize((cur) => cur.filter((e) => e.id !== id))}
+        />
       ) : null}
       <div
         className="pointer-events-none absolute right-3"

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { AttachmentError } from "../attachments/upload";
-import { RecorderError, type RecordingResult } from "../attachments/recorder";
+import { RecorderError, type RecorderOptions, type RecordingResult } from "../attachments/recorder";
 import { History } from "../model/history";
 import { Scene } from "../model/scene";
 import type { AudioEl } from "../model/types";
@@ -14,7 +14,7 @@ class FakeRecorder {
   started = false;
   cancelled = false;
   constructor(
-    public opts: { onAutoStop?: (p: Promise<RecordingResult>) => void },
+    public opts: RecorderOptions,
     private startError?: Error,
     public res: RecordingResult = result,
   ) {}
@@ -30,14 +30,19 @@ class FakeRecorder {
   }
 }
 
-function setup(upload: AudioRecorderContext["upload"], startError?: Error, res?: RecordingResult) {
+function setup(
+  upload: AudioRecorderContext["upload"],
+  startError?: Error,
+  res?: RecordingResult,
+  download?: AudioRecorderContext["download"],
+) {
   const scene = new Scene();
   const history = new History();
   const outbox = new MemoryRecordingOutbox();
   const store = new MemoryElementStore();
   let rec!: FakeRecorder;
   const audio = new AudioRecorder({
-    scene, history, ownerId: "own", pageId: "pg", center: () => [1000, 500], upload, newId: () => "aud-1", outbox, store,
+    scene, history, ownerId: "own", pageId: "pg", center: () => [1000, 500], upload, newId: () => "aud-1", outbox, store, download,
     createRecorder: (opts) => (rec = new FakeRecorder(opts, startError, res)) as never,
   });
   const statuses: AudioStatus[] = [];
@@ -98,23 +103,73 @@ describe("AudioRecorder", () => {
     expect((scene.get("aud-1") as AudioEl).assetPath).toBe("own/pg/u.m4a");
   });
 
-  it("a recording over 50 MB is refused with the size message, not uploaded", async () => {
+  function bigBlob(): Blob {
     const big = new Blob(["x"], { type: "audio/mp4" });
     Object.defineProperty(big, "size", { value: 51 * 1024 * 1024 });
+    return big;
+  }
+
+  it("a recording over 50 MB is kept in the outbox, never uploaded, and offered as a download", async () => {
+    const big = bigBlob();
     const upload = vi.fn();
-    const { scene, audio } = setup(upload, undefined, { blob: big, durationMs: 1, mime: "audio/mp4" });
+    const { scene, audio, outbox } = setup(upload, undefined, { blob: big, durationMs: 1, mime: "audio/mp4" });
     await audio.start();
     await audio.stop();
     expect(upload).not.toHaveBeenCalled();
     expect(scene.all()).toHaveLength(0);
-    expect(audio.status).toEqual({ kind: "error", message: "This file is larger than 50 MB", retryable: false });
+    expect(audio.status).toMatchObject({ kind: "oversize", saved: false });
+    const kept = await outbox.list();
+    expect(kept).toHaveLength(1);
+    expect(kept[0].blob).toBe(big);
+    audio.dismiss(); // a stray dismiss must not drop the offer
+    expect(audio.status.kind).toBe("oversize");
+    await audio.start(); // nor a new recording
+    expect(audio.status.kind).toBe("oversize");
+  });
+
+  it("saving an oversize recording downloads it; the outbox copy goes only when the user taps Done", async () => {
+    const big = bigBlob();
+    const download = vi.fn();
+    const { audio, outbox } = setup(vi.fn(), undefined, { blob: big, durationMs: 1, mime: "audio/mp4" }, download);
+    await audio.start();
+    await audio.stop();
+    audio.saveToDevice();
+    expect(download).toHaveBeenCalledTimes(1);
+    expect(download.mock.calls[0][0]).toBe(big);
+    expect(download.mock.calls[0][1]).toMatch(/^recording-\d{4}-\d{2}-\d{2}-\d{4}\.m4a$/);
+    expect(audio.status).toMatchObject({ kind: "oversize", saved: true });
+    expect(await outbox.list()).toHaveLength(1);
+    await audio.discardOversize();
+    expect(await outbox.list()).toHaveLength(0);
+    expect(audio.status.kind).toBe("idle");
+  });
+
+  it("an upload refused as too large keeps the recording and offers the download", async () => {
+    const upload = vi.fn(async () => {
+      throw new AttachmentError("too_large", "This file is larger than 50 MB");
+    });
+    const { audio, outbox } = setup(upload);
+    await audio.start();
+    await audio.stop();
+    expect(audio.status).toMatchObject({ kind: "oversize", saved: false });
+    expect(await outbox.list()).toHaveLength(1);
+  });
+
+  it("auto-stop at the size limit saves the card with its own notice", async () => {
+    const upload = vi.fn(async () => ({ assetPath: "own/pg/u.m4a" }));
+    const { scene, audio, rec } = setup(upload);
+    await audio.start();
+    rec().opts.onAutoStop?.(Promise.resolve(result), "size");
+    await vi.waitFor(() => expect(audio.status.kind).toBe("notice"));
+    expect(scene.get("aud-1")).toBeDefined();
+    expect(audio.status).toMatchObject({ message: "Recording stopped at the 48 MB size limit and was saved" });
   });
 
   it("auto-stop uploads, adds the card and leaves a notice", async () => {
     const upload = vi.fn(async () => ({ assetPath: "own/pg/u.m4a" }));
     const { scene, audio, rec } = setup(upload);
     await audio.start();
-    rec().opts.onAutoStop?.(Promise.resolve(result));
+    rec().opts.onAutoStop?.(Promise.resolve(result), "time");
     await vi.waitFor(() => expect(audio.status.kind).toBe("notice"));
     expect(scene.get("aud-1")).toBeDefined();
     expect(audio.status).toMatchObject({ message: "Recording stopped at 60 minutes and was saved" });

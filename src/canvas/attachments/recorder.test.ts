@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { pickAudioMime, Recorder, MAX_RECORDING_MS, type RecorderDeps } from "./recorder";
+import { pickAudioMime, Recorder, MAX_RECORDING_BYTES, MAX_RECORDING_MS, type RecorderDeps } from "./recorder";
 
 class FakeMediaRecorder {
   static supported = new Set(["audio/mp4", "audio/webm;codecs=opus", "audio/webm"]);
@@ -103,10 +103,37 @@ describe("Recorder", () => {
     advance(MAX_RECORDING_MS);
     vi.advanceTimersByTime(1);
     expect(onAutoStop).toHaveBeenCalledTimes(1);
+    expect(onAutoStop.mock.calls[0][1]).toBe("time");
     const res = await (onAutoStop.mock.calls[0][0] as Promise<{ durationMs: number }>);
     expect(res.durationMs).toBe(MAX_RECORDING_MS);
     expect(FakeMediaRecorder.last?.stopCalls).toBe(1);
     expect(stopTrack).toHaveBeenCalled();
+  });
+
+  it("auto-stops once the recorded chunks reach 48 MB, keeping every chunk", async () => {
+    const { deps, stopTrack } = setup();
+    const onAutoStop = vi.fn();
+    const r = new Recorder(deps, { onAutoStop });
+    await r.start();
+    expect(MAX_RECORDING_BYTES).toBe(48 * 1024 * 1024);
+    const chunk = (size: number) => {
+      const b = new Blob(["x"]);
+      Object.defineProperty(b, "size", { value: size });
+      return b;
+    };
+    const rec = FakeMediaRecorder.last!;
+    const MB = 1024 * 1024;
+    for (let i = 0; i < 47; i++) rec.ondataavailable?.({ data: chunk(MB) });
+    expect(onAutoStop).not.toHaveBeenCalled();
+    rec.ondataavailable?.({ data: chunk(MB) }); // 48 MB
+    expect(onAutoStop).toHaveBeenCalledTimes(1);
+    expect(onAutoStop.mock.calls[0][1]).toBe("size");
+    expect(rec.stopCalls).toBe(1); // the final chunk from stop() does not stop again
+    const res = await (onAutoStop.mock.calls[0][0] as Promise<{ blob: Blob }>);
+    expect(res.blob.size).toBeGreaterThan(0);
+    expect(stopTrack).toHaveBeenCalled();
+    rec.ondataavailable?.({ data: chunk(MB) });
+    expect(onAutoStop).toHaveBeenCalledTimes(1);
   });
 
   it("cancel stops the tracks and yields nothing", async () => {

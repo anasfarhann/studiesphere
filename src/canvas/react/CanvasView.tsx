@@ -224,7 +224,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots }: Canva
         onFile={files ? (file) => void fileInsRef.current?.insert(file) : undefined}
         onRecord={files ? () => void audioRef.current?.start() : undefined}
         onHistory={snapshots ? () => setHistoryOpen((o) => !o) : undefined}
-        recordDisabled={audioState.kind === "recording" || audioState.kind === "uploading"}
+        recordDisabled={audioState.kind === "recording" || audioState.kind === "uploading" || audioState.kind === "oversize"}
       />
       <div ref={boxRef} className="relative min-h-0 flex-1 overflow-hidden">
         <canvas
@@ -257,6 +257,8 @@ export function CanvasView({ elements, attachments, onEditor, snapshots }: Canva
           onCancel={() => audioRef.current?.cancel()}
           onRetry={() => void audioRef.current?.retry()}
           onDismiss={() => audioRef.current?.dismiss()}
+          onSaveToDevice={() => audioRef.current?.saveToDevice()}
+          onDiscardOversize={() => void audioRef.current?.discardOversize()}
         />
         {editor && files ? (
           <AudioCards

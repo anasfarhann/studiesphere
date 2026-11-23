@@ -11,6 +11,10 @@ export interface RecordingBarProps {
   onCancel: () => void;
   onRetry: () => void;
   onDismiss: () => void;
+  /** Oversize recording: download it. */
+  onSaveToDevice?: () => void;
+  /** Oversize recording: the user is done with it (saved or discarded); drops the kept copy. */
+  onDiscardOversize?: () => void;
 }
 
 function Timer({ startedAt }: { startedAt: number }) {
@@ -25,7 +29,7 @@ function Timer({ startedAt }: { startedAt: number }) {
 const action = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 text-sm";
 
 /** Recording controls over the canvas: timer with Stop and Cancel, or the upload / error state. */
-export function RecordingBar({ status, onStop, onCancel, onRetry, onDismiss }: RecordingBarProps) {
+export function RecordingBar({ status, onStop, onCancel, onRetry, onDismiss, onSaveToDevice, onDiscardOversize }: RecordingBarProps) {
   if (status.kind === "idle") return null;
   return (
     <div
@@ -48,6 +52,13 @@ export function RecordingBar({ status, onStop, onCancel, onRetry, onDismiss }: R
         </>
       ) : status.kind === "uploading" ? (
         t("audioUploading")
+      ) : status.kind === "oversize" ? (
+        <OversizeActions
+          saved={status.saved}
+          message={status.message}
+          onSave={() => onSaveToDevice?.()}
+          onDone={() => onDiscardOversize?.()}
+        />
       ) : status.kind === "error" ? (
         <button type="button" className="min-h-11 text-left underline" onClick={status.retryable ? onRetry : onDismiss}>
           {status.message}
@@ -61,5 +72,40 @@ export function RecordingBar({ status, onStop, onCancel, onRetry, onDismiss }: R
         </>
       )}
     </div>
+  );
+}
+
+export interface OversizeActionsProps {
+  message: string;
+  saved: boolean;
+  onSave: () => void;
+  /** Done (after saving) or Discard (confirmed): the kept copy may go. */
+  onDone: () => void;
+}
+
+/** Save-to-device offer for a recording too large to upload. Nothing is removed without a tap. */
+export function OversizeActions({ message, saved, onSave, onDone }: OversizeActionsProps) {
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <span>{saved ? t("recordingSavedCheck") : message}</span>
+      <button type="button" onClick={onSave} className={`${action} bg-gray-900 text-white`}>
+        {t("recordingSaveToDevice")}
+      </button>
+      {saved ? (
+        <button type="button" onClick={onDone} className={`${action} border`}>
+          {t("recordingDone")}
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => {
+            if (window.confirm(t("recordingDiscardConfirm"))) onDone();
+          }}
+          className={`${action} border text-red-700`}
+        >
+          {t("recordingDiscard")}
+        </button>
+      )}
+    </span>
   );
 }

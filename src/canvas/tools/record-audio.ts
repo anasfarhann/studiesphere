@@ -1,4 +1,5 @@
 import { audioExt, Recorder, RecorderError, type RecorderOptions, type RecordingResult } from "../attachments/recorder";
+import { downloadBlob, recordingFileName } from "../attachments/download";
 import type { OutboxEntry, RecordingOutbox } from "../attachments/recording-outbox";
 import type { ElementStore } from "../persistence/store";
 import { AttachmentError, MAX_ATTACHMENT_BYTES, type UploadOptions } from "../attachments/upload";
@@ -14,7 +15,12 @@ export type AudioStatus =
   | { kind: "uploading" }
   | { kind: "error"; message: string; retryable: boolean }
   /** A saved recording that ended on its own (time limit, page hidden). */
-  | { kind: "notice"; message: string };
+  | { kind: "notice"; message: string }
+  /**
+   * Finished but over the attachment limit: kept in the outbox, never uploaded, offered as a
+   * download. `saved` once the user tapped "Save recording to device".
+   */
+  | { kind: "oversize"; message: string; saved: boolean };
 
 export interface RecorderLike {
   start(): Promise<void>;
@@ -36,6 +42,8 @@ export interface AudioRecorderContext {
   createRecorder?: (opts: RecorderOptions) => RecorderLike;
   newId?: () => string;
   now?: () => number;
+  /** Saves a blob as a file on the device; defaults to an `<a download>` link. */
+  download?: (blob: Blob, fileName: string) => void;
 }
 
 /** `written` settles when the latest outbox write for the entry did (later ops wait for it). */
@@ -91,20 +99,24 @@ export class AudioRecorder {
     this.listeners.clear();
   }
 
-  /** Forgets a failed recording or a notice. */
+  /** Forgets a failed recording or a notice. An oversize recording needs saveToDevice/discardOversize. */
   dismiss(): void {
-    if (this.busy || this._status.kind === "recording") return;
+    if (this.busy || this._status.kind === "recording" || this._status.kind === "oversize") return;
     this.pending = null;
     this.setStatus({ kind: "idle" });
   }
 
   /** Call straight from the Record tap so the microphone prompt stays inside the gesture. */
   async start(): Promise<void> {
-    if (this.busy || this.disposed) return;
+    // An oversize recording waits for the user's decision first; it must not slip out of view.
+    if (this.busy || this.disposed || this._status.kind === "oversize") return;
     this.busy = true;
     this.pending = null;
     const create = this.ctx.createRecorder ?? ((o: RecorderOptions) => new Recorder(undefined, o));
-    const recorder = create({ onAutoStop: (p) => void this.finish(recorder, p, t("recordingLimitReached")) });
+    const recorder = create({
+      onAutoStop: (p, reason) =>
+        void this.finish(recorder, p, reason === "size" ? t("recordingSizeLimitReached") : t("recordingLimitReached")),
+    });
     this.recorder = recorder;
     try {
       await recorder.start();
@@ -145,6 +157,33 @@ export class AudioRecorder {
     await this.send();
   }
 
+  /** Downloads the oversize recording. Its outbox copy stays until the user taps Done/Discard. */
+  saveToDevice(): void {
+    const pending = this.pending;
+    if (this._status.kind !== "oversize" || !pending) return;
+    const { entry } = pending;
+    (this.ctx.download ?? downloadBlob)(entry.blob, recordingFileName(t("recordingFileName"), entry.createdAt, audioExt(entry.mime)));
+    this.setStatus({ ...this._status, saved: true });
+  }
+
+  /** The user is done with the oversize recording (saved it, or chose to discard it): drop the outbox copy. */
+  async discardOversize(): Promise<void> {
+    const pending = this.pending;
+    if (this._status.kind !== "oversize" || !pending) return;
+    this.pending = null;
+    this.setStatus({ kind: "idle" });
+    await pending.written;
+    await this.outbox((o) => o.remove(pending.entry.id));
+  }
+
+  /** Over the limit: never uploaded, never thrown away; kept in the outbox and offered as a download. */
+  private async holdOversize(pending: Pending): Promise<void> {
+    this.busy = false;
+    this.pending = pending;
+    await pending.written;
+    this.setStatus({ kind: "oversize", message: t("recordingTooLarge"), saved: false });
+  }
+
   private async finish(recorder: RecorderLike, result: Promise<RecordingResult>, notice: string | null): Promise<void> {
     if (this.recorder !== recorder) return;
     this.recorder = null;
@@ -156,12 +195,6 @@ export class AudioRecorder {
     } catch {
       this.busy = false;
       this.setStatus({ kind: "error", message: t("recordingFailed"), retryable: false });
-      return;
-    }
-    // Refuse here so a too-large recording never goes on the wire; nothing is offered silently.
-    if (res.blob.size > MAX_ATTACHMENT_BYTES) {
-      this.busy = false;
-      this.setStatus({ kind: "error", message: t("attachmentTooLarge"), retryable: false });
       return;
     }
     const at = this.ctx.center();
@@ -176,7 +209,10 @@ export class AudioRecorder {
       createdAt: now(),
     };
     // Written first and not awaited: the upload starts at once, the outbox copy is the safety net.
-    this.pending = { entry, written: this.outbox((o) => o.put(entry)), notice };
+    const pending: Pending = { entry, written: this.outbox((o) => o.put(entry)), notice };
+    // Too large to go on the wire: kept (outbox) and offered as a download, never discarded.
+    if (res.blob.size > MAX_ATTACHMENT_BYTES) return this.holdOversize(pending);
+    this.pending = pending;
     await this.send();
   }
 
@@ -195,10 +231,7 @@ export class AudioRecorder {
       } catch (e) {
         this.busy = false;
         if (e instanceof AttachmentError && e.code === "too_large") {
-          this.pending = null;
-          await pending.written;
-          void this.outbox((o) => o.remove(entry.id));
-          this.setStatus({ kind: "error", message: e.message, retryable: false });
+          await this.holdOversize(pending);
         } else {
           // The entry stays in the outbox: retry now, or recovery on the next visit.
           this.setStatus({ kind: "error", message: t("audioUploadFailed"), retryable: true });

@@ -1,7 +1,15 @@
+import { MAX_ATTACHMENT_BYTES } from "./upload";
+
 /** Longest recording; at 64 kbps that is about 29 MB, under the 50 MB attachment limit. */
 export const MAX_RECORDING_MS = 60 * 60 * 1000;
 /** Keeps a 60-minute AAC/Opus recording near 29 MB (Safari's default can reach 60 MB). */
 export const AUDIO_BITS_PER_SECOND = 64_000;
+/**
+ * A recording stops itself at this size (2 MB under the attachment limit, headroom for the last
+ * chunk and the container), so it can always be uploaded. Only reached when a browser ignores the
+ * requested bitrate.
+ */
+export const MAX_RECORDING_BYTES = MAX_ATTACHMENT_BYTES - 2 * 1024 * 1024;
 /** The recorder hands over a chunk every second, so a long recording is never one giant buffer. */
 const TIMESLICE_MS = 1000;
 
@@ -52,9 +60,12 @@ export interface RecorderDeps {
   now: () => number;
 }
 
+/** Why a recording ended on its own: the 60-minute limit or the size limit. */
+export type AutoStopReason = "time" | "size";
+
 export interface RecorderOptions {
-  /** Called with the pending result when the 60-minute limit stops the recording. */
-  onAutoStop?: (result: Promise<RecordingResult>) => void;
+  /** Called with the pending result when the time or size limit stops the recording. */
+  onAutoStop?: (result: Promise<RecordingResult>, reason: AutoStopReason) => void;
 }
 
 function browserDeps(): RecorderDeps {
@@ -68,6 +79,9 @@ function browserDeps(): RecorderDeps {
 
 export class Recorder {
   private chunks: Blob[] = [];
+  private bytes = 0;
+  /** Set as soon as stop() runs (before its promise exists): the final chunk must not re-stop. */
+  private stopRequested = false;
   private stream: MediaStream | null = null;
   private rec: MediaRecorderLike | null = null;
   private mime = "";
@@ -106,7 +120,10 @@ export class Recorder {
     try {
       const rec = new deps.MediaRecorderCtor(stream, { mimeType: this.mime, audioBitsPerSecond: AUDIO_BITS_PER_SECOND });
       rec.ondataavailable = (e) => {
-        if (e.data.size > 0) this.chunks.push(e.data);
+        if (e.data.size <= 0) return;
+        this.chunks.push(e.data);
+        this.bytes += e.data.size;
+        if (this.bytes >= MAX_RECORDING_BYTES) this.autoStop("size");
       };
       this.rec = rec;
       this.t0 = deps.now();
@@ -117,8 +134,14 @@ export class Recorder {
     }
     this.timer = setTimeout(() => {
       this.timer = null;
-      this.opts.onAutoStop?.(this.stop());
+      this.autoStop("time");
     }, MAX_RECORDING_MS);
+  }
+
+  /** Stops once, whichever limit is hit first; the result goes to onAutoStop. */
+  private autoStop(reason: AutoStopReason): void {
+    if (this.stopRequested || this.cancelled) return;
+    this.opts.onAutoStop?.(this.stop(), reason);
   }
 
   stop(): Promise<RecordingResult> {
@@ -126,6 +149,7 @@ export class Recorder {
     const rec = this.rec;
     const deps = this.deps;
     if (!rec || !deps) return Promise.reject(new RecorderError("recording_failed"));
+    this.stopRequested = true;
     this.clearTimer();
     const durationMs = Math.round(deps.now() - this.t0);
     this.stopping = new Promise<RecordingResult>((resolve, reject) => {
@@ -134,6 +158,7 @@ export class Recorder {
         if (this.chunks.length === 0) return reject(new RecorderError("recording_failed"));
         const blob = new Blob(this.chunks, { type: this.mime });
         this.chunks = [];
+        this.bytes = 0;
         resolve({ blob, durationMs, mime: this.mime });
       };
       rec.onstop = finish;
@@ -169,6 +194,7 @@ export class Recorder {
       }
     }
     this.chunks = [];
+    this.bytes = 0;
     this.release();
   }
 
