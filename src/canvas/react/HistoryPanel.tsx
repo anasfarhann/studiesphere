@@ -55,7 +55,7 @@ export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelPro
   return (
     <aside
       aria-label={t("historyTitle")}
-      className="absolute inset-y-0 right-0 z-20 flex w-72 max-w-full flex-col border-l bg-white shadow-lg"
+      className="absolute inset-y-0 right-0 z-20 flex w-72 max-w-full flex-col border-l bg-white text-gray-900 shadow-lg"
     >
       <div className="flex items-center justify-between border-b px-3 py-1">
         <h2 className="text-sm font-medium">{t("historyTitle")}</h2>

@@ -144,7 +144,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
     <div className="relative flex min-h-0 flex-1 flex-col">
       <CanvasView elements={load.elements} attachments={attachments} onEditor={onEditor} snapshots={snapshots ? { store: snapshots, pageId } : undefined} />
       {recovered > 0 ? (
-        <p role="status" className="absolute left-1/2 top-14 z-10 -translate-x-1/2 rounded bg-white px-3 py-2 text-sm shadow">
+        <p role="status" className="absolute left-1/2 top-14 z-10 -translate-x-1/2 rounded bg-white px-3 py-2 text-sm text-gray-900 shadow">
           {t("recoveredRecordings").replace("{n}", String(recovered))}
         </p>
       ) : null}

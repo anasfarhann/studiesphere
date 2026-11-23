@@ -157,7 +157,7 @@ export function AudioCards({ editor, resolveUrl, forgetUrl }: AudioCardsProps) {
               </svg>
             </button>
             {failed === s.id ? (
-              <div role="status" className="absolute z-10 rounded bg-white px-2 py-1 text-xs shadow" style={{ left: s.cx - s.size / 2, top: s.cy + s.size / 2 + 4 }}>
+              <div role="status" className="absolute z-10 rounded bg-white px-2 py-1 text-xs text-gray-900 shadow" style={{ left: s.cx - s.size / 2, top: s.cy + s.size / 2 + 4 }}>
                 {t("audioPlayFailed")}
               </div>
             ) : null}

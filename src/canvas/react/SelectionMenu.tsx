@@ -37,7 +37,7 @@ export function SelectionMenu({ editor }: { editor: Editor }) {
     <div
       role="toolbar"
       aria-label={t("selectionActions")}
-      className="absolute z-10 flex -translate-x-1/2 gap-1 rounded-lg border bg-white p-1 shadow"
+      className="absolute z-10 flex -translate-x-1/2 gap-1 rounded-lg border bg-white p-1 text-gray-900 shadow"
       style={{ left: pos.left, top: pos.top }}
       onPointerDown={(e) => e.stopPropagation()}
     >

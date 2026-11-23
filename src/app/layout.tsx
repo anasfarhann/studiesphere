@@ -13,6 +13,8 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: "#2563eb",
   viewportFit: "cover",
+  // Light-only for now (dark mode is not designed yet): keeps UA controls light too.
+  colorScheme: "light",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

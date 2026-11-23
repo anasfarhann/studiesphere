@@ -17,7 +17,7 @@ export function FileStatus({ status, onRetry, onDismiss }: FileStatusProps) {
       role="status"
       aria-label={t("fileStatusLabel")}
       data-testid="file-status"
-      className="absolute left-3 top-14 z-10 rounded bg-white px-3 py-2 text-sm shadow"
+      className="absolute left-3 top-14 z-10 rounded bg-white px-3 py-2 text-sm text-gray-900 shadow"
     >
       {status.kind === "uploading" ? (
         t("fileUploading")
