@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { notFound } from "next/navigation";
 import { createServerClient } from "@/lib/supabase/server";
 
@@ -8,20 +9,20 @@ async function db(id: string) {
   return createServerClient();
 }
 
-export async function getSubject(id: string) {
+export const getSubject = cache(async (id: string) => {
   const { data } = await (await db(id)).from("subjects").select("*").eq("id", id).maybeSingle();
   if (!data) notFound();
   return data;
-}
+});
 
-export async function getNotebook(id: string) {
+export const getNotebook = cache(async (id: string) => {
   const { data } = await (await db(id)).from("notebooks").select("*").eq("id", id).maybeSingle();
   if (!data) notFound();
   return data;
-}
+});
 
-export async function getPage(id: string) {
+export const getPage = cache(async (id: string) => {
   const { data } = await (await db(id)).from("pages").select("*").eq("id", id).maybeSingle();
   if (!data) notFound();
   return data;
-}
+});

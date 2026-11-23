@@ -18,9 +18,11 @@ export async function proxy(request: NextRequest) {
       },
     },
   );
-  const { data } = await supabase.auth.getUser();
+  // getClaims() refreshes an expired session (cookie rotation) and verifies the JWT
+  // locally via JWKS when possible, avoiding a Singapore round trip per request.
+  const { data } = await supabase.auth.getClaims();
   const path = request.nextUrl.pathname;
-  if (!data.user && (path === "/app" || path.startsWith("/app/"))) {
+  if (!data?.claims && (path === "/app" || path.startsWith("/app/"))) {
     const redirect = NextResponse.redirect(new URL("/login", request.url));
     response.cookies.getAll().forEach((c) => redirect.cookies.set(c));
     return redirect;
