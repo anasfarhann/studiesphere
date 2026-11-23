@@ -13,7 +13,7 @@ const stroke = (id: string): StrokeEl => ({
   points: [[0, 0, 0.5]], simulatePressure: true,
 });
 
-const fakeEditor = (scene: Scene) => ({ scene, history: new History() }) as unknown as Editor;
+const fakeEditor = (scene: Scene) => ({ scene, history: new History(), text: { commit: () => {} }, selection: { clear: () => {} } }) as unknown as Editor;
 
 describe("HistoryPanel", () => {
   afterEach(cleanup);
@@ -36,6 +36,23 @@ describe("HistoryPanel", () => {
     expect(screen.getAllByText(/items?$/).map((n) => n.textContent)).toEqual(["2 items", "1 item"]);
     await userEvent.click(buttons[1]);
     await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(scene.all().map((e) => e.id)).toEqual(["a"]);
+  });
+
+  it("commits an open text session before restoring and clears the selection", async () => {
+    const store = new MemorySnapshotStore();
+    await store.create("p", [stroke("a")], 1000);
+    const scene = new Scene([stroke("a")]);
+    const clear = vi.fn();
+    const editor = {
+      scene, history: new History(), selection: { clear },
+      text: { commit: () => scene.add({ ...stroke("typed"), id: "typed" }) },
+    } as unknown as Editor;
+    render(<HistoryPanel store={store} pageId="p" editor={editor} onClose={() => {}} />);
+    await userEvent.click(await screen.findByRole("button", { name: "Restore" }));
+    await waitFor(() => expect(clear).toHaveBeenCalled());
+    const [pre] = await store.list("p");
+    expect((await store.load(pre.id)).map((e) => e.id).sort()).toEqual(["a", "typed"]);
     expect(scene.all().map((e) => e.id)).toEqual(["a"]);
   });
 

@@ -41,7 +41,10 @@ export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelPro
     setRestoring(id);
     setRestoreFailed(false);
     try {
-      await restoreSnapshot(store, pageId, id, editor.scene, editor.history);
+      await restoreSnapshot(store, pageId, id, editor.scene, editor.history, {
+        beforeRestore: () => editor.text.commit(),
+        afterRestore: () => editor.selection.clear(),
+      });
       onClose();
     } catch {
       setRestoreFailed(true);

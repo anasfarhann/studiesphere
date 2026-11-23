@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { History } from "../model/history";
 import { Scene } from "../model/scene";
 import type { StrokeEl } from "../model/types";
+import { MemoryElementStore } from "./memory-store";
 import { MemorySnapshotStore } from "./memory-snapshot-store";
 import { maybeSnapshot, restoreSnapshot, SnapshotScheduler, SNAPSHOT_INTERVAL_MS } from "./snapshots";
 
@@ -55,7 +56,7 @@ describe("restoreSnapshot", () => {
     scene.add(stroke("c"));
     const history = new History();
 
-    const change = await restoreSnapshot(store, PAGE, snap.id, scene, history, 2);
+    const change = await restoreSnapshot(store, PAGE, snap.id, scene, history, { now: 2 });
     expect(scene.all().map((e) => e.id).sort()).toEqual(["a", "b"]);
     expect((scene.get("a") as StrokeEl).color).toBe("#111");
     expect(change.after.map((e) => e.id).sort()).toEqual(["a", "b"]);
@@ -73,7 +74,7 @@ describe("restoreSnapshot", () => {
     await store.create(PAGE, scene.all(), 1);
     const [snap] = await store.list(PAGE);
     scene.add(stroke("later"));
-    await restoreSnapshot(store, PAGE, snap.id, scene, new History(), 2);
+    await restoreSnapshot(store, PAGE, snap.id, scene, new History(), { now: 2 });
     const list = await store.list(PAGE);
     expect(list).toHaveLength(2);
     expect(list[0].elementCount).toBe(2); // newest first: the pre-restore state
@@ -86,7 +87,7 @@ describe("restoreSnapshot", () => {
     const [snap] = await store.list(PAGE);
     scene.remove("b");
     scene.takeDirty();
-    await restoreSnapshot(store, PAGE, snap.id, scene, new History(), 2);
+    await restoreSnapshot(store, PAGE, snap.id, scene, new History(), { now: 2 });
     const d = scene.takeDirty();
     expect(d.upserts.map((e) => e.id).sort()).toEqual(["a", "b"]);
     expect(d.upserts.find((e) => e.id === "b")!.updatedAt).toBeGreaterThan(1000);
@@ -95,8 +96,43 @@ describe("restoreSnapshot", () => {
   it("fails without touching the scene when the snapshot is gone", async () => {
     const store = new MemorySnapshotStore();
     const scene = new Scene([stroke("a")]);
-    await expect(restoreSnapshot(store, PAGE, "nope", scene, new History(), 1)).rejects.toThrow();
+    await expect(restoreSnapshot(store, PAGE, "nope", scene, new History(), { now: 1 })).rejects.toThrow();
     expect(scene.all().map((e) => e.id)).toEqual(["a"]);
+  });
+});
+
+describe("restore after an earlier session deleted an element", () => {
+  it("brings it back even though this Scene never saw the tombstone", async () => {
+    const T0 = 1_000, T1 = 5_000, T2 = 9_000;
+    const elements = new MemoryElementStore();
+    const snaps = new MemorySnapshotStore();
+    const a: StrokeEl = { ...stroke("a"), updatedAt: T0 };
+    await elements.save(PAGE, [a], []);
+    await snaps.create(PAGE, [a], T0);
+    // Earlier session: delete it (tombstone at T1 reaches the server).
+    await elements.save(PAGE, [], [{ id: "a", updatedAt: T1 }]);
+    // New session: loads the live elements only.
+    const scene = new Scene(await elements.load(PAGE));
+    expect(scene.all()).toEqual([]);
+    const [snap] = await snaps.list(PAGE);
+    await restoreSnapshot(snaps, PAGE, snap.id, scene, new History(), { now: T2 });
+    const d = scene.takeDirty();
+    await elements.save(PAGE, d.upserts, d.deletes);
+    expect((await elements.load(PAGE)).map((e) => e.id)).toEqual(["a"]);
+  });
+
+  it("runs beforeRestore before the pre-restore snapshot and afterRestore after the change", async () => {
+    const store = new MemorySnapshotStore();
+    const scene = new Scene([stroke("a")]);
+    await store.create(PAGE, scene.all(), 1);
+    const [snap] = await store.list(PAGE);
+    await restoreSnapshot(store, PAGE, snap.id, scene, new History(), {
+      now: 2,
+      beforeRestore: () => scene.add(stroke("typed")),
+      afterRestore: () => expect(scene.get("typed")).toBeUndefined(),
+    });
+    const [pre] = await store.list(PAGE);
+    expect((await store.load(pre.id)).map((e) => e.id).sort()).toEqual(["a", "typed"]);
   });
 });
 
@@ -142,16 +178,49 @@ describe("SnapshotScheduler", () => {
     s.dispose();
   });
 
-  it("a failing store is retried at the next check, nothing thrown", async () => {
+  it("backs off 1, 2, 4 … 30 min after failures, warns once, resets on success", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(HOUR * 3);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const store = new MemorySnapshotStore();
     const scene = new Scene();
-    const s = new SnapshotScheduler(scene, store, PAGE, () => HOUR * 3);
+    const s = new SnapshotScheduler(scene, store, PAGE);
     scene.add(stroke("a"));
-    const create = vi.spyOn(store, "create").mockRejectedValueOnce(new Error("offline"));
+    const create = vi.spyOn(store, "create").mockRejectedValue(new Error("too big"));
+    const MIN = 60_000;
     await s.check();
-    expect(await store.list(PAGE)).toHaveLength(0);
+    expect(create).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(MIN - 1);
+    await s.check();
+    expect(create).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await s.check(); // failure 2
+    expect(create).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2 * MIN - 1);
     await s.check();
     expect(create).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    await s.check(); // failure 3, next wait 4 min
+    expect(create).toHaveBeenCalledTimes(3);
+    expect(warn).toHaveBeenCalledTimes(1);
+    for (const wait of [4, 8, 16, 30, 30]) {
+      await vi.advanceTimersByTimeAsync(wait * MIN - 1);
+      const n = create.mock.calls.length;
+      await s.check();
+      expect(create).toHaveBeenCalledTimes(n);
+      await vi.advanceTimersByTimeAsync(1);
+      await s.check();
+      expect(create).toHaveBeenCalledTimes(n + 1);
+    }
+    create.mockRestore();
+    await vi.advanceTimersByTimeAsync(30 * MIN);
+    await s.check();
     expect(await store.list(PAGE)).toHaveLength(1);
+    scene.add(stroke("b"));
+    await vi.advanceTimersByTimeAsync(HOUR);
+    await s.check(); // streak reset: due immediately
+    expect(await store.list(PAGE)).toHaveLength(2);
+    vi.useRealTimers();
+    warn.mockRestore();
   });
 });
