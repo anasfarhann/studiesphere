@@ -4,6 +4,8 @@ import { RecorderError, type RecordingResult } from "../attachments/recorder";
 import { History } from "../model/history";
 import { Scene } from "../model/scene";
 import type { AudioEl } from "../model/types";
+import { MemoryRecordingOutbox } from "../attachments/recording-outbox";
+import { MemoryElementStore } from "../persistence/memory-store";
 import { AudioRecorder, type AudioRecorderContext, type AudioStatus } from "./record-audio";
 
 const result: RecordingResult = { blob: new Blob(["abc"], { type: "audio/mp4" }), durationMs: 4200, mime: "audio/mp4" };
@@ -31,14 +33,16 @@ class FakeRecorder {
 function setup(upload: AudioRecorderContext["upload"], startError?: Error, res?: RecordingResult) {
   const scene = new Scene();
   const history = new History();
+  const outbox = new MemoryRecordingOutbox();
+  const store = new MemoryElementStore();
   let rec!: FakeRecorder;
   const audio = new AudioRecorder({
-    scene, history, ownerId: "own", pageId: "pg", center: () => [1000, 500], upload, newId: () => "aud-1",
+    scene, history, ownerId: "own", pageId: "pg", center: () => [1000, 500], upload, newId: () => "aud-1", outbox, store,
     createRecorder: (opts) => (rec = new FakeRecorder(opts, startError, res)) as never,
   });
   const statuses: AudioStatus[] = [];
   audio.onStatus((s) => statuses.push(s));
-  return { scene, history, audio, statuses, rec: () => rec };
+  return { scene, history, audio, statuses, outbox, store, rec: () => rec };
 }
 
 describe("AudioRecorder", () => {
@@ -124,11 +128,71 @@ describe("AudioRecorder", () => {
     await vi.waitFor(() => expect(scene.get("aud-1")).toBeDefined());
   });
 
-  it("dispose while recording cancels and adds nothing", async () => {
-    const { scene, audio, rec } = setup(vi.fn());
+  it("pagehide while recording writes the outbox entry before the upload starts", async () => {
+    let seenInOutbox = -1;
+    const ref: { outbox?: MemoryRecordingOutbox } = {};
+    const upload = vi.fn(async () => {
+      seenInOutbox = (await ref.outbox!.list()).length;
+      return { assetPath: "own/pg/u.m4a" };
+    });
+    const { audio, outbox } = setup(upload);
+    ref.outbox = outbox;
+    await audio.start();
+    window.dispatchEvent(new Event("pagehide"));
+    await vi.waitFor(() => expect(upload).toHaveBeenCalled());
+    expect(seenInOutbox).toBe(1);
+  });
+
+  it("a saved card clears its outbox entry", async () => {
+    const { audio, outbox, store } = setup(vi.fn(async () => ({ assetPath: "a.m4a" })));
+    await audio.start();
+    await audio.stop();
+    await vi.waitFor(async () => expect(await outbox.list()).toHaveLength(0));
+    expect(await store.load("pg")).toHaveLength(1);
+  });
+
+  it("unmount while recording hands the recording off and saves the card via the store", async () => {
+    const { scene, audio, outbox, store, rec } = setup(vi.fn(async () => ({ assetPath: "own/pg/u.m4a" })));
     await audio.start();
     audio.dispose();
-    expect(rec().cancelled).toBe(true);
+    expect(rec().cancelled).toBe(false);
+    await vi.waitFor(async () => expect(await store.load("pg")).toHaveLength(1));
+    expect(scene.all()).toHaveLength(0); // the canvas is gone; the store has it
+    expect((await store.load("pg"))[0]).toMatchObject({ type: "audio", assetPath: "own/pg/u.m4a", durationMs: 4200 });
+    await vi.waitFor(async () => expect(await outbox.list()).toHaveLength(0));
+  });
+
+  it("unmount while uploading still saves the card via the store", async () => {
+    let finish!: (v: { assetPath: string }) => void;
+    const upload = vi.fn(() => new Promise<{ assetPath: string }>((r) => (finish = r)));
+    const { audio, outbox, store } = setup(upload);
+    await audio.start();
+    const stopping = audio.stop();
+    await vi.waitFor(() => expect(upload).toHaveBeenCalled());
+    audio.dispose();
+    finish({ assetPath: "own/pg/u.m4a" });
+    await stopping;
+    expect(await store.load("pg")).toHaveLength(1);
+    await vi.waitFor(async () => expect(await outbox.list()).toHaveLength(0));
+  });
+
+  it("unmount after a failed upload leaves the recording in the outbox", async () => {
+    const { audio, outbox, store, scene } = setup(vi.fn().mockRejectedValue(new AttachmentError("upload_failed", "offline")));
+    await audio.start();
+    await audio.stop();
+    audio.dispose();
+    expect(await outbox.list()).toHaveLength(1);
+    expect(await store.load("pg")).toHaveLength(0);
     expect(scene.all()).toHaveLength(0);
+  });
+
+  it("Cancel saves nothing and leaves the outbox empty", async () => {
+    const upload = vi.fn();
+    const { audio, outbox, store } = setup(upload);
+    await audio.start();
+    audio.cancel();
+    expect(upload).not.toHaveBeenCalled();
+    expect(await outbox.list()).toHaveLength(0);
+    expect(await store.load("pg")).toHaveLength(0);
   });
 });

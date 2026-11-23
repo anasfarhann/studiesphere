@@ -7,6 +7,8 @@ import type { Editor } from "../editor";
 import type { OfflineQueue } from "../persistence/store";
 import { MemoryElementStore, MemoryOfflineQueue } from "../persistence/memory-store";
 import { PersistentCanvas } from "./PersistentCanvas";
+import { MemoryRecordingOutbox } from "../attachments/recording-outbox";
+import type { AttachmentService } from "../attachments/upload";
 
 const stroke = (id: string, updatedAt: number): StrokeEl => ({
   id, z: 0, updatedAt, type: "stroke", tool: "pen", color: "#000", size: 4,
@@ -112,5 +114,30 @@ describe("PersistentCanvas", () => {
     expect(screen.queryByTestId("canvas")).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByTestId("canvas")).toBeInTheDocument();
+  });
+});
+
+describe("PersistentCanvas recording recovery", () => {
+  it("recovers a recording left in the outbox: uploads, adds the card, saves it and says so", async () => {
+    const noop = () => {};
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      () => ({ setTransform: noop, fillRect: noop, fill: noop, fillText: noop, strokeRect: noop, setLineDash: noop, beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop, clearRect: noop, moveTo: noop, lineTo: noop }) as unknown as CanvasRenderingContext2D,
+    );
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.stubGlobal("matchMedia", () => ({ addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal("Path2D", class { moveTo() {} lineTo() {} quadraticCurveTo() {} closePath() {} });
+    const store = new MemoryElementStore();
+    const outbox = new MemoryRecordingOutbox();
+    await outbox.put({ id: "rec-1", blob: new Blob(["x"], { type: "audio/mp4" }), mime: "audio/mp4", durationMs: 9000, x: 10, y: 20, createdAt: 1 });
+    const upload = vi.fn(async () => ({ assetPath: "o/p/r.m4a" }));
+    const service = { uploadAttachment: upload, signedUrl: async () => "u", forgetSignedUrl: () => {} } as unknown as AttachmentService;
+    render(<PersistentCanvas pageId="p" store={store} queue={new MemoryOfflineQueue("p")} outbox={outbox} attachments={{ service, ownerId: "o", pageId: "p" }} />);
+    await waitFor(() => expect(screen.getByText("Recovered 1 recording(s)")).toBeTruthy());
+    expect((await store.load("p"))[0]).toMatchObject({ id: "rec-1", type: "audio", assetPath: "o/p/r.m4a", durationMs: 9000 });
+    expect(await outbox.list()).toHaveLength(0);
+    expect(upload).toHaveBeenCalledTimes(1);
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 });

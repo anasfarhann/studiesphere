@@ -1,4 +1,6 @@
 import { audioExt, Recorder, RecorderError, type RecorderOptions, type RecordingResult } from "../attachments/recorder";
+import type { OutboxEntry, RecordingOutbox } from "../attachments/recording-outbox";
+import type { ElementStore } from "../persistence/store";
 import { AttachmentError, MAX_ATTACHMENT_BYTES, type UploadOptions } from "../attachments/upload";
 import type { History } from "../model/history";
 import { CARD_H, CARD_W } from "../model/bounds";
@@ -27,12 +29,17 @@ export interface AudioRecorderContext {
   pageId: string;
   center: () => [number, number];
   upload: (file: Blob, opts: UploadOptions) => Promise<{ assetPath: string }>;
+  /** Durable holding place; recordings are written here before upload and removed once saved. */
+  outbox?: RecordingOutbox;
+  /** Saves the card directly when the canvas is already gone (page left mid-recording or mid-upload). */
+  store?: ElementStore;
   createRecorder?: (opts: RecorderOptions) => RecorderLike;
   newId?: () => string;
   now?: () => number;
 }
 
-type Pending = { result: RecordingResult; at: [number, number]; notice: string | null };
+/** `written` settles when the latest outbox write for the entry did (later ops wait for it). */
+type Pending = { entry: OutboxEntry; written: Promise<void>; notice: string | null };
 
 function startMessage(e: unknown): string {
   if (e instanceof RecorderError) {
@@ -67,12 +74,20 @@ export class AudioRecorder {
     };
   }
 
-  /** Cancels a recording in progress (nothing is saved) and goes quiet. */
+  /**
+   * Goes quiet but never discards: a recording in progress is stopped and handed off (outbox, upload,
+   * saved through the store) in the background; an upload under way finishes the same way; a failed
+   * upload stays in the outbox for recovery on the next visit. Only cancel() throws audio away.
+   */
   dispose(): void {
     this.disposed = true;
     this.detachHide();
-    this.recorder?.cancel();
-    this.recorder = null;
+    const recorder = this.recorder;
+    if (recorder && this._status.kind === "recording") void this.finish(recorder, recorder.stop(), null);
+    else if (recorder) {
+      recorder.cancel(); // still waiting for the microphone prompt: nothing recorded yet
+      this.recorder = null;
+    }
     this.listeners.clear();
   }
 
@@ -149,49 +164,106 @@ export class AudioRecorder {
       this.setStatus({ kind: "error", message: t("attachmentTooLarge"), retryable: false });
       return;
     }
-    this.pending = { result: res, at: this.ctx.center(), notice };
+    const at = this.ctx.center();
+    const now = this.ctx.now ?? Date.now;
+    const entry: OutboxEntry = {
+      id: (this.ctx.newId ?? (() => crypto.randomUUID()))(),
+      blob: res.blob,
+      mime: res.mime,
+      durationMs: res.durationMs,
+      x: at[0] - CARD_W / 2,
+      y: at[1] - CARD_H / 2,
+      createdAt: now(),
+    };
+    // Written first and not awaited: the upload starts at once, the outbox copy is the safety net.
+    this.pending = { entry, written: this.outbox((o) => o.put(entry)), notice };
     await this.send();
   }
 
   private async send(): Promise<void> {
     const pending = this.pending;
     if (!pending) return;
-    try {
-      const { assetPath } = await this.ctx.upload(pending.result.blob, {
-        ownerId: this.ctx.ownerId,
-        pageId: this.ctx.pageId,
-        ext: audioExt(pending.result.mime),
-      });
-      this.busy = false;
-      this.pending = null;
-      if (this.disposed) return;
-      this.add(pending, assetPath);
-      this.setStatus(pending.notice ? { kind: "notice", message: pending.notice } : { kind: "idle" });
-    } catch (e) {
-      this.busy = false;
-      if (e instanceof AttachmentError && e.code === "too_large") {
-        this.pending = null;
-        this.setStatus({ kind: "error", message: e.message, retryable: false });
-      } else {
-        this.setStatus({ kind: "error", message: t("audioUploadFailed"), retryable: true });
+    const { entry } = pending;
+    let assetPath = entry.assetPath;
+    if (!assetPath) {
+      try {
+        ({ assetPath } = await this.ctx.upload(entry.blob, {
+          ownerId: this.ctx.ownerId,
+          pageId: this.ctx.pageId,
+          ext: audioExt(entry.mime),
+        }));
+      } catch (e) {
+        this.busy = false;
+        if (e instanceof AttachmentError && e.code === "too_large") {
+          this.pending = null;
+          await pending.written;
+          void this.outbox((o) => o.remove(entry.id));
+          this.setStatus({ kind: "error", message: e.message, retryable: false });
+        } else {
+          // The entry stays in the outbox: retry now, or recovery on the next visit.
+          this.setStatus({ kind: "error", message: t("audioUploadFailed"), retryable: true });
+        }
+        return;
       }
+      entry.assetPath = assetPath;
+      pending.written = pending.written.then(() => this.outbox((o) => o.put(entry)));
+    }
+    this.busy = false;
+    this.pending = null;
+    const el = this.add(entry, assetPath);
+    this.setStatus(pending.notice ? { kind: "notice", message: pending.notice } : { kind: "idle" });
+    await this.persist(el, pending);
+  }
+
+  /**
+   * The outbox entry goes away only once the card is saved. Mounted: the autosave also has the
+   * element, but we additionally save it straight to the store, so a tab torn down within the
+   * autosave delay still keeps the card. Unmounted: the store save is the only path.
+   */
+  private async persist(el: AudioEl, pending: Pending): Promise<void> {
+    let saved = false;
+    if (this.ctx.store) {
+      try {
+        await this.ctx.store.save(this.ctx.pageId, [el], []);
+        saved = true;
+      } catch {
+        // Offline: the entry stays; autosave's queue or recovery on the next visit adds the card.
+      }
+    } else saved = !this.disposed;
+    if (!saved) return;
+    await pending.written;
+    await this.outbox((o) => o.remove(el.id));
+  }
+
+  /** Best-effort outbox call: a broken IndexedDB must never break recording. */
+  private outbox(op: (o: RecordingOutbox) => Promise<void>): Promise<void> {
+    const o = this.ctx.outbox;
+    if (!o) return Promise.resolve();
+    try {
+      return op(o).then(() => {}, () => {});
+    } catch {
+      return Promise.resolve();
     }
   }
 
-  private add(p: Pending, assetPath: string): void {
+  private add(entry: OutboxEntry, assetPath: string): AudioEl {
     const { scene, history } = this.ctx;
     const el: AudioEl = {
-      id: (this.ctx.newId ?? (() => crypto.randomUUID()))(),
+      id: entry.id,
       z: scene.nextZ(),
       updatedAt: (this.ctx.now ?? Date.now)(),
       type: "audio",
-      x: p.at[0] - CARD_W / 2,
-      y: p.at[1] - CARD_H / 2,
+      x: entry.x,
+      y: entry.y,
       assetPath,
-      durationMs: p.result.durationMs,
+      durationMs: entry.durationMs,
     };
-    scene.add(el);
-    history.push({ before: [], after: [el] });
+    // After dispose the canvas (and its autosave) is gone: the scene must not be touched.
+    if (!this.disposed) {
+      scene.add(el);
+      history.push({ before: [], after: [el] });
+    }
+    return el;
   }
 
   /** Leaving the page (tab hidden, closed) stops the recording and saves what was captured. */

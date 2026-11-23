@@ -93,6 +93,7 @@ export const en = {
   audioPause: "Pause recording",
   audioPlayFailed: "Couldn't play this recording",
   dismiss: "Dismiss",
+  recoveredRecordings: "Recovered {n} recording(s)",
 } as const;
 
 export function t(key: keyof typeof en): string {

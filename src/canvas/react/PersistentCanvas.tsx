@@ -14,6 +14,8 @@ import {
   type SaveBatch,
   type SaveState,
 } from "../persistence/store";
+import { MemoryRecordingOutbox, type RecordingOutbox } from "../attachments/recording-outbox";
+import { recoverRecordings } from "../tools/recover-recordings";
 import { CanvasView, type AttachmentConfig } from "./CanvasView";
 import { SaveStatus } from "./SaveStatus";
 
@@ -25,6 +27,8 @@ export interface PersistentCanvasProps {
   queue: OfflineQueue;
   /** Photo uploads; omit to hide the Photo button. */
   attachments?: AttachmentConfig;
+  /** Durable store for finished recordings; defaults to an in-memory one (survives nothing). */
+  outbox?: RecordingOutbox;
 }
 
 /**
@@ -32,7 +36,11 @@ export interface PersistentCanvasProps {
  * canvas with autosave. The editor is never shown before the load finished, so an empty canvas
  * always means an empty page.
  */
-export function PersistentCanvas({ pageId, store, queue, attachments }: PersistentCanvasProps) {
+export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox }: PersistentCanvasProps) {
+  const [attachments] = useState<AttachmentConfig | undefined>(() =>
+    attachmentProps ? { ...attachmentProps, store, outbox: outbox ?? new MemoryRecordingOutbox() } : undefined,
+  );
+  const [recovered, setRecovered] = useState(0);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
@@ -62,13 +70,29 @@ export function PersistentCanvas({ pageId, store, queue, attachments }: Persiste
     (editor: Editor) => {
       const autosave = new Autosave(editor.scene, store, pageId, { queue });
       const off = autosave.onState(setSaveState);
+      let mounted = true;
+      if (attachments?.outbox) {
+        const { service, ownerId, outbox: box } = attachments;
+        void recoverRecordings({
+          outbox: box,
+          store,
+          scene: editor.scene,
+          ownerId,
+          pageId,
+          upload: (blob, o) => service.uploadAttachment(blob, o),
+          isMounted: () => mounted,
+        }).then((n) => {
+          if (n > 0 && mounted) setRecovered((c) => c + n);
+        }, () => {});
+      }
       return () => {
+        mounted = false;
         off();
         // Final flush; whatever cannot be saved now stays queued for the next visit.
         void autosave.dispose();
       };
     },
-    [store, pageId, queue],
+    [store, pageId, queue, attachments],
   );
 
   if (load.status === "loading") {
@@ -98,6 +122,11 @@ export function PersistentCanvas({ pageId, store, queue, attachments }: Persiste
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
       <CanvasView elements={load.elements} attachments={attachments} onEditor={onEditor} />
+      {recovered > 0 ? (
+        <p role="status" className="absolute left-1/2 top-14 z-10 -translate-x-1/2 rounded bg-white px-3 py-2 text-sm shadow">
+          {t("recoveredRecordings").replace("{n}", String(recovered))}
+        </p>
+      ) : null}
       <div
         className="pointer-events-none absolute right-3"
         style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}

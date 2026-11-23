@@ -6,6 +6,8 @@ import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
 import { t } from "@/i18n/en";
 import type { AttachmentService } from "../attachments/upload";
+import type { RecordingOutbox } from "../attachments/recording-outbox";
+import type { ElementStore } from "../persistence/store";
 import { createImageLoader } from "../attachments/image-loader";
 import { PhotoInserter, type PhotoStatus as PhotoState } from "../tools/insert-image";
 import { AudioRecorder, type AudioStatus } from "../tools/record-audio";
@@ -29,6 +31,10 @@ export interface AttachmentConfig {
   service: AttachmentService;
   ownerId: string;
   pageId: string;
+  /** Where cards are saved when the canvas is already gone (a recording finishing in the background). */
+  store?: ElementStore;
+  /** Durable holding place for finished recordings until their card is saved. */
+  outbox?: RecordingOutbox;
 }
 
 export interface CanvasViewProps {
@@ -89,6 +95,8 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
         pageId: files.pageId,
         center: () => editor.viewportCenter(),
         upload: (blob, o) => files.service.uploadAttachment(blob, o),
+        outbox: files.outbox,
+        store: files.store,
       });
       audioRef.current = audio;
       offAudio = audio.onStatus(setAudioState);
@@ -155,6 +163,18 @@ export function CanvasView({ elements, attachments, onEditor }: CanvasViewProps)
       setEditor(null);
     };
   }, [initial, attach, files]);
+
+  // Closing the tab while recording or uploading asks first (in-app navigation is handled by the hand-off).
+  const audioBusy = audioState.kind === "recording" || audioState.kind === "uploading";
+  useEffect(() => {
+    if (!audioBusy) return;
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [audioBusy]);
 
   const pickColor = (c: string) => {
     setColor(c);
