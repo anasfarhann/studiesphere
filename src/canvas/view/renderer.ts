@@ -43,6 +43,14 @@ type ImageEntry =
   | { state: "error"; failures: number; retryAt: number };
 
 const HIGHLIGHTER_ALPHA = 0.35;
+const GROUND_COLOR = "#FBF9F7";
+const DOT_COLOR = "#DDD5CD";
+const DOT_SPACING = 28;
+const DOT_RADIUS_PX = 1.2;
+const DOT_MIN_SCREEN_GAP = 14;
+const MAX_DOTS_PER_AXIS = 140;
+/** Below this zoom the dots would be a few pixels apart: skip them. */
+const DOT_MIN_ZOOM = 0.35;
 
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
@@ -253,11 +261,12 @@ export class Renderer {
     this.frameNo++;
     const { ctx, camera, dpr } = this;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = "#ffffff";
+    ctx.fillStyle = GROUND_COLOR;
     ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
     const k = dpr * camera.zoom;
     ctx.setTransform(k, 0, 0, k, -camera.x * k, -camera.y * k);
+    this.drawDotGrid();
 
     for (const el of this.scene.getVisible(camera.viewRect(this.cssW, this.cssH))) {
       if (el.id !== this.hidden) this.drawElement(el);
@@ -267,6 +276,29 @@ export class Renderer {
     this.drawLasso();
     this.prune();
     this.evictImages();
+  }
+
+  /** Dot grid on the ground: one path, only the visible rect, skipped when zoomed far out. */
+  private drawDotGrid(): void {
+    const { ctx, camera } = this;
+    if (camera.zoom < DOT_MIN_ZOOM) return;
+    const v = camera.viewRect(this.cssW, this.cssH);
+    const r = DOT_RADIUS_PX / camera.zoom;
+    // Double the step until dots are >= 14 screen px apart and at most ~MAX_DOTS_PER_AXIS per axis.
+    const span = Math.max(v.maxX - v.minX, v.maxY - v.minY);
+    let step = DOT_SPACING;
+    while (step * camera.zoom < DOT_MIN_SCREEN_GAP || span / step > MAX_DOTS_PER_AXIS - 2) step *= 2;
+    const x0 = Math.ceil((v.minX - r) / step) * step;
+    const y0 = Math.ceil((v.minY - r) / step) * step;
+    ctx.fillStyle = DOT_COLOR;
+    ctx.beginPath();
+    for (let y = y0; y <= v.maxY + r; y += step) {
+      for (let x = x0; x <= v.maxX + r; x += step) {
+        ctx.moveTo(x + r, y);
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+      }
+    }
+    ctx.fill();
   }
 
   private createStrokePath(el: StrokeEl): Path2D {

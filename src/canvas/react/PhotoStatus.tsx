@@ -17,12 +17,12 @@ export function PhotoStatus({ status, onRetry, onDismiss }: PhotoStatusProps) {
       role="status"
       aria-label={t("photoStatusLabel")}
       data-testid="photo-status"
-      className="absolute left-3 top-3 z-10 touch-manipulation rounded bg-white px-3 py-2 text-sm text-gray-900 shadow"
+      className="pointer-events-auto max-w-full touch-manipulation rounded-3xl bg-card px-4 py-2 text-sm text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
     >
       {status.kind === "uploading" ? (
         t("photoUploading")
       ) : (
-        <button type="button" className="min-h-11 text-left underline" onClick={status.retryable ? onRetry : onDismiss}>
+        <button type="button" className="min-h-11 rounded-full text-left font-medium underline" onClick={status.retryable ? onRetry : onDismiss}>
           {status.message}
         </button>
       )}

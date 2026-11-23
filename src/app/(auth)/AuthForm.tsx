@@ -6,6 +6,7 @@ import { useState, type FormEvent } from "react";
 import { authErrorMessage } from "@/lib/auth-errors";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { t } from "@/i18n/en";
+import { BrandPanel } from "@/ui/BrandPanel";
 
 export function AuthForm({ mode }: { mode: "login" | "signup" }) {
   const router = useRouter();
@@ -50,34 +51,64 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
     }
   }
 
+  const inputClass =
+    "h-[52px] w-full rounded-2xl border-0 bg-ground px-[18px] text-[15px] text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-ink";
   return (
-    <main className="flex flex-1 flex-col items-center justify-center p-8">
-      <form onSubmit={onSubmit} className="flex w-full max-w-sm flex-col gap-4">
-        <h1 className="text-2xl font-semibold">{t(isLogin ? "signInTitle" : "signUpTitle")}</h1>
-        <label className="flex flex-col gap-1">
-          {t("email")}
-          <input name="email" type="email" required autoComplete="email" className="rounded-md border px-3 py-2" />
-        </label>
-        <label className="flex flex-col gap-1">
-          {t("password")}
-          <input
-            name="password"
-            type="password"
-            required
-            minLength={isLogin ? undefined : 8}
-            autoComplete={isLogin ? "current-password" : "new-password"}
-            className="rounded-md border px-3 py-2"
-          />
-        </label>
-        {error && <p role="alert" className="text-red-600">{error}</p>}
-        {notice && <p role="status">{notice}</p>}
-        <button type="submit" disabled={busy} className="rounded-md bg-foreground px-5 py-2 font-medium text-background">
-          {t(isLogin ? "signIn" : "signUp")}
-        </button>
-        <Link href={isLogin ? "/signup" : "/login"} className="text-sm underline">
-          {t(isLogin ? "noAccountYet" : "haveAccount")}
-        </Link>
-      </form>
+    <main className="flex min-h-dvh flex-1 flex-col gap-5 bg-ground p-3 sm:p-5 lg:flex-row">
+      <BrandPanel className="lg:flex-1" />
+      <section
+        aria-labelledby="auth-heading"
+        className="flex min-w-0 items-center justify-center rounded-[32px] bg-card p-6 sm:p-10 lg:flex-1"
+      >
+        <form onSubmit={onSubmit} className="flex w-full max-w-[380px] flex-col gap-[18px]">
+          <div className="mb-2 flex flex-col gap-2">
+            <h1 id="auth-heading" className="m-0 text-4xl font-medium tracking-tight">
+              {t(isLogin ? "signInTitle" : "signUpTitle")}
+            </h1>
+            <p className="m-0 text-[15px] text-muted">{t(isLogin ? "signInSubtitle" : "signUpSubtitle")}</p>
+          </div>
+          <label className="flex flex-col gap-2 text-sm font-medium">
+            {t("email")}
+            <input
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              placeholder={t("emailPlaceholder")}
+              className={inputClass}
+            />
+          </label>
+          <label className="flex flex-col gap-2 text-sm font-medium">
+            {t("password")}
+            <input
+              name="password"
+              type="password"
+              required
+              minLength={isLogin ? undefined : 8}
+              autoComplete={isLogin ? "current-password" : "new-password"}
+              className={inputClass}
+            />
+          </label>
+          {error && <p role="alert" className="m-0 text-sm text-red-700">{error}</p>}
+          {notice && <p role="status" className="m-0 text-sm">{notice}</p>}
+          <button
+            type="submit"
+            disabled={busy}
+            className="mt-1.5 h-[54px] cursor-pointer rounded-full bg-ink px-5 text-base font-medium text-white disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {t(isLogin ? "signIn" : "signUp")}
+          </button>
+          <p className="m-0 text-center text-sm text-muted">
+            {t(isLogin ? "newHere" : "haveAccountPrefix")}{" "}
+            <Link
+              href={isLogin ? "/signup" : "/login"}
+              className="inline-flex min-h-11 items-center font-semibold text-ink underline"
+            >
+              {t(isLogin ? "createAccount" : "signIn")}
+            </Link>
+          </p>
+        </form>
+      </section>
     </main>
   );
 }

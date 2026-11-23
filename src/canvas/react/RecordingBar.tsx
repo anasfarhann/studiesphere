@@ -26,7 +26,9 @@ function Timer({ startedAt }: { startedAt: number }) {
   return <span data-testid="recording-timer" className="tabular-nums">{formatDuration(now - startedAt)}</span>;
 }
 
-const action = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-md px-3 text-sm";
+const action = "inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-full px-5 text-sm font-medium";
+const primary = `${action} bg-ink text-white`;
+const secondary = `${action} bg-ground text-ink`;
 
 /** Recording controls over the canvas: timer with Stop and Cancel, or the upload / error state. */
 export function RecordingBar({ status, onStop, onCancel, onRetry, onDismiss, onSaveToDevice, onDiscardOversize }: RecordingBarProps) {
@@ -36,17 +38,17 @@ export function RecordingBar({ status, onStop, onCancel, onRetry, onDismiss, onS
       role="status"
       aria-label={t("audioStatusLabel")}
       data-testid="audio-status"
-      className="absolute bottom-4 left-1/2 z-10 flex touch-manipulation -translate-x-1/2 items-center gap-2 rounded-lg border bg-white px-3 py-1 text-sm text-gray-900 shadow"
+      className="pointer-events-auto flex max-w-full touch-manipulation items-center gap-3 rounded-3xl bg-card px-4 py-2 text-sm text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
     >
       {status.kind === "recording" ? (
         <>
-          <span aria-hidden="true" className="h-3 w-3 rounded-full bg-red-600" />
+          <span aria-hidden="true" className="size-3 rounded-full bg-red-600" />
           <span className="sr-only">{t("recordingBarLabel")}</span>
           <Timer startedAt={status.startedAt} />
-          <button type="button" aria-label={t("recordingStop")} onClick={onStop} className={`${action} bg-gray-900 text-white`}>
+          <button type="button" aria-label={t("recordingStop")} onClick={onStop} className={primary}>
             {t("recordingStop")}
           </button>
-          <button type="button" aria-label={t("recordingCancel")} onClick={onCancel} className={`${action} border`}>
+          <button type="button" aria-label={t("recordingCancel")} onClick={onCancel} className={secondary}>
             {t("recordingCancel")}
           </button>
         </>
@@ -60,13 +62,13 @@ export function RecordingBar({ status, onStop, onCancel, onRetry, onDismiss, onS
           onDone={() => onDiscardOversize?.()}
         />
       ) : status.kind === "error" ? (
-        <button type="button" className="min-h-11 text-left underline" onClick={status.retryable ? onRetry : onDismiss}>
+        <button type="button" className="min-h-11 rounded-full px-3 text-left font-medium underline" onClick={status.retryable ? onRetry : onDismiss}>
           {status.message}
         </button>
       ) : (
         <>
           <span>{status.message}</span>
-          <button type="button" aria-label={t("dismiss")} onClick={onDismiss} className={`${action} border`}>
+          <button type="button" aria-label={t("dismiss")} onClick={onDismiss} className={secondary}>
             {t("dismiss")}
           </button>
         </>
@@ -88,11 +90,11 @@ export function OversizeActions({ message, saved, onSave, onDone }: OversizeActi
   return (
     <span className="flex flex-wrap items-center gap-2">
       <span>{saved ? t("recordingSavedCheck") : message}</span>
-      <button type="button" onClick={onSave} className={`${action} bg-gray-900 text-white`}>
+      <button type="button" onClick={onSave} className={primary}>
         {t("recordingSaveToDevice")}
       </button>
       {saved ? (
-        <button type="button" onClick={onDone} className={`${action} border`}>
+        <button type="button" onClick={onDone} className={secondary}>
           {t("recordingDone")}
         </button>
       ) : (
@@ -101,7 +103,7 @@ export function OversizeActions({ message, saved, onSave, onDone }: OversizeActi
           onClick={() => {
             if (window.confirm(t("recordingDiscardConfirm"))) onDone();
           }}
-          className={`${action} border text-red-700`}
+          className={`${action} bg-pink text-ink`}
         >
           {t("recordingDiscard")}
         </button>

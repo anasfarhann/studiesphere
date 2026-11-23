@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
 import type { CanvasElement } from "../model/types";
@@ -36,6 +36,10 @@ export interface PersistentCanvasProps {
   outbox?: RecordingOutbox;
   /** Version history; omit to hide it. */
   snapshots?: SnapshotStore;
+  /** The title pill shown at the top left of the canvas (also while loading). */
+  header?: ReactNode;
+  /** Extra notices for the bottom stack (dev demos). */
+  extraNotices?: ReactNode;
 }
 
 /**
@@ -43,7 +47,7 @@ export interface PersistentCanvasProps {
  * canvas with autosave. The editor is never shown before the load finished, so an empty canvas
  * always means an empty page.
  */
-export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox, snapshots }: PersistentCanvasProps) {
+export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox, snapshots, header, extraNotices }: PersistentCanvasProps) {
   const [attachments] = useState<AttachmentConfig | undefined>(() =>
     attachmentProps ? { ...attachmentProps, store, outbox: outbox ?? new MemoryRecordingOutbox() } : undefined,
   );
@@ -135,51 +139,69 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
     [store, pageId, queue, attachments, snapshots],
   );
 
+  // While loading or after a failure there is no canvas bar yet: keep the way back reachable.
+  const headerOnly = header ? (
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-3">
+      <div className="pointer-events-auto w-fit max-w-full">{header}</div>
+    </div>
+  ) : null;
   if (load.status === "loading") {
     return (
-      <p role="status" className="m-auto text-sm text-gray-500">
-        {t("pageLoading")}
-      </p>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {headerOnly}
+        <p role="status" className="m-auto text-sm text-muted">
+          {t("pageLoading")}
+        </p>
+      </div>
     );
   }
   if (load.status === "error") {
     return (
-      <div role="alert" className="m-auto flex flex-col items-center gap-3 p-4 text-center text-sm">
-        <p>{t("pageLoadError")}</p>
-        <button
-          type="button"
-          className="min-h-11 rounded border px-4"
-          onClick={() => {
-            setLoad({ status: "loading" });
-            setAttempt((n) => n + 1);
-          }}
-        >
-          {t("tryAgain")}
-        </button>
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {headerOnly}
+        <div role="alert" className="m-auto flex flex-col items-center gap-3 p-4 text-center text-sm">
+          <p>{t("pageLoadError")}</p>
+          <button
+            type="button"
+            className="min-h-11 cursor-pointer rounded-full bg-ink px-5 font-medium text-white"
+            onClick={() => {
+              setLoad({ status: "loading" });
+              setAttempt((n) => n + 1);
+            }}
+          >
+            {t("tryAgain")}
+          </button>
+        </div>
       </div>
     );
   }
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      <CanvasView elements={load.elements} attachments={attachments} onEditor={onEditor} snapshots={snapshots ? { store: snapshots, pageId } : undefined} />
-      {recovered > 0 ? (
-        <p role="status" className="absolute left-1/2 top-14 z-10 -translate-x-1/2 rounded bg-white px-3 py-2 text-sm text-gray-900 shadow">
-          {t("recoveredRecordings").replace("{n}", String(recovered))}
-        </p>
-      ) : null}
-      {attachments?.outbox ? (
-        <OversizeRecordings
-          entries={oversize}
-          outbox={attachments.outbox}
-          onRemoved={(id) => setOversize((cur) => cur.filter((e) => e.id !== id))}
-        />
-      ) : null}
-      <div
-        className="pointer-events-none absolute right-3"
-        style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
-      >
-        <SaveStatus state={saveState} parked={parked > 0} />
-      </div>
+      <CanvasView
+        elements={load.elements}
+        attachments={attachments}
+        onEditor={onEditor}
+        snapshots={snapshots ? { store: snapshots, pageId } : undefined}
+        topLeft={header}
+        status={<SaveStatus state={saveState} parked={parked > 0} />}
+        notices={
+          <>
+            {recovered > 0 ? (
+              <p role="status" className="pointer-events-auto max-w-full rounded-3xl bg-card px-4 py-2 text-sm text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]">
+                {t("recoveredRecordings").replace("{n}", String(recovered))}
+              </p>
+            ) : null}
+            {extraNotices}
+            {attachments?.outbox ? (
+              <OversizeRecordings
+                entries={oversize}
+                outbox={attachments.outbox}
+                onRemoved={(id) => setOversize((cur) => cur.filter((e) => e.id !== id))}
+              />
+            ) : null}
+          </>
+        }
+      />
     </div>
   );
 }

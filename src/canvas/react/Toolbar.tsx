@@ -1,7 +1,8 @@
 "use client";
 
-import { useRef } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import { t, type en } from "@/i18n/en";
+import { Icon, type IconName } from "@/ui/icons";
 import type { ToolId } from "../tools/tool";
 
 export const INK_COLORS: ReadonlyArray<{ value: string; label: keyof typeof en }> = [
@@ -40,153 +41,228 @@ export interface ToolbarProps {
   recordDisabled?: boolean;
   /** Shows the Page history button when set. */
   onHistory?: () => void;
+  /** Left of the bar: the title pill (back link, page title, subject and notebook). */
+  left?: ReactNode;
+  /** Right of the bar, after undo/redo/history: the save status pill. */
+  status?: ReactNode;
+  /** The bar element, so the host can measure it (panels sit below it). */
+  barRef?: Ref<HTMLDivElement>;
 }
 
-const btn =
-  "inline-flex h-11 min-w-11 touch-manipulation items-center justify-center rounded-md border border-transparent aria-pressed:border-gray-900 aria-pressed:bg-gray-100";
+const TOOLS: ReadonlyArray<{ id: ToolId; icon: IconName; label: keyof typeof en }> = [
+  { id: "pen", icon: "pen", label: "toolPen" },
+  { id: "highlighter", icon: "highlighter", label: "toolHighlighter" },
+  { id: "eraser", icon: "eraser", label: "toolEraser" },
+  { id: "lasso", icon: "lasso", label: "toolLasso" },
+  { id: "text", icon: "text", label: "toolText" },
+  { id: "hand", icon: "hand", label: "toolHand" },
+];
 
-export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory }: ToolbarProps) {
+const SHADOW = "shadow-[0_8px_28px_rgba(27,26,31,0.10)]";
+const base = "inline-flex shrink-0 touch-manipulation cursor-pointer items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40";
+const toolBtn = `${base} size-11 text-ink aria-pressed:bg-ink aria-pressed:text-white`;
+const insertBtn = `${base} size-11 bg-ground text-ink`;
+const swatchBtn = `${base} size-11 text-ink aria-pressed:shadow-[inset_0_0_0_2px_#1B1A1F]`;
+const clusterBtn = `${base} size-11 bg-card text-ink ${SHADOW}`;
+const Divider = () => <span aria-hidden="true" className="mx-1.5 h-7 w-px shrink-0 bg-hairline" />;
+
+const WIDE = "(min-width: 1024px)";
+const subscribeWide = (cb: () => void) => {
+  const mq = window.matchMedia?.(WIDE);
+  mq?.addEventListener("change", cb);
+  return () => mq?.removeEventListener("change", cb);
+};
+/** True from lg up, where the colour and size groups fit inline; below, they collapse into one popover button. */
+const useWide = () =>
+  useSyncExternalStore(
+    subscribeWide,
+    () => (typeof window.matchMedia === "function" ? window.matchMedia(WIDE).matches : true),
+    () => true,
+  );
+
+/**
+ * The canvas top bar, floating over the drawing: title pill, tool pill, undo/redo/history and
+ * save status. The bar itself ignores pointer events so strokes can start between the pills.
+ */
+export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory, left, status, barRef }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const anyFileRef = useRef<HTMLInputElement>(null);
+  const wide = useWide();
+  const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popRef = useRef<HTMLDivElement>(null);
+  const close = useCallback((refocus: boolean) => {
+    setOpen(false);
+    if (refocus) triggerRef.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close(true);
+    const onDown = (e: PointerEvent) => {
+      const n = e.target as Node;
+      if (!popRef.current?.contains(n) && !triggerRef.current?.contains(n)) close(false);
+    };
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onDown);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onDown);
+    };
+  }, [open, close]);
+
+  const colorGroup = (
+    <div role="group" aria-label={t("inkColors")} className="flex shrink-0 flex-wrap items-center">
+      {INK_COLORS.map((c) => (
+        <button
+          key={c.value}
+          type="button"
+          aria-label={t(c.label)}
+          title={t(c.label)}
+          aria-pressed={color === c.value}
+          onClick={() => onColor(c.value)}
+          className={swatchBtn}
+        >
+          <span className="block size-[22px] rounded-full" style={{ backgroundColor: c.value }} />
+        </button>
+      ))}
+    </div>
+  );
+  const sizeGroup = (
+    <div role="group" aria-label={t("penSizes")} className="flex shrink-0 items-center">
+      {PEN_SIZES.map((s) => (
+        <button
+          key={s.value}
+          type="button"
+          aria-label={t(s.label)}
+          title={t(s.label)}
+          aria-pressed={size === s.value}
+          onClick={() => onSize(s.value)}
+          className={swatchBtn}
+        >
+          <span className="block rounded-full bg-ink" style={{ width: s.value * 2 + 2, height: s.value * 2 + 2 }} />
+        </button>
+      ))}
+    </div>
+  );
   return (
-    <div role="toolbar" aria-label={t("drawingTools")} className="flex touch-manipulation flex-wrap items-center gap-2 border-b px-3 py-1">
-      <button
-        type="button"
-        aria-pressed={tool === "pen"}
-        aria-label={t("toolPen")}
-        onClick={() => onTool("pen")}
-        className={`${btn} px-3 text-sm`}
-      >
-        {t("toolPen")}
-      </button>
-      <button
-        type="button"
-        aria-pressed={tool === "highlighter"}
-        aria-label={t("toolHighlighter")}
-        onClick={() => onTool("highlighter")}
-        className={`${btn} px-3 text-sm`}
-      >
-        {t("toolHighlighter")}
-      </button>
-      <button
-        type="button"
-        aria-pressed={tool === "eraser"}
-        aria-label={t("toolEraser")}
-        onClick={() => onTool("eraser")}
-        className={`${btn} px-3 text-sm`}
-      >
-        {t("toolEraser")}
-      </button>
-      <button
-        type="button"
-        aria-pressed={tool === "text"}
-        aria-label={t("toolText")}
-        onClick={() => onTool("text")}
-        className={`${btn} px-3 text-sm`}
-      >
-        {t("toolText")}
-      </button>
-      <button
-        type="button"
-        aria-pressed={tool === "lasso"}
-        aria-label={t("toolLasso")}
-        onClick={() => onTool("lasso")}
-        className={`${btn} px-3 text-sm`}
-      >
-        {t("toolLasso")}
-      </button>
-      <button
-        type="button"
-        aria-pressed={tool === "hand"}
-        aria-label={t("toolHand")}
-        onClick={() => onTool("hand")}
-        className={`${btn} px-3 text-sm`}
-      >
-        {t("toolHand")}
-      </button>
-      {onPhoto ? (
-        <>
-          {/* click() runs inside the tap handler: iPad Safari only opens the picker from a user gesture. */}
-          <button type="button" aria-label={t("toolPhoto")} onClick={() => fileRef.current?.click()} className={`${btn} px-3 text-sm`}>
-            {t("toolPhoto")}
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            hidden
-            data-testid="photo-input"
-            aria-label={t("photoPickerLabel")}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) onPhoto(file);
-            }}
-          />
-        </>
-      ) : null}
-      {onFile ? (
-        <>
-          <button type="button" aria-label={t("toolFile")} onClick={() => anyFileRef.current?.click()} className={`${btn} px-3 text-sm`}>
-            {t("toolFile")}
-          </button>
-          <input
-            ref={anyFileRef}
-            type="file"
-            hidden
-            data-testid="file-input"
-            aria-label={t("filePickerLabel")}
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (file) onFile(file);
-            }}
-          />
-        </>
-      ) : null}
-      {onRecord ? (
-        <button type="button" aria-label={t("toolRecord")} disabled={recordDisabled} onClick={onRecord} className={`${btn} px-3 text-sm disabled:opacity-40`}>
-          {t("toolRecord")}
-        </button>
-      ) : null}
-      <button type="button" aria-label={t("undo")} disabled={!canUndo} onClick={onUndo} className={`${btn} px-3 text-sm disabled:opacity-40`}>
-        {t("undo")}
-      </button>
-      <button type="button" aria-label={t("redo")} disabled={!canRedo} onClick={onRedo} className={`${btn} px-3 text-sm disabled:opacity-40`}>
-        {t("redo")}
-      </button>
-      {onHistory ? (
-        <button type="button" aria-label={t("toolHistory")} onClick={onHistory} className={`${btn} px-3 text-sm`}>
-          {t("toolHistory")}
-        </button>
-      ) : null}
-      <div role="group" aria-label={t("inkColors")} className="flex items-center gap-1">
-        {INK_COLORS.map((c) => (
-          <button
-            key={c.value}
-            type="button"
-            aria-label={t(c.label)}
-            aria-pressed={color === c.value}
-            onClick={() => onColor(c.value)}
-            className={btn}
-          >
-            <span className="block h-6 w-6 rounded-full" style={{ backgroundColor: c.value }} />
-          </button>
-        ))}
+    <div
+      ref={barRef}
+      data-testid="canvas-topbar"
+      className="pointer-events-none absolute inset-x-0 top-0 z-20 flex touch-manipulation flex-wrap items-start justify-between gap-3 p-3"
+    >
+      <div className="pointer-events-auto min-w-0 max-w-full">{left}</div>
+      <div className="pointer-events-none order-last flex w-full justify-center 2xl:order-none 2xl:w-auto">
+        <div
+          role="toolbar"
+          aria-label={t("drawingTools")}
+          className={`pointer-events-auto relative flex max-w-full touch-manipulation flex-wrap items-center justify-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
+        >
+          {TOOLS.map((x) => (
+            <button
+              key={x.id}
+              type="button"
+              aria-pressed={tool === x.id}
+              aria-label={t(x.label)}
+              title={t(x.label)}
+              onClick={() => onTool(x.id)}
+              className={toolBtn}
+            >
+              <Icon name={x.icon} size={20} />
+            </button>
+          ))}
+          <Divider />
+          {wide ? (
+            <>
+              {colorGroup}
+              <Divider />
+              {sizeGroup}
+            </>
+          ) : (
+            <button
+              ref={triggerRef}
+              type="button"
+              aria-label={t("inkAndSize")}
+              title={t("inkAndSize")}
+              aria-haspopup="true"
+              aria-expanded={open}
+              aria-controls="ink-popover"
+              onClick={() => setOpen((v) => !v)}
+              className={`${base} size-11 text-ink aria-expanded:shadow-[inset_0_0_0_2px_#1B1A1F]`}
+            >
+              <span className="block size-[26px] rounded-full border border-hairline" style={{ backgroundColor: color }} />
+            </button>
+          )}
+          {onPhoto || onFile || onRecord ? <Divider /> : null}
+          {onPhoto ? (
+            <>
+              {/* click() runs inside the tap handler: iPad Safari only opens the picker from a user gesture. */}
+              <button type="button" aria-label={t("toolPhoto")} title={t("toolPhoto")} onClick={() => fileRef.current?.click()} className={insertBtn}>
+                <Icon name="photo" size={20} />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                hidden
+                data-testid="photo-input"
+                aria-label={t("photoPickerLabel")}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) onPhoto(file);
+                }}
+              />
+            </>
+          ) : null}
+          {onRecord ? (
+            <button type="button" aria-label={t("toolRecord")} title={t("toolRecord")} disabled={recordDisabled} onClick={onRecord} className={insertBtn}>
+              <Icon name="mic" size={20} />
+            </button>
+          ) : null}
+          {onFile ? (
+            <>
+              <button type="button" aria-label={t("toolFile")} title={t("toolFile")} onClick={() => anyFileRef.current?.click()} className={insertBtn}>
+                <Icon name="paperclip" size={20} />
+              </button>
+              <input
+                ref={anyFileRef}
+                type="file"
+                hidden
+                data-testid="file-input"
+                aria-label={t("filePickerLabel")}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) onFile(file);
+                }}
+              />
+            </>
+          ) : null}
+          {!wide && open ? (
+            <div
+              ref={popRef}
+              id="ink-popover"
+              className={`absolute top-full left-1/2 z-30 mt-2 flex w-[min(332px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
+            >
+              {colorGroup}
+              {sizeGroup}
+            </div>
+          ) : null}
+        </div>
       </div>
-      <div role="group" aria-label={t("penSizes")} className="flex items-center gap-1">
-        {PEN_SIZES.map((s) => (
-          <button
-            key={s.value}
-            type="button"
-            aria-label={t(s.label)}
-            aria-pressed={size === s.value}
-            onClick={() => onSize(s.value)}
-            className={btn}
-          >
-            <span className="block rounded-full bg-gray-900" style={{ width: s.value * 2, height: s.value * 2 }} />
+      <div className="pointer-events-auto flex max-w-full shrink-0 items-center gap-2">
+        <button type="button" aria-label={t("undo")} title={t("undo")} disabled={!canUndo} onClick={onUndo} className={clusterBtn}>
+          <Icon name="undo" size={20} />
+        </button>
+        <button type="button" aria-label={t("redo")} title={t("redo")} disabled={!canRedo} onClick={onRedo} className={clusterBtn}>
+          <Icon name="redo" size={20} />
+        </button>
+        {onHistory ? (
+          <button type="button" aria-label={t("toolHistory")} title={t("toolHistory")} onClick={onHistory} className={clusterBtn}>
+            <Icon name="history" size={20} />
           </button>
-        ))}
+        ) : null}
+        {status}
       </div>
     </div>
   );

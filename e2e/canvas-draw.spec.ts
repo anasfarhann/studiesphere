@@ -43,3 +43,115 @@ test("toolbar buttons opt out of double-tap zoom (touch-action: manipulation)", 
   const undo = page.getByRole("button", { name: "Undo" });
   expect(await undo.evaluate((el) => getComputedStyle(el).touchAction)).toBe("manipulation");
 });
+
+test("strokes can start in the gap between top-bar pills and just below the toolbar row", async ({ page }) => {
+  await page.goto("/dev/canvas");
+  await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+  const bar = await page.getByRole("toolbar", { name: "Drawing tools" }).boundingBox();
+  if (!bar) throw new Error("toolbar has no box");
+  const count = () => page.evaluate(() => (window as unknown as EditorHook).__editor!.scene.all().length);
+  const draw = async (x: number, y: number) => {
+    await page.mouse.move(x, y);
+    await page.mouse.down();
+    await page.mouse.move(x + 80, y + 60, { steps: 8 });
+    await page.mouse.up();
+  };
+  // Top row, centred: empty space between the title slot and the undo/redo cluster.
+  await draw(bar.x + bar.width / 2, Math.max(8, bar.y - 30));
+  expect(await count()).toBe(1);
+  // Just below the toolbar pill.
+  await draw(bar.x + bar.width / 2, bar.y + bar.height + 6);
+  expect(await count()).toBe(2);
+});
+
+test("at iPad portrait and phone widths the bar never overflows the page", async ({ page }) => {
+  for (const [w, h] of [[834, 1194], [390, 844]] as const) {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await expect(page.getByRole("button", { name: "Undo" })).toBeVisible();
+    await expect(page.getByTestId("save-status")).toBeVisible();
+  }
+});
+
+test("at phone width the bottom notices stack without overlapping", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dev/canvas?demo=notices");
+  await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+  const names = ["audio-status", "photo-status", "file-status"];
+  const boxes = [];
+  for (const id of names) {
+    const el = page.getByTestId(id);
+    await expect(el).toBeVisible();
+    const b = await el.boundingBox();
+    if (!b) throw new Error(`${id} has no box`);
+    boxes.push(b);
+  }
+  for (let i = 0; i < boxes.length; i++) {
+    expect(boxes[i].x).toBeGreaterThanOrEqual(0);
+    expect(boxes[i].x + boxes[i].width).toBeLessThanOrEqual(390);
+    for (let j = i + 1; j < boxes.length; j++) {
+      const a = boxes[i];
+      const b = boxes[j];
+      const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+      expect(overlap, `${names[i]} vs ${names[j]}`).toBe(false);
+    }
+  }
+});
+
+for (const [w, h] of [[834, 1194], [1280, 720], [390, 844]] as const) {
+  test(`history panel opens below the top bar at ${w}px`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    await page.getByRole("button", { name: "Page history" }).click();
+    const panel = await page.getByRole("complementary", { name: "Page history" }).boundingBox();
+    const bar = await page.getByTestId("canvas-topbar").boundingBox();
+    if (!panel || !bar) throw new Error("missing box");
+    expect(panel.y).toBeGreaterThanOrEqual(bar.y + bar.height);
+  });
+}
+
+for (const vp of [
+  { name: "iPad portrait", width: 834, height: 1194 },
+  { name: "phone", width: 390, height: 844 },
+]) {
+  test(`toolbar keeps the pen, File and Record fully inside the viewport (${vp.name})`, async ({ page }) => {
+    await page.setViewportSize({ width: vp.width, height: vp.height });
+    await page.goto("/dev/canvas");
+    await expect(page.getByTestId("canvas")).toBeVisible();
+    for (const name of ["Pen", "File", "Record"]) {
+      const box = await page.getByRole("button", { name, exact: true }).boundingBox();
+      if (!box) throw new Error(`${name} has no box`);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(vp.width);
+      expect(box.width).toBeGreaterThanOrEqual(44);
+      expect(box.height).toBeGreaterThanOrEqual(44);
+    }
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+}
+
+test("at phone width the colour is changed through the colour popover", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dev/canvas");
+  const trigger = page.getByRole("button", { name: "Colour and pen size" });
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await trigger.click();
+  await expect(trigger).toHaveAttribute("aria-expanded", "true");
+  const red = page.getByRole("button", { name: "Red", exact: true });
+  const box = await red.boundingBox();
+  if (!box) throw new Error("no box");
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  await red.click();
+  await expect(red).toHaveAttribute("aria-pressed", "true");
+  await page.keyboard.press("Escape");
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await page.mouse.click(200, 700);
+  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+});

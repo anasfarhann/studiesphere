@@ -149,7 +149,7 @@ export function AudioCards({ editor, resolveUrl, forgetUrl }: AudioCardsProps) {
               aria-label={on ? t("audioPause") : t("audioPlay")}
               aria-pressed={on}
               onClick={() => toggle(s)}
-              className="absolute z-10 flex touch-manipulation items-center justify-center rounded-full bg-slate-800 text-white"
+              className="absolute z-10 flex touch-manipulation items-center justify-center rounded-full bg-ink text-white"
               style={{ left: s.cx - s.size / 2, top: s.cy - s.size / 2, width: s.size, height: s.size, touchAction: "manipulation" }}
             >
               <svg width="40%" height="40%" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -157,7 +157,7 @@ export function AudioCards({ editor, resolveUrl, forgetUrl }: AudioCardsProps) {
               </svg>
             </button>
             {failed === s.id ? (
-              <div role="status" className="absolute z-10 rounded bg-white px-2 py-1 text-xs text-gray-900 shadow" style={{ left: s.cx - s.size / 2, top: s.cy + s.size / 2 + 4 }}>
+              <div role="status" className="absolute z-10 rounded-full bg-card px-3 py-1 text-xs text-ink shadow-[0_8px_28px_rgba(27,26,31,0.12)]" style={{ left: s.cx - s.size / 2, top: s.cy + s.size / 2 + 4 }}>
                 {t("audioPlayFailed")}
               </div>
             ) : null}

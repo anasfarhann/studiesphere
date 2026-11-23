@@ -13,10 +13,12 @@ export interface HistoryPanelProps {
   pageId: string;
   editor: Editor;
   onClose: () => void;
+  /** Distance in px from the top of the canvas; the host passes the bottom of the top bar. */
+  top?: number;
 }
 
 /** Side panel listing the page's saved versions (newest first), each with a Restore button. */
-export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelProps) {
+export function HistoryPanel({ store, pageId, editor, onClose, top = 0 }: HistoryPanelProps) {
   const [list, setList] = useState<List>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [restoring, setRestoring] = useState<string | null>(null);
@@ -55,15 +57,16 @@ export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelPro
   return (
     <aside
       aria-label={t("historyTitle")}
-      className="absolute inset-y-0 right-0 z-20 flex touch-manipulation w-72 max-w-full flex-col border-l bg-white text-gray-900 shadow-lg"
+      className="absolute bottom-3 right-3 z-20 flex w-80 max-w-[calc(100%-1.5rem)] touch-manipulation flex-col overflow-hidden rounded-3xl bg-card text-ink shadow-[0_8px_28px_rgba(27,26,31,0.14)]"
+      style={{ top }}
     >
-      <div className="flex items-center justify-between border-b px-3 py-1">
-        <h2 className="text-sm font-medium">{t("historyTitle")}</h2>
-        <button type="button" onClick={onClose} className="inline-flex h-11 min-w-11 items-center justify-center rounded px-3 text-sm">
+      <div className="flex items-center justify-between gap-2 px-5 py-2">
+        <h2 className="text-base font-semibold">{t("historyTitle")}</h2>
+        <button type="button" onClick={onClose} className="inline-flex h-11 min-w-11 cursor-pointer items-center justify-center rounded-full bg-ground px-4 text-sm font-medium">
           {t("historyClose")}
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-3 text-sm">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4 text-sm">
         {restoreFailed ? (
           <p role="alert" className="mb-2 text-red-700">
             {t("historyRestoreError")}
@@ -75,7 +78,7 @@ export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelPro
             <p>{t("historyError")}</p>
             <button
               type="button"
-              className="min-h-11 rounded border px-4"
+              className="min-h-11 cursor-pointer rounded-full bg-ink px-5 font-medium text-white"
               onClick={() => {
                 setList({ status: "loading" });
                 setAttempt((n) => n + 1);
@@ -89,12 +92,12 @@ export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelPro
         {list.status === "ready" && list.items.length > 0 ? (
           <ul className="flex flex-col gap-2">
             {list.items.map((s) => (
-              <li key={s.id} className="flex items-center justify-between gap-2 rounded border px-3 py-1">
+              <li key={s.id} className="flex items-center justify-between gap-2 rounded-2xl bg-ground px-4 py-2">
                 <div>
                   <time dateTime={new Date(s.createdAt).toISOString()} className="block">
                     {new Date(s.createdAt).toLocaleString()}
                   </time>
-                  <span className="text-gray-600">
+                  <span className="text-muted">
                     {s.elementCount === 1 ? t("historyElementsOne") : t("historyElementsMany").replace("{n}", String(s.elementCount))}
                   </span>
                 </div>
@@ -102,7 +105,7 @@ export function HistoryPanel({ store, pageId, editor, onClose }: HistoryPanelPro
                   type="button"
                   disabled={restoring !== null}
                   onClick={() => void restore(s.id)}
-                  className="min-h-11 min-w-11 rounded border px-3 disabled:opacity-40"
+                  className="min-h-11 min-w-11 cursor-pointer rounded-full bg-lavender px-4 font-medium disabled:opacity-40"
                 >
                   {restoring === s.id ? t("historyRestoring") : t("historyRestore")}
                 </button>
