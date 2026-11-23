@@ -51,7 +51,8 @@ export class Renderer {
   /** Decoded photos by assetPath, so each is fetched and decoded once. */
   private images = new Map<string, ImageEntry>();
   private frameNo = 0;
-  private retryTimers = new Set<ReturnType<typeof setTimeout>>();
+  private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private destroyed = false;
   private forgetImage: ((assetPath: string) => void) | undefined;
   private budget: number;
   private onWake = () => {
@@ -103,6 +104,7 @@ export class Renderer {
   }
 
   requestFrame(): void {
+    if (this.destroyed) return;
     if (this.pending !== null) return;
     this.pending = this.raf(() => {
       this.pending = null;
@@ -133,6 +135,7 @@ export class Renderer {
   }
 
   destroy(): void {
+    this.destroyed = true;
     this.unsubscribe();
     if (this.pending !== null) {
       this.caf(this.pending);
@@ -142,7 +145,7 @@ export class Renderer {
     this.releaseImages(() => true);
     window.removeEventListener("online", this.onWake);
     document.removeEventListener("visibilitychange", this.onWake);
-    for (const id of this.retryTimers) clearTimeout(id);
+    for (const id of this.retryTimers.values()) clearTimeout(id);
     this.retryTimers.clear();
   }
 
@@ -165,7 +168,12 @@ export class Renderer {
     const load = this.loadImage;
     if (!load) return { state: "loading", failures: 0 };
     if (hit && hit.state === "error") {
-      if (Date.now() < hit.retryAt) return hit;
+      const wait = hit.retryAt - Date.now();
+      if (wait > 0) {
+        // A timer that fired early must not strand the retry.
+        if (!this.retryTimers.has(assetPath)) this.scheduleRetry(assetPath, wait);
+        return hit;
+      }
       // Re-sign: the failure may have been an expired or never-issued URL.
       this.forgetImage?.(assetPath);
     }
@@ -180,15 +188,23 @@ export class Renderer {
       () => {
         const n = failures + 1;
         const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (n - 1));
+        // Destroyed, or the entry was dropped while loading: nothing to retry.
+        if (this.destroyed || this.images.get(assetPath) !== loading) return;
         this.settleImage(assetPath, loading, { state: "error", failures: n, retryAt: Date.now() + delay });
-        const timer = setTimeout(() => {
-          this.retryTimers.delete(timer);
-          this.requestFrame();
-        }, delay);
-        this.retryTimers.add(timer);
+        this.scheduleRetry(assetPath, delay);
       },
     );
     return loading;
+  }
+
+  private scheduleRetry(assetPath: string, delay: number): void {
+    const old = this.retryTimers.get(assetPath);
+    if (old !== undefined) clearTimeout(old);
+    const timer = setTimeout(() => {
+      this.retryTimers.delete(assetPath);
+      this.requestFrame();
+    }, delay);
+    this.retryTimers.set(assetPath, timer);
   }
 
   private settleImage(assetPath: string, was: ImageEntry, next: ImageEntry): void {
@@ -220,6 +236,7 @@ export class Renderer {
   }
 
   private draw(): void {
+    if (this.destroyed) return;
     this.frameNo++;
     const { ctx, camera, dpr } = this;
     ctx.setTransform(1, 0, 0, 1, 0, 0);

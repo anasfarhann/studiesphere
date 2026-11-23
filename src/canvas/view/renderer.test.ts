@@ -254,6 +254,48 @@ describe("Renderer", () => {
         }
       });
 
+      it("a load that fails after destroy schedules nothing and never loads again", async () => {
+        vi.useFakeTimers();
+        try {
+          scene.add(photo);
+          let reject!: (e: Error) => void;
+          const load = vi.fn(() => new Promise<ImageBitmap>((_, rej) => { reject = rej; }));
+          const r = makeWith(load);
+          r.resize(400, 400, 1);
+          flush();
+          r.destroy();
+          reject(new Error("offline"));
+          await vi.advanceTimersByTimeAsync(0);
+          expect(vi.getTimerCount()).toBe(0);
+          await vi.advanceTimersByTimeAsync(120_000);
+          flush();
+          expect(load).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it("re-arms the retry when its timer fires early", async () => {
+        vi.useFakeTimers();
+        try {
+          scene.add(photo);
+          const load = vi.fn<(p: string) => Promise<ImageBitmap>>().mockRejectedValueOnce(new Error("x")).mockResolvedValue(bitmap);
+          const r = makeWith(load);
+          r.resize(400, 400, 1);
+          flush(); await vi.advanceTimersByTimeAsync(0); flush();
+          // Clock steps back 3 s, so the 5 s timer fires before retryAt.
+          vi.setSystemTime(Date.now() - 3_000);
+          await vi.advanceTimersByTimeAsync(5_000); flush();
+          expect(load).toHaveBeenCalledTimes(1);
+          await vi.advanceTimersByTimeAsync(3_100); flush();
+          await vi.advanceTimersByTimeAsync(0); flush();
+          expect(load).toHaveBeenCalledTimes(2);
+          expect(ctx.drawImage).toHaveBeenCalledTimes(1);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
       it("retries immediately when the browser comes back online", async () => {
         scene.add(photo);
         const load = vi.fn<(p: string) => Promise<ImageBitmap>>().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(bitmap);
