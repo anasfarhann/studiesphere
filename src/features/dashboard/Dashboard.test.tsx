@@ -64,6 +64,17 @@ describe("Dashboard", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("keeps focus in the field when the dashboard re-renders while the dialog is open", () => {
+    const { rerender } = render(<Dashboard name="Anas" subjects={[]} recent={[]} today={today} />);
+    fireEvent.click(screen.getByRole("button", { name: "New subject" }));
+    const input = screen.getByLabelText("Subject name");
+    input.focus();
+    rerender(<Dashboard name="Anas" subjects={[]} recent={[]} today={new Date(2026, 10, 24, 12)} />);
+    expect(document.activeElement).toBe(input);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("chip filter narrows both the subjects and the recent pages", () => {
     render(<Dashboard name="Anas" subjects={subjects} recent={recent} today={today} />);
     fireEvent.click(screen.getByRole("button", { name: "Chemistry" }));

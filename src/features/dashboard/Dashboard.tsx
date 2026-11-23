@@ -35,13 +35,17 @@ const count = (n: number, one: string, many: string) => (n === 1 ? t(one as "das
 
 function NewSubjectDialog({ onClose }: { onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const closeRef = useRef(onClose);
+  useEffect(() => {
+    closeRef.current = onClose;
+  });
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     const focusables = () =>
       Array.from(ref.current?.querySelectorAll<HTMLElement>("button:not([disabled]), input:not([disabled]), a[href]") ?? []);
     focusables()[0]?.focus();
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return onClose();
+      if (e.key === "Escape") return closeRef.current();
       if (e.key !== "Tab") return;
       const items = focusables();
       if (items.length === 0) return;
@@ -64,7 +68,7 @@ function NewSubjectDialog({ onClose }: { onClose: () => void }) {
       document.removeEventListener("keydown", onKey);
       opener?.focus();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
