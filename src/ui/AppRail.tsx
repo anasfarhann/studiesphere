@@ -7,7 +7,7 @@ import { Icon, type IconName } from "./icons";
 
 export type RailAccount = { email: string; signOut: () => void | Promise<void> };
 
-const btn = "flex size-[52px] shrink-0 items-center justify-center rounded-full";
+const btn = "flex size-11 md:size-[52px] shrink-0 items-center justify-center rounded-full";
 const idle = "bg-card text-ink";
 const on = "bg-ink text-white";
 
@@ -58,7 +58,7 @@ export function AppRail({ active, account }: { active: "home" | "subjects"; acco
   return (
     <nav
       aria-label={t("navMain")}
-      className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around gap-1 rounded-t-[28px] bg-panel px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:sticky md:inset-auto md:top-5 md:h-[calc(100dvh-2.5rem)] md:w-[84px] md:shrink-0 md:flex-col md:justify-start md:gap-3.5 md:self-start md:rounded-[28px] md:px-3.5 md:py-5"
+      className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-around gap-1 rounded-t-[28px] bg-panel px-2 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:sticky md:inset-auto md:top-5 md:h-[calc(100dvh-2.5rem)] md:w-[84px] md:shrink-0 md:flex-col md:justify-start md:gap-3.5 md:self-start md:rounded-[28px] md:px-3.5 md:py-5"
     >
       <Link
         href="/app"
