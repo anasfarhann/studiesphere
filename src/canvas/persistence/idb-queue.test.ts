@@ -17,4 +17,18 @@ describe("IdbOfflineQueue", () => {
     expect((await new IdbOfflineQueue("p1").drain()).map((b) => b.queuedAt)).toEqual([1, 3]);
     expect((await new IdbOfflineQueue("p2").drain()).map((b) => b.queuedAt)).toEqual([9]);
   });
+
+  it("parked batches persist across instances, leave the regular queue, and go only on unpark", async () => {
+    const q = new IdbOfflineQueue("park-p");
+    await q.push(batch(1, "park-p"));
+    await q.push(batch(2, "park-p"));
+    await q.park(batch(1, "park-p"));
+    const reloaded = new IdbOfflineQueue("park-p");
+    expect((await reloaded.drain()).map((b) => b.queuedAt)).toEqual([2]);
+    expect((await reloaded.parked()).map((b) => b.queuedAt)).toEqual([1]);
+    await reloaded.remove("b1"); // removing from the queue never touches the parked list
+    expect(await new IdbOfflineQueue("park-p").parked()).toHaveLength(1);
+    await reloaded.unpark("b1");
+    expect(await new IdbOfflineQueue("park-p").parked()).toEqual([]);
+  });
 });

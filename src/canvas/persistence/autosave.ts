@@ -3,6 +3,7 @@ import { MemoryOfflineQueue } from "./memory-store";
 import {
   ElementStoreError,
   QUEUE_DRAIN_TIMEOUT_MS,
+  STATEMENT_TIMEOUT_CODE,
   withTimeout,
   type ElementStore,
   type OfflineQueue,
@@ -25,6 +26,26 @@ export interface AutosaveOptions {
 
 const RETRY_BASE_MS = 2000;
 const RETRY_MAX_MS = 60_000;
+/** A batch that hits the statement timeout this many times is treated as refused (split / set aside). */
+const TIMEOUT_ATTEMPTS = 3;
+
+/** Splits a batch into two halves with fresh ids and the same queuedAt (their elements are disjoint). */
+function splitBatch(b: SaveBatch, newId: () => string): [SaveBatch, SaveBatch] {
+  const n = b.upserts.length + b.deletes.length;
+  const half = Math.ceil(n / 2);
+  const firstUps = b.upserts.slice(0, half);
+  const firstDels = b.deletes.slice(0, Math.max(0, half - b.upserts.length));
+  return [
+    { id: newId(), pageId: b.pageId, queuedAt: b.queuedAt, upserts: firstUps, deletes: firstDels },
+    {
+      id: newId(),
+      pageId: b.pageId,
+      queuedAt: b.queuedAt,
+      upserts: b.upserts.slice(firstUps.length),
+      deletes: b.deletes.slice(firstDels.length),
+    },
+  ];
+}
 
 /**
  * Saves a scene's changed elements to a store.
@@ -33,6 +54,11 @@ const RETRY_MAX_MS = 60_000;
  * before its network save; it leaves both only after the store confirmed it. Batches are saved one at
  * a time, oldest first, so queued (offline / earlier-visit) batches always reach the server before newer
  * ones. Nothing taken from the scene is ever dropped: failures keep the batch and retry with backoff.
+ *
+ * A batch the server refuses deterministically (bad data, see ElementStoreError.permanent, or one
+ * that keeps hitting the statement timeout) would block every later batch forever. It is split in
+ * halves until only the refused element(s) remain, and that single-element batch is parked: kept in
+ * the queue's parked list (never deleted automatically), retried on the next visit, state "error".
  *
  * The durable queue is best effort and never on the save path: pushes and removes are fire-and-forget
  * (the queue orders them itself), and the startup read gives up after QUEUE_DRAIN_TIMEOUT_MS, so a
@@ -58,6 +84,13 @@ export class Autosave {
 
   private state: SaveState = "saved";
   private listeners = new Set<(s: SaveState) => void>();
+  /** Batches set aside this visit (see class doc). */
+  private parkedCount = 0;
+  private parkedListeners = new Set<(n: number) => void>();
+  /** Ids of outbox batches that came from the parked list (retried once per visit). */
+  private fromParked = new Set<string>();
+  /** Statement-timeout attempts per batch id. */
+  private timeouts = new Map<string, number>();
   private unsubscribeScene: () => void;
   private disposed = false;
 
@@ -95,6 +128,15 @@ export class Autosave {
     return this.pump();
   }
 
+  /** Number of batches the server refused and that were set aside (shown as "Some changes couldn't be saved"). */
+  onParked(fn: (n: number) => void): () => void {
+    this.parkedListeners.add(fn);
+    fn(this.parkedCount);
+    return () => {
+      this.parkedListeners.delete(fn);
+    };
+  }
+
   onState(fn: (s: SaveState) => void): () => void {
     this.listeners.add(fn);
     fn(this.state);
@@ -118,6 +160,7 @@ export class Autosave {
     await done;
     this.clearRetry();
     this.listeners.clear();
+    this.parkedListeners.clear();
   }
 
   // ---------------------------------------------------------------- internals
@@ -126,9 +169,18 @@ export class Autosave {
     // Unreadable or hanging queue (IndexedDB unavailable / stuck): nothing to replay this visit.
     // Its batches stay stored and are replayed on a later visit.
     const read = Promise.resolve().then(() => this.queue.drain());
-    const queued = (await withTimeout(read, QUEUE_DRAIN_TIMEOUT_MS, [])).filter((b) => b.pageId === this.pageId);
+    const readParked = Promise.resolve().then(() => this.queue.parked());
+    const [regular, parked] = await Promise.all([
+      withTimeout(read, QUEUE_DRAIN_TIMEOUT_MS, []),
+      withTimeout(readParked, QUEUE_DRAIN_TIMEOUT_MS, []),
+    ]);
+    const mine = (bs: SaveBatch[]) => bs.filter((b) => b.pageId === this.pageId);
+    // Parked batches get one more try per visit; a crash mid-park can leave one in both lists.
+    for (const b of mine(parked)) this.fromParked.add(b.id);
     const known = new Set(this.outbox.map((b) => b.id));
-    const earlier = queued.filter((b) => !known.has(b.id)).sort((a, b) => a.queuedAt - b.queuedAt);
+    const byId = new Map<string, SaveBatch>();
+    for (const b of [...mine(parked), ...mine(regular)]) if (!known.has(b.id)) byId.set(b.id, b);
+    const earlier = [...byId.values()].sort((a, b) => a.queuedAt - b.queuedAt);
     for (const b of earlier) this.lastQueuedAt = Math.max(this.lastQueuedAt, b.queuedAt);
     // Batches from earlier visits are older than anything taken since construction: they go first.
     this.outbox = [...earlier, ...this.outbox];
@@ -194,16 +246,55 @@ export class Autosave {
       try {
         await this.store.save(batch.pageId, batch.upserts, batch.deletes);
       } catch (err) {
+        if (this.refused(batch, err)) {
+          this.setAside(batch);
+          continue;
+        }
         this.onFailure(err);
         return;
       }
       this.outbox.shift();
+      this.timeouts.delete(batch.id);
       // Not awaited: the queue applies it after the batch's push, and a hang must not delay the next save.
       this.queueOp(() => this.queue.remove(batch.id));
+      if (this.fromParked.delete(batch.id)) this.queueOp(() => this.queue.unpark(batch.id));
       this.failures = 0;
       this.clearRetry();
     }
-    this.setState(this.debounceTimer ? "saving" : "saved");
+    this.setState(this.debounceTimer ? "saving" : this.parkedCount > 0 ? "error" : "saved");
+  }
+
+  /** Whether resending this batch as it is can never succeed. */
+  private refused(batch: SaveBatch, err: unknown): boolean {
+    if (!(err instanceof ElementStoreError) || err.network) return false;
+    if (err.permanent) return true;
+    if (err.code !== STATEMENT_TIMEOUT_CODE) return false;
+    const n = (this.timeouts.get(batch.id) ?? 0) + 1;
+    this.timeouts.set(batch.id, n);
+    return n >= TIMEOUT_ATTEMPTS;
+  }
+
+  /**
+   * Takes a refused batch (outbox[0]) out of the way without losing it: split in halves (both saved
+   * to the queue before the original leaves it) so the rest of its elements still get saved, or,
+   * once it is a single element, parked.
+   */
+  private setAside(batch: SaveBatch): void {
+    this.outbox.shift();
+    this.timeouts.delete(batch.id);
+    const wasParked = this.fromParked.delete(batch.id);
+    if (batch.upserts.length + batch.deletes.length > 1) {
+      const halves = splitBatch(batch, this.newId);
+      this.outbox.unshift(...halves);
+      for (const h of halves) this.queueOp(() => this.queue.push(h));
+      this.queueOp(() => this.queue.remove(batch.id));
+      if (wasParked) this.queueOp(() => this.queue.unpark(batch.id));
+      return;
+    }
+    // Already in the parked list when it came from there; park() is idempotent per id anyway.
+    this.queueOp(() => this.queue.park(batch));
+    this.parkedCount++;
+    for (const fn of [...this.parkedListeners]) fn(this.parkedCount);
   }
 
   /** Fire-and-forget queue write; errors (quota, private mode, unavailable) are ignored. */

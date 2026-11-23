@@ -30,6 +30,15 @@ export interface OfflineQueue {
   drain(): Promise<SaveBatch[]>;
   /** Forget the batch with this id (it was saved). */
   remove(id: string): Promise<void>;
+  /**
+   * Sets a batch the server refused deterministically aside (and out of the regular queue), so later
+   * batches can proceed. Parked batches are kept until `unpark`, which is only called once one saved.
+   */
+  park(batch: SaveBatch): Promise<void>;
+  /** Parked batches, oldest first (not removed). */
+  parked(): Promise<SaveBatch[]>;
+  /** Forget a parked batch (it was saved after all). */
+  unpark(id: string): Promise<void>;
 }
 
 /** How long a queue read may take before it is treated as empty (IndexedDB can hang in Safari). */
@@ -52,14 +61,27 @@ export function withTimeout<T>(p: Promise<T>, ms: number, fallback: T): Promise<
   });
 }
 
-/** A store failure the server reported (not a network failure): shown as "error", still retried. */
+/** Postgres statement_timeout: retried, but a batch that keeps timing out is split / set aside. */
+export const STATEMENT_TIMEOUT_CODE = "57014";
+
+/**
+ * A store failure. `network`: the request never got an answer (offline, DNS, aborted).
+ * `permanent`: the server refused the data itself (bad value, constraint, unknown function…), so
+ * resending the same batch can never succeed. Everything else (5xx, auth, rate limit) is retried.
+ */
 export class ElementStoreError extends Error {
+  readonly permanent: boolean;
+  readonly code: string | undefined;
+
   constructor(
     message: string,
     readonly network: boolean,
+    opts: { permanent?: boolean; code?: string } = {},
   ) {
     super(message);
     this.name = "ElementStoreError";
+    this.permanent = opts.permanent ?? false;
+    this.code = opts.code;
   }
 }
 

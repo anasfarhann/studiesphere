@@ -247,7 +247,7 @@ describe("Autosave", () => {
 
 describe("Autosave with a hanging IndexedDB", () => {
   const never = <T,>() => new Promise<T>(() => {});
-  const hanging: OfflineQueue = { push: () => never(), drain: () => never(), remove: () => never() };
+  const hanging: OfflineQueue = { push: () => never(), drain: () => never(), remove: () => never(), park: () => never(), parked: () => never(), unpark: () => never() };
 
   afterEach(() => vi.useRealTimers());
 
@@ -412,5 +412,135 @@ describe("undo/redo survive the server (client-stamped tombstones)", () => {
     expect(applyBatches([stroke("A", T0 + 500)], [
       { id: "q", pageId: PAGE, upserts: [], deletes: [{ id: "A", updatedAt: T0 }], queuedAt: 1 },
     ]).map((e) => e.id)).toEqual(["A"]);
+  });
+});
+
+describe("Autosave: batches the server refuses never block the page", () => {
+  const refused = () => new ElementStoreError('invalid input syntax for type uuid: "x"', false, { permanent: true, code: "22P02" });
+
+  /** A store that refuses any save containing element "bad"; the rest is stored normally. */
+  function refusingStore() {
+    const store = new MemoryElementStore();
+    const real = store.save.bind(store);
+    const save = vi.spyOn(store, "save").mockImplementation(async (page, ups, dels) => {
+      if (ups.some((e) => e.id === "bad")) throw refused();
+      return real(page, ups, dels);
+    });
+    return { store, save };
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1_000_000);
+    setOnline(true);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("a deterministic error parks the batch (only the refused element) and the next batch saves", async () => {
+    const { store, save } = refusingStore();
+    const queue = new MemoryOfflineQueue(PAGE);
+    const scene = new Scene();
+    const a = new Autosave(scene, store, PAGE, { queue });
+    const states: SaveState[] = [];
+    const parked: number[] = [];
+    a.onState((s) => states.push(s));
+    a.onParked((n) => parked.push(n));
+    scene.add(stroke("bad"));
+    scene.add(stroke("good-1"));
+    await vi.advanceTimersByTimeAsync(1500);
+    scene.add(stroke("good-2"));
+    await vi.advanceTimersByTimeAsync(1500);
+    expect((await store.load(PAGE)).map((e) => e.id).sort()).toEqual(["good-1", "good-2"]);
+    expect((await queue.parked()).map((b) => b.upserts.map((e) => e.id))).toEqual([["bad"]]);
+    expect(await queue.drain()).toEqual([]);
+    expect(parked.at(-1)).toBe(1);
+    expect(states.at(-1)).toBe("error");
+    // Not retried in this visit: no backoff loop on a refused batch.
+    const calls = save.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(save.mock.calls.length).toBe(calls);
+    await a.dispose();
+  });
+
+  it("a refused batch is split so the rest of its elements still save; only the refused one is parked", async () => {
+    const { store } = refusingStore();
+    const queue = new MemoryOfflineQueue(PAGE);
+    const scene = new Scene();
+    const a = new Autosave(scene, store, PAGE, { queue });
+    scene.batch(() => {
+      for (let i = 0; i < 20; i++) scene.add(stroke(`s${i}`));
+      scene.add(stroke("bad"));
+    });
+    await a.flush();
+    expect((await store.load(PAGE)).length).toBe(20);
+    const kept = await queue.parked();
+    expect(kept).toHaveLength(1);
+    expect(kept[0].upserts.map((e) => e.id)).toEqual(["bad"]);
+    await a.dispose();
+  });
+
+  it("a parked batch persists across a new Autosave instance, is retried once on load and unparked when it saves", async () => {
+    const { store } = refusingStore();
+    const queue = new MemoryOfflineQueue(PAGE);
+    const scene = new Scene();
+    const first = new Autosave(scene, store, PAGE, { queue });
+    scene.add(stroke("bad"));
+    await first.flush();
+    await first.dispose();
+    expect(await queue.parked()).toHaveLength(1);
+
+    // Next visit, still refused: stays parked, state error.
+    const second = new Autosave(new Scene(), store, PAGE, { queue });
+    const states: SaveState[] = [];
+    second.onState((s) => states.push(s));
+    await second.flush();
+    expect(await queue.parked()).toHaveLength(1);
+    expect(states.at(-1)).toBe("error");
+    await second.dispose();
+
+    // A later visit where the server accepts it (fixed): saved and unparked.
+    const ok = new MemoryElementStore();
+    const third = new Autosave(new Scene(), ok, PAGE, { queue });
+    const states3: SaveState[] = [];
+    third.onState((s) => states3.push(s));
+    await third.flush();
+    expect((await ok.load(PAGE)).map((e) => e.id)).toEqual(["bad"]);
+    expect(await queue.parked()).toEqual([]);
+    expect(states3.at(-1)).toBe("saved");
+    await third.dispose();
+  });
+
+  it("network errors still retry with backoff and are never parked", async () => {
+    const store = new MemoryElementStore();
+    const save = vi.spyOn(store, "save").mockRejectedValueOnce(new ElementStoreError("Failed to fetch", true));
+    const queue = new MemoryOfflineQueue(PAGE);
+    const scene = new Scene();
+    const a = new Autosave(scene, store, PAGE, { queue });
+    scene.add(stroke("a"));
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(await queue.parked()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect((await store.load(PAGE)).map((e) => e.id)).toEqual(["a"]);
+    await a.dispose();
+  });
+
+  it("a statement timeout is retried; after 3 timeouts the batch is split and then parked", async () => {
+    const store = new MemoryElementStore();
+    const timeout = () => new ElementStoreError("canceling statement due to statement timeout", false, { code: "57014" });
+    const save = vi.spyOn(store, "save").mockRejectedValue(timeout());
+    const queue = new MemoryOfflineQueue(PAGE);
+    const scene = new Scene();
+    const a = new Autosave(scene, store, PAGE, { queue });
+    scene.add(stroke("slow"));
+    await vi.advanceTimersByTimeAsync(1500);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(await queue.parked()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(save).toHaveBeenCalledTimes(3);
+    expect((await queue.parked()).map((b) => b.upserts[0].id)).toEqual(["slow"]);
+    await a.dispose();
   });
 });

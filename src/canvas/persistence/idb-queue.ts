@@ -2,6 +2,8 @@ import { get, update } from "idb-keyval";
 import type { OfflineQueue, SaveBatch } from "./store";
 
 export const queueKey = (pageId: string) => `studiesphere:queue:${pageId}`;
+/** Batches the server refused deterministically; never removed automatically (see OfflineQueue.park). */
+export const parkedKey = (pageId: string) => `studiesphere:parked:${pageId}`;
 
 /**
  * Offline queue in IndexedDB (idb-keyval), one key per page, so unsaved batches survive a reload,
@@ -38,6 +40,27 @@ export class IdbOfflineQueue implements OfflineQueue {
   remove(id: string): Promise<void> {
     return this.run(() =>
       update<SaveBatch[]>(queueKey(this.pageId), (cur) => (cur ?? []).filter((b) => b.id !== id)),
+    );
+  }
+
+  /** Written to the parked list first, then taken out of the queue: a crash in between leaves it in both (deduplicated by id). */
+  park(batch: SaveBatch): Promise<void> {
+    return this.run(async () => {
+      await update<SaveBatch[]>(parkedKey(this.pageId), (cur) => [...(cur ?? []).filter((b) => b.id !== batch.id), batch]);
+      await update<SaveBatch[]>(queueKey(this.pageId), (cur) => (cur ?? []).filter((b) => b.id !== batch.id));
+    });
+  }
+
+  parked(): Promise<SaveBatch[]> {
+    return this.run(async () => {
+      const cur = await get<SaveBatch[]>(parkedKey(this.pageId));
+      return [...(cur ?? [])].sort((a, b) => a.queuedAt - b.queuedAt);
+    });
+  }
+
+  unpark(id: string): Promise<void> {
+    return this.run(() =>
+      update<SaveBatch[]>(parkedKey(this.pageId), (cur) => (cur ?? []).filter((b) => b.id !== id)),
     );
   }
 }

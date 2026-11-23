@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Scene } from "../model/scene";
 import type { StrokeEl, TextEl } from "../model/types";
 import type { Editor } from "../editor";
-import type { OfflineQueue } from "../persistence/store";
+import { ElementStoreError, type OfflineQueue } from "../persistence/store";
 import { MemoryElementStore, MemoryOfflineQueue } from "../persistence/memory-store";
 import { PersistentCanvas } from "./PersistentCanvas";
 import { MemoryRecordingOutbox } from "../attachments/recording-outbox";
@@ -64,11 +64,27 @@ describe("PersistentCanvas", () => {
     expect((await store.load("p")).map((e) => e.id).sort()).toEqual(["queued", "server"]);
   });
 
+  it("shows parked (server-refused) edits after a reload and says some changes couldn't be saved", async () => {
+    const store = new MemoryElementStore();
+    const real = store.save.bind(store);
+    vi.spyOn(store, "save").mockImplementation(async (page, ups, dels) => {
+      if (ups.some((e) => e.id === "refused")) throw new ElementStoreError("bad value", false, { permanent: true, code: "22P02" });
+      return real(page, ups, dels);
+    });
+    const queue = new MemoryOfflineQueue("p");
+    await queue.park({ id: "pk", pageId: "p", upserts: [stroke("refused", 2000)], deletes: [], queuedAt: 2000 });
+    render(<PersistentCanvas pageId="p" store={store} queue={queue} />);
+    expect(await screen.findByTestId("canvas")).toBeInTheDocument();
+    expect((window as unknown as EditorHook).__editor!.scene.all().map((e) => e.id)).toEqual(["refused"]);
+    expect(await screen.findByText("Some changes couldn't be saved")).toBeInTheDocument();
+    expect(await queue.parked()).toHaveLength(1);
+  });
+
   it("mounts and saves a stroke within 2 s when IndexedDB hangs", async () => {
     const store = new MemoryElementStore();
     await store.save("p", [stroke("server", 1000)], []);
     const never = <T,>() => new Promise<T>(() => {});
-    const hanging: OfflineQueue = { push: () => never(), drain: () => never(), remove: () => never() };
+    const hanging: OfflineQueue = { push: () => never(), drain: () => never(), remove: () => never(), park: () => never(), parked: () => never(), unpark: () => never() };
     render(<PersistentCanvas pageId="p" store={store} queue={hanging} />);
     expect(await screen.findByTestId("canvas", {}, { timeout: 3000 })).toBeInTheDocument();
     const scene = (window as unknown as EditorHook).__editor!.scene as unknown as Scene;

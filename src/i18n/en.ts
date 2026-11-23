@@ -65,6 +65,7 @@ export const en = {
   saveSaving: "Saving…",
   saveOffline: "Offline — will retry",
   saveError: "Couldn't save — will retry",
+  saveParked: "Some changes couldn't be saved",
   saveStatusLabel: "Save status",
   pageLoading: "Loading page…",
   pageLoadError: "Couldn't load this page. Check your connection and try again.",

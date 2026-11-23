@@ -17,7 +17,8 @@ const TONE: Record<SaveState, string> = {
   error: "text-red-700",
 };
 
-export function SaveStatus({ state }: { state: SaveState }) {
+/** `parked`: some batches were refused by the server and set aside (kept on this device). */
+export function SaveStatus({ state, parked = false }: { state: SaveState; parked?: boolean }) {
   return (
     <p
       role="status"
@@ -27,7 +28,7 @@ export function SaveStatus({ state }: { state: SaveState }) {
       data-state={state}
       className={`rounded bg-white/90 px-2 py-1 text-xs shadow-sm ${TONE[state]}`}
     >
-      {t(LABEL[state])}
+      {t(parked && state === "error" ? "saveParked" : LABEL[state])}
     </p>
   );
 }

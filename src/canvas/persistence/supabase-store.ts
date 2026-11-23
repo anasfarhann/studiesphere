@@ -1,11 +1,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "@/lib/supabase/types";
 import type { CanvasElement } from "../model/types";
-import { ElementStoreError, type ElementStore, type Tombstone } from "./store";
+import { ElementStoreError, STATEMENT_TIMEOUT_CODE, type ElementStore, type Tombstone } from "./store";
 
 const ELEMENT_TYPES = new Set<string>(["stroke", "text", "image", "audio", "file"]);
 /** PostgREST caps a response at 1000 rows by default; pages can hold many more strokes. */
 const PAGE_SIZE = 1000;
+/** Most rows (upserts + deletes) per save_elements call, so one big batch is never one huge request. */
+export const SAVE_CHUNK_SIZE = 300;
+/** 4xx answers that are about the session or load, not the data: retried. */
+const RETRYABLE_STATUS = new Set([401, 403, 408, 429]);
 
 type Row = Pick<Database["public"]["Tables"]["canvas_elements"]["Row"], "id" | "type" | "data" | "z" | "updated_at">;
 type PostgrestLikeError = { message: string; code?: string };
@@ -41,9 +45,23 @@ function isNetworkError(e: PostgrestLikeError): boolean {
   return /fetch|network|load failed|abort/i.test(e.message);
 }
 
-function toStoreError(e: PostgrestLikeError): ElementStoreError {
-  return new ElementStoreError(e.message, isNetworkError(e));
+/**
+ * Network failures and 5xx/auth/rate-limit answers are retried. The data itself being refused
+ * (Postgres 22xxx data exceptions, 23xxx constraints, 42xxx except 42501 permission, or any other
+ * 4xx but 401/403/408/429) can never succeed by resending: marked permanent.
+ */
+export function toStoreError(e: PostgrestLikeError, status?: number): ElementStoreError {
+  if (isNetworkError(e) || status === 0) return new ElementStoreError(e.message, true, { code: e.code });
+  const code = e.code ?? "";
+  if (code === STATEMENT_TIMEOUT_CODE || code === "42501") return new ElementStoreError(e.message, false, { code });
+  const permanent =
+    /^2[23]/.test(code) ||
+    /^42/.test(code) ||
+    (status !== undefined && status >= 400 && status < 500 && !RETRYABLE_STATUS.has(status));
+  return new ElementStoreError(e.message, false, { permanent, code: e.code });
 }
+
+type SaveItem = { kind: "row"; el: CanvasElement } | { kind: "delete"; d: Tombstone };
 
 export class SupabaseElementStore implements ElementStore {
   constructor(private client: SupabaseClient<Database>) {}
@@ -73,8 +91,28 @@ export class SupabaseElementStore implements ElementStore {
     return out;
   }
 
+  /**
+   * Sent in chunks of SAVE_CHUNK_SIZE, one after another. Last-write-wins per element makes a
+   * partly applied batch safe and resending it idempotent, so a failure part-way just rethrows.
+   */
   async save(pageId: string, upserts: CanvasElement[], deletes: Tombstone[]): Promise<void> {
-    if (upserts.length === 0 && deletes.length === 0) return;
+    const items: SaveItem[] = [
+      ...upserts.map((el): SaveItem => ({ kind: "row", el })),
+      ...deletes.map((d): SaveItem => ({ kind: "delete", d })),
+    ];
+    for (let i = 0; i < items.length; i += SAVE_CHUNK_SIZE) {
+      const chunk = items.slice(i, i + SAVE_CHUNK_SIZE);
+      const rows: CanvasElement[] = [];
+      const dels: Tombstone[] = [];
+      for (const it of chunk) {
+        if (it.kind === "row") rows.push(it.el);
+        else dels.push(it.d);
+      }
+      await this.saveChunk(pageId, rows, dels);
+    }
+  }
+
+  private async saveChunk(pageId: string, upserts: CanvasElement[], deletes: Tombstone[]): Promise<void> {
     let res;
     try {
       res = await this.client.rpc("save_elements", {
@@ -85,6 +123,6 @@ export class SupabaseElementStore implements ElementStore {
     } catch (e) {
       throw new ElementStoreError(e instanceof Error ? e.message : String(e), true);
     }
-    if (res.error) throw toStoreError(res.error);
+    if (res.error) throw toStoreError(res.error, res.status);
   }
 }

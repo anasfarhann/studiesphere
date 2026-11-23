@@ -52,6 +52,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
+  const [parked, setParked] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -61,9 +62,16 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
       QUEUE_DRAIN_TIMEOUT_MS,
       [],
     );
-    Promise.all([store.load(pageId), queued]).then(
-      ([elements, batches]) => {
-        if (!cancelled) setLoad({ status: "ready", elements: applyBatches(elements, batches) });
+    // Parked batches (refused by the server) are still the student's edits: show them too.
+    const parkedBatches = withTimeout<SaveBatch[]>(
+      Promise.resolve().then(() => queue.parked()),
+      QUEUE_DRAIN_TIMEOUT_MS,
+      [],
+    );
+    Promise.all([store.load(pageId), queued, parkedBatches]).then(
+      ([elements, batches, parkedList]) => {
+        const all = [...parkedList, ...batches].sort((a, b) => a.queuedAt - b.queuedAt);
+        if (!cancelled) setLoad({ status: "ready", elements: applyBatches(elements, all) });
       },
       () => {
         if (!cancelled) setLoad({ status: "error" });
@@ -77,7 +85,12 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
   const onEditor = useCallback(
     (editor: Editor) => {
       const autosave = new Autosave(editor.scene, store, pageId, { queue });
-      const off = autosave.onState(setSaveState);
+      const offState = autosave.onState(setSaveState);
+      const offParked = autosave.onParked(setParked);
+      const off = () => {
+        offState();
+        offParked();
+      };
       let mounted = true;
       let scheduler: SnapshotScheduler | null = null;
       let timer: ReturnType<typeof setInterval> | null = null;
@@ -164,7 +177,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
         className="pointer-events-none absolute right-3"
         style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
       >
-        <SaveStatus state={saveState} />
+        <SaveStatus state={saveState} parked={parked > 0} />
       </div>
     </div>
   );

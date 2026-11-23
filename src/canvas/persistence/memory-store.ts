@@ -42,6 +42,7 @@ export class MemoryElementStore implements ElementStore {
 /** Offline queue kept in memory (tests, dev canvas). Survives nothing. */
 export class MemoryOfflineQueue implements OfflineQueue {
   private batches: SaveBatch[] = [];
+  private parkedBatches: SaveBatch[] = [];
 
   constructor(readonly pageId: string) {}
 
@@ -55,5 +56,18 @@ export class MemoryOfflineQueue implements OfflineQueue {
 
   async remove(id: string): Promise<void> {
     this.batches = this.batches.filter((b) => b.id !== id);
+  }
+
+  async park(batch: SaveBatch): Promise<void> {
+    this.parkedBatches = [...this.parkedBatches.filter((b) => b.id !== batch.id), structuredClone(batch)];
+    this.batches = this.batches.filter((b) => b.id !== batch.id);
+  }
+
+  async parked(): Promise<SaveBatch[]> {
+    return structuredClone(this.parkedBatches);
+  }
+
+  async unpark(id: string): Promise<void> {
+    this.parkedBatches = this.parkedBatches.filter((b) => b.id !== id);
   }
 }
