@@ -37,6 +37,7 @@ for (const viewport of [
       expect(state.tool).toBe("lasso");
       expect(state.ids).toEqual([state.img]);
 
+      const orig = await page.evaluate(() => (window as unknown as EditorHook).__editor!.scene.all().find((e) => e.type === "image")!);
       await page.getByRole("button", { name: "Crop" }).click();
       const vp = page.viewportSize()!;
       const bar = (await page.getByRole("toolbar", { name: "Crop controls" }).boundingBox())!;
@@ -74,6 +75,16 @@ for (const viewport of [
       expect(crop).toBeDefined();
       expect(crop!.w).toBeLessThan(1);
       await expect(page.getByTestId("crop-overlay")).toHaveCount(0);
+
+      // Toolbar undo/redo are off while cropping; Reset then Done restores the full image.
+      await page.getByRole("button", { name: "Crop" }).click();
+      await expect(page.getByRole("button", { name: "Undo" })).toBeDisabled();
+      await page.getByRole("button", { name: "Reset", exact: true }).click();
+      await page.getByRole("button", { name: "Done", exact: true }).click();
+      const full = await page.evaluate(() => (window as unknown as EditorHook).__editor!.scene.all().find((e) => e.type === "image")!);
+      expect(full.crop).toBeUndefined();
+      expect(full.w).toBeCloseTo(orig.w!);
+      expect(full.h).toBeCloseTo(orig.h!);
     });
   });
 }

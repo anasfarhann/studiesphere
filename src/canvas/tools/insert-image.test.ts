@@ -41,21 +41,43 @@ describe("PhotoInserter", () => {
     expect(history.canUndo()).toBe(false);
   });
 
-  it("reports the inserted id, also for an upload that only succeeds on retry", async () => {
+  function stamped(upload: PhotoInserterContext["upload"]) {
+    let stamp = 0;
+    const onInserted = vi.fn();
+    const photos = new PhotoInserter({
+      scene: new Scene(), history: new History(), ownerId: "o", pageId: "p", center: () => [0, 0], upload,
+      compress: async () => ({ blob, width: 100, height: 50 }), newId: () => "img-9", onInserted, stamp: () => stamp,
+    });
+    return { photos, onInserted, bump: () => void stamp++ };
+  }
+
+  it("a prompt insert auto-selects when nothing changed meanwhile", async () => {
+    const { photos, onInserted } = stamped(vi.fn(async () => ({ assetPath: "a" })));
+    await photos.insert(file);
+    expect(onInserted).toHaveBeenCalledExactlyOnceWith("img-9", true);
+  });
+
+  it("does not auto-select when the tool or selection changed during the upload", async () => {
+    let release!: () => void;
+    const { photos, onInserted, bump } = stamped(() => new Promise((r) => { release = () => r({ assetPath: "a" }); }));
+    const p = photos.insert(file);
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    bump();
+    release();
+    await p;
+    expect(onInserted).toHaveBeenCalledExactlyOnceWith("img-9", false);
+  });
+
+  it("a retried upload never auto-selects", async () => {
     const upload = vi
       .fn()
       .mockRejectedValueOnce(new AttachmentError("upload_failed", "offline"))
-      .mockResolvedValueOnce({ assetPath: "own/pg/u.jpg" });
-    const onInserted = vi.fn();
-    const scene = new Scene();
-    const photos = new PhotoInserter({
-      scene, history: new History(), ownerId: "o", pageId: "p", center: () => [0, 0], upload,
-      compress: async () => ({ blob, width: 100, height: 50 }), newId: () => "img-9", onInserted,
-    });
+      .mockResolvedValueOnce({ assetPath: "a" });
+    const { photos, onInserted } = stamped(upload);
     await photos.insert(file);
     expect(onInserted).not.toHaveBeenCalled();
     await photos.retry();
-    expect(onInserted).toHaveBeenCalledExactlyOnceWith("img-9");
+    expect(onInserted).toHaveBeenCalledExactlyOnceWith("img-9", false);
   });
 
   it("keeps small photos at their own size", async () => {

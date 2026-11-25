@@ -70,9 +70,14 @@ export function CropOverlay({ editor }: { editor: Editor }) {
           style={{ left: cx0 - fx0, top: cy0 - fy0, width: cw, height: ch, boxShadow: "0 0 0 9999px rgba(27,26,31,0.5)" }}
         />
       </div>
-      <div className="absolute border border-dashed border-ink/70" style={{ left: cx0, top: cy0, width: cw, height: ch }} />
+      <div data-testid="crop-rect" className="absolute border border-dashed border-ink/70" style={{ left: cx0, top: cy0, width: cw, height: ch }} />
       {HANDLES.map((h) => {
-        const [x, y] = place(h, cx0, cy0, cw, ch);
+        // Kept inside the view so a handle of an image that extends past the screen stays reachable.
+        const [vw, vh] = editor.viewSize();
+        const half = CROP_HANDLE_HIT_PX / 2;
+        const [px, py] = place(h, cx0, cy0, cw, ch);
+        const x = vw > 0 ? Math.min(Math.max(px, half), vw - half) : px;
+        const y = vh > 0 ? Math.min(Math.max(py, half), vh - half) : py;
         const edge = h.length === 1;
         const knobW = edge && (h === "n" || h === "s") ? 28 : KNOB_PX;
         const knobH = edge && (h === "e" || h === "w") ? 28 : KNOB_PX;

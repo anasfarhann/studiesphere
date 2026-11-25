@@ -79,6 +79,8 @@ export class Scene {
       type: cur.type,
       updatedAt: patch.updatedAt ?? Math.max(Date.now(), cur.updatedAt + 1),
     } as CanvasElement;
+    // An explicit undefined removes the field (an optional one such as an image's crop).
+    for (const k of Object.keys(patch) as (keyof CanvasElement)[]) if (patch[k] === undefined) delete next[k];
     this.lastStamp.set(id, Math.max(next.updatedAt, this.lastStamp.get(id) ?? 0));
     this.index(next);
     this.dirty.add(id);

@@ -99,6 +99,8 @@ export class Editor {
   private toolListeners = new Set<(id: ToolId) => void>();
   /** A freshly inserted photo to select once the pointer in use lifts. */
   private pendingSelect: string | null = null;
+  /** Bumps on every tool or selection change: lets an async insert tell whether the user moved on. */
+  private interaction = 0;
   private selectionFrame: number | null = null;
   private raf: (cb: () => void) => number;
   private caf: (id: number) => void;
@@ -142,6 +144,7 @@ export class Editor {
       const key = this.selection.ids.join(",");
       if (key !== this.selectionKey) {
         this.selectionKey = key;
+        this.interaction++;
         this.commitRecolor();
         this.commitTextStyle();
         if (this.selection.ids.length > 0) this.pasteAnchor = null;
@@ -214,6 +217,8 @@ export class Editor {
   setTool(id: ToolId): void {
     if (!this.tools[id]) return;
     this.crop.cancel();
+    this.pendingSelect = null;
+    this.interaction++;
     this.cancelStroke();
     this.text.commit();
     if (id !== "lasso") this.selection.clear();
@@ -236,6 +241,11 @@ export class Editor {
    */
   selectInserted(id: string): void {
     if (this.destroyed) return;
+    // Never interrupt a crop or typing in progress.
+    if (this.crop.active || this.text.session) {
+      this.pendingSelect = null;
+      return;
+    }
     if (this.drawing) {
       this.pendingSelect = id;
       return;
@@ -243,6 +253,16 @@ export class Editor {
     this.pendingSelect = null;
     this.setTool("lasso");
     this.selection.set([id]);
+  }
+
+  /** Changes whenever the tool or selection does. */
+  interactionStamp(): number {
+    return this.interaction;
+  }
+
+  /** The canvas size in CSS px. */
+  viewSize(): [number, number] {
+    return [this.viewW, this.viewH];
   }
 
   private flushPendingSelect(): void {

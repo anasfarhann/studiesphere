@@ -71,6 +71,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [tool, setTool] = useState<ToolId>("pen");
+  const [cropping, setCropping] = useState(false);
   const [hist, setHist] = useState({ canUndo: false, canRedo: false });
   // Elements seed the editor once; later prop changes are not re-applied (persistence owns that, Task 12).
   const [initial] = useState(elements);
@@ -107,7 +108,10 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
         pageId: files.pageId,
         center: () => editor.viewportCenter(),
         upload: (blob, o) => files.service.uploadAttachment(blob, o),
-        onInserted: (id) => editor.selectInserted(id),
+        stamp: () => editor.interactionStamp(),
+        onInserted: (id, auto) => {
+          if (auto) editor.selectInserted(id);
+        },
       });
       photosRef.current = photos;
       offPhoto = photos.onStatus(setPhotoState);
@@ -139,6 +143,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     const syncHist = () => setHist({ canUndo: editor.canUndo(), canRedo: editor.canRedo() });
     const offHist = editor.onHistoryChange(syncHist);
     const offTool = editor.onToolChange(setTool);
+    const offCrop = editor.onSelectionChange(() => setCropping(editor.crop.active));
     const detach = attach?.(editor);
 
     const fit = () => {
@@ -194,6 +199,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
       audioRef.current = null;
       offHist();
       offTool();
+      offCrop();
       detach?.();
       editor.destroy();
       if (window.__editor === editor) delete window.__editor;
@@ -247,8 +253,8 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
           }}
         />
         <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} renderOptions={(id) => (editor && hasOptions(id) ? <ToolOptions editor={editor} tool={id} /> : null)}
-          canUndo={hist.canUndo}
-          canRedo={hist.canRedo}
+          canUndo={hist.canUndo && !cropping}
+          canRedo={hist.canRedo && !cropping}
           onUndo={() => editorRef.current?.undo()}
           onRedo={() => editorRef.current?.redo()}
           onPhoto={files ? (file) => void photosRef.current?.insert(file) : undefined}

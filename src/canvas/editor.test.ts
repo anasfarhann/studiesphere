@@ -957,4 +957,37 @@ describe("Editor image select and crop", () => {
     editor.scene.remove("p");
     expect(editor.crop.active).toBe(false);
   });
+
+  it("a late selectInserted does not cancel a crop in progress or touch the tool", () => {
+    editor.setTool("lasso");
+    editor.selection.set(["p"]);
+    editor.beginCrop();
+    editor.selectInserted("p");
+    expect(editor.crop.active).toBe(true);
+    expect(editor.tool).toBe("lasso");
+  });
+
+  it("interactionStamp changes on tool and selection changes; a pending select is dropped by a tool switch", () => {
+    const a = editor.interactionStamp();
+    editor.setTool("highlighter");
+    const b = editor.interactionStamp();
+    expect(b).not.toBe(a);
+    editor.setTool("lasso");
+    editor.selection.set(["p"]);
+    expect(editor.interactionStamp()).not.toBe(b);
+    const c = document.querySelector("canvas:last-of-type") as HTMLCanvasElement;
+    editor.setTool("pen");
+    fire(c, "pointerdown", 1, "mouse", 600, 600);
+    editor.selectInserted("p");
+    editor.setTool("highlighter");
+    fire(c, "pointerup", 1, "mouse", 600, 600);
+    expect(editor.tool).toBe("highlighter");
+  });
+
+  it("undoing a crop that removed the crop key deletes it (no undefined left behind)", () => {
+    crop();
+    editor.crop.reset();
+    editor.crop.done();
+    expect("crop" in (editor.scene.get("p") as object)).toBe(false);
+  });
 });
