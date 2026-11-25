@@ -78,7 +78,6 @@ export const en = {
   pasteHere: "Paste",
   recolorSelection: "Colour",
   recolorSelectionFor: "Colour of the selected ink",
-  resizeImage: "Resize",
   editText: "Edit",
   undo: "Undo",
   redo: "Redo",

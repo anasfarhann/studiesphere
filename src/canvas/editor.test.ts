@@ -778,21 +778,12 @@ describe("Editor lasso: tap to select, copy and paste, recolour", () => {
     expect(editor.canUndo()).toBe(false);
   });
 
-  it("the image resize handle works only after Resize, and resets with the selection", () => {
+  it("a single selected image resizes from its corner handle straight away", () => {
     tap(1, "mouse", 50, 50);
-    expect(editor.resizeHandles).toBe(false);
+    expect(editor.selection.ids).toEqual(["img"]);
     fire(canvas, "pointerdown", 1, "mouse", 100, 100);
-    fire(canvas, "pointermove", 1, "mouse", 150, 150);
-    fire(canvas, "pointerup", 1, "mouse", 150, 150, { buttons: 0 });
-    expect(editor.scene.get("img")).toMatchObject({ w: 100 }); // moved, not resized
-    editor.armResize();
-    expect(editor.resizeHandles).toBe(true);
-    const el = editor.scene.get("img") as typeof img;
-    fire(canvas, "pointerdown", 1, "mouse", el.x + 100, el.y + 100);
-    fire(canvas, "pointermove", 1, "mouse", el.x + 200, el.y + 200);
-    fire(canvas, "pointerup", 1, "mouse", el.x + 200, el.y + 200, { buttons: 0 });
-    expect(editor.scene.get("img")).toMatchObject({ w: 200, h: 200 });
-    editor.selection.clear();
-    expect(editor.resizeHandles).toBe(false);
+    fire(canvas, "pointermove", 1, "mouse", 200, 200);
+    fire(canvas, "pointerup", 1, "mouse", 200, 200, { buttons: 0 });
+    expect(editor.scene.get("img")).toMatchObject({ x: 0, y: 0, w: 200, h: 200 });
   });
 });

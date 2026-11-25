@@ -50,8 +50,6 @@ export interface LassoToolContext {
   setLasso: (points: [number, number][] | null) => void;
   /** Camera zoom, for the corner handle's screen-sized touch target and the tap slop. */
   zoom: () => number;
-  /** Whether the selected image's resize handle is showing; always, when omitted. */
-  resizeEnabled?: () => boolean;
   /** A tap on empty space, or a lasso that selected nothing (at its bounds centre): where a paste could go. */
   onEmpty?: (at: [number, number]) => void;
 }

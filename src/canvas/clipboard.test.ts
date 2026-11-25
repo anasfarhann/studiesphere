@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { Clipboard, CLIPBOARD_KEY, pasteInto } from "./clipboard";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { clearDeviceClipboard, Clipboard, CLIPBOARD_KEY, pasteInto } from "./clipboard";
 import { boundsOf } from "./model/bounds";
 import { History } from "./model/history";
 import { Scene } from "./model/scene";
@@ -37,7 +37,7 @@ beforeEach(() => {
 
 describe("Clipboard", () => {
   it("starts empty and copy stores deep copies normalised to the bounds' top-left", () => {
-    const clip = new Clipboard({ storage });
+    const clip = new Clipboard({ owner: "user-a", storage });
     expect(clip.isEmpty).toBe(true);
     const source = structuredClone(ink);
     clip.copy([source, img]);
@@ -51,19 +51,55 @@ describe("Clipboard", () => {
   });
 
   it("survives a reload through storage", () => {
-    new Clipboard({ storage }).copy([img]);
-    const again = new Clipboard({ storage });
+    new Clipboard({ owner: "user-a", storage }).copy([img]);
+    const again = new Clipboard({ owner: "user-a", storage });
     expect(again.isEmpty).toBe(false);
     expect(again.items()).toEqual([expect.objectContaining({ type: "image", x: 0, y: 0, w: 100, h: 50 })]);
   });
 
   it("treats corrupt or malformed storage as empty", () => {
     storage.setItem(CLIPBOARD_KEY, "{not json");
-    expect(new Clipboard({ storage }).isEmpty).toBe(true);
-    storage.setItem(CLIPBOARD_KEY, JSON.stringify({ v: 1, w: 1, h: 1, elements: [{ type: "image", x: "a" }] }));
-    expect(new Clipboard({ storage }).isEmpty).toBe(true);
-    storage.setItem(CLIPBOARD_KEY, JSON.stringify({ v: 2, w: 1, h: 1, elements: [] }));
-    expect(new Clipboard({ storage }).isEmpty).toBe(true);
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+    storage.setItem(CLIPBOARD_KEY, JSON.stringify({ v: 1, owner: "user-a", w: 1, h: 1, elements: [{ type: "image", x: "a" }] }));
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+    storage.setItem(CLIPBOARD_KEY, JSON.stringify({ v: 2, owner: "user-a", w: 1, h: 1, elements: [] }));
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+  });
+
+  it("is scoped to the account: another owner, or a legacy payload without one, reads as empty", () => {
+    new Clipboard({ owner: "user-a", storage }).copy([img]);
+    expect(JSON.parse(storage.getItem(CLIPBOARD_KEY) ?? "null")).toMatchObject({ owner: "user-a" });
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(false);
+    const b = new Clipboard({ owner: "user-b", storage });
+    expect(b.isEmpty).toBe(true);
+    expect(b.items()).toEqual([]);
+    const legacy = JSON.parse(storage.getItem(CLIPBOARD_KEY)!);
+    delete legacy.owner;
+    storage.setItem(CLIPBOARD_KEY, JSON.stringify(legacy));
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+  });
+
+  it("without an owner it never touches storage (memory only)", () => {
+    const clip = new Clipboard({ storage });
+    clip.copy([txt]);
+    expect(storage.getItem(CLIPBOARD_KEY)).toBeNull();
+    expect(clip.items()).toHaveLength(1);
+  });
+
+  it("clearDeviceClipboard removes the stored copy", () => {
+    new Clipboard({ owner: "user-a", storage }).copy([txt]);
+    clearDeviceClipboard(storage);
+    expect(storage.getItem(CLIPBOARD_KEY)).toBeNull();
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+  });
+
+  it("isEmpty parses a given stored string once", () => {
+    new Clipboard({ owner: "user-a", storage }).copy([txt]);
+    const clip = new Clipboard({ owner: "user-a", storage });
+    const parse = vi.spyOn(JSON, "parse");
+    for (let i = 0; i < 10; i++) expect(clip.isEmpty).toBe(false);
+    expect(parse).not.toHaveBeenCalled();
+    parse.mockRestore();
   });
 
   it("keeps working in memory when storage throws", () => {
@@ -74,15 +110,15 @@ describe("Clipboard", () => {
     broken.getItem = () => {
       throw new Error("denied");
     };
-    const clip = new Clipboard({ storage: broken });
+    const clip = new Clipboard({ owner: "user-a", storage: broken });
     expect(clip.isEmpty).toBe(true);
     clip.copy([txt]);
     expect(clip.items()).toHaveLength(1);
   });
 
   it("picks up a copy made in another tab", () => {
-    const a = new Clipboard({ storage });
-    const b = new Clipboard({ storage });
+    const a = new Clipboard({ owner: "user-a", storage });
+    const b = new Clipboard({ owner: "user-a", storage });
     a.copy([txt]);
     expect(b.items()).toEqual([expect.objectContaining({ type: "text", text: "hi" })]);
   });
@@ -93,7 +129,7 @@ describe("pasteInto", () => {
     const scene = new Scene([ink, img, txt]);
     const history = new History();
     const selection = new Selection(scene);
-    const clip = new Clipboard({ storage });
+    const clip = new Clipboard({ owner: "user-a", storage });
     clip.copy([ink, img]);
     const ids = pasteInto({ scene, history, selection, newId }, clip, [1000, 1000]);
     expect(ids).toEqual(["new-1", "new-2"]);
@@ -116,7 +152,7 @@ describe("pasteInto", () => {
     const scene = new Scene([]);
     const history = new History();
     const selection = new Selection(scene);
-    const clip = new Clipboard({ storage });
+    const clip = new Clipboard({ owner: "user-a", storage });
     expect(pasteInto({ scene, history, selection, newId }, clip, [0, 0])).toEqual([]);
     expect(history.canUndo()).toBe(false);
     clip.copy([txt]);

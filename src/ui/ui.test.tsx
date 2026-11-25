@@ -57,6 +57,13 @@ describe("AppRail", () => {
     expect(screen.getByRole("button", { name: "Sign out" })).toBeTruthy();
     expect(screen.getByText("a@b.co")).toBeTruthy();
   });
+  it("signing out clears the device canvas clipboard first", () => {
+    localStorage.setItem("ss.clipboard.v1", "{}");
+    render(<AppRail active="home" account={{ email: "a@b.co", signOut: async () => {} }} />);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.submit(screen.getByRole("button", { name: "Sign out" }).closest("form")!);
+    expect(localStorage.getItem("ss.clipboard.v1")).toBeNull();
+  });
   it("toggles aria-expanded, focuses the popover, closes on Escape and refocuses the trigger", () => {
     render(<AppRail active="home" account={{ email: "a@b.co", signOut: async () => {} }} />);
     const trigger = screen.getByRole("button", { name: "Settings" });

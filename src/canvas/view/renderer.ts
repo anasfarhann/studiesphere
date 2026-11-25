@@ -66,8 +66,6 @@ export class Renderer {
   /** The snapped shape preview and its path (built once when set). */
   private ghost: { el: StrokeEl; path: Path2D } | null = null;
   private selection: string[] = [];
-  /** Draw the single selected image's resize handle (the selection menu's Resize). */
-  private resizeHandles = true;
   private lasso: [number, number][] | null = null;
   private hidden: string | null = null;
   private cache = new Map<string, { updatedAt: number; path: Path2D }>();
@@ -155,11 +153,6 @@ export class Renderer {
 
   setSelection(ids: string[]): void {
     this.selection = ids;
-    this.requestFrame();
-  }
-
-  setResizeHandles(on: boolean): void {
-    this.resizeHandles = on;
     this.requestFrame();
   }
 
@@ -508,7 +501,7 @@ export class Renderer {
 
   /** Corner grip for a single selected photo (the touch target is larger than what is drawn). */
   private drawResizeHandle(cx: number, cy: number): void {
-    if (!this.resizeHandles || this.selection.length !== 1 || this.scene.get(this.selection[0])?.type !== "image") return;
+    if (this.selection.length !== 1 || this.scene.get(this.selection[0])?.type !== "image") return;
     const { ctx, camera } = this;
     const s = HANDLE_DRAW_PX / camera.zoom;
     ctx.fillStyle = "#2563eb";

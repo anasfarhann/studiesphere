@@ -27,7 +27,9 @@ export interface EditorOptions {
   loadImage?: ImageLoader;
   /** Drops cached signed URLs for an asset before its image load is retried. */
   forgetImage?: (assetPath: string) => void;
-  /** Test seam; defaults to the device clipboard (localStorage). */
+  /** The signed-in user id: scopes the device clipboard to this account. Without it, copies stay in memory. */
+  owner?: string;
+  /** Test seam; defaults to the device clipboard (localStorage) scoped to `owner`. */
   clipboard?: Clipboard;
 }
 
@@ -66,8 +68,6 @@ export class Editor {
   readonly clipboard: Clipboard;
   /** Where a Paste offer is anchored (world), after a tap on empty space or an empty lasso. */
   private pasteAnchor: [number, number] | null = null;
-  /** The selected image shows its resize handle (the menu's Resize). */
-  private resizeArmed = false;
   /** A colour-wheel drag on the selection in progress: the strokes as they were before it. */
   private recolorBefore: Change["before"] | null = null;
   private selectionKey = "";
@@ -106,9 +106,8 @@ export class Editor {
     this.raf = opts.renderer?.raf ?? ((cb) => window.requestAnimationFrame(cb));
     this.caf = opts.renderer?.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.renderer = new Renderer(canvas, this.scene, this.camera, { loadImage: opts.loadImage, forgetImage: opts.forgetImage, ...opts.renderer });
-    this.renderer.setResizeHandles(false);
     this.selection = new Selection(this.scene);
-    this.clipboard = opts.clipboard ?? new Clipboard();
+    this.clipboard = opts.clipboard ?? new Clipboard({ owner: opts.owner });
     this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.current.text.color, fontSize: () => this.current.text.size });
     this.text.onChange(() => {
       this.renderer.setHidden(this.text.hiddenId);
@@ -119,7 +118,6 @@ export class Editor {
       if (key !== this.selectionKey) {
         this.selectionKey = key;
         this.commitRecolor();
-        this.setResizeArmed(false);
         if (this.selection.ids.length > 0) this.pasteAnchor = null;
       }
       this.renderer.setSelection(this.selection.ids);
@@ -154,7 +152,6 @@ export class Editor {
         selection: this.selection,
         setLasso: (pts) => this.renderer.setLasso(pts),
         zoom: () => this.camera.zoom,
-        resizeEnabled: () => this.resizeArmed,
         onEmpty: (at) => {
           if (this.clipboard.isEmpty) return;
           this.pasteAnchor = at;
@@ -244,23 +241,6 @@ export class Editor {
     if (!before || before.length === 0) return;
     const after = before.map((el) => this.scene.get(el.id)).filter((el): el is CanvasElement => el !== undefined);
     this.history.push({ before, after });
-  }
-
-  /** Whether the selected image's resize handle is showing. */
-  get resizeHandles(): boolean {
-    return this.resizeArmed;
-  }
-
-  /** Shows the resize handle on the single selected image (the menu's Resize). */
-  armResize(on = true): void {
-    this.setResizeArmed(on);
-  }
-
-  private setResizeArmed(on: boolean): void {
-    if (this.resizeArmed === on) return;
-    this.resizeArmed = on;
-    this.renderer.setResizeHandles(on);
-    this.notifySelection();
   }
 
   /** Opens the single selected text box in the text editor. */

@@ -7,8 +7,11 @@ import type { Selection } from "./selection";
 /** Device storage key for the canvas clipboard (shared by every page and tab on this device). */
 export const CLIPBOARD_KEY = "ss.clipboard.v1";
 
-/** Elements are stored relative to their union bounds' top-left; w/h is that bounds' size. */
-type Stored = { v: 1; w: number; h: number; elements: CanvasElement[] };
+/**
+ * Elements are stored relative to their union bounds' top-left; w/h is that bounds' size. `owner` is the
+ * signed-in user who copied them: another account on the same device never sees them.
+ */
+type Stored = { v: 1; owner: string; w: number; h: number; elements: CanvasElement[] };
 
 const fin = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const str = (v: unknown): v is string => typeof v === "string";
@@ -39,16 +42,25 @@ function validElement(v: unknown): v is CanvasElement {
   }
 }
 
-/** Parses stored JSON; anything malformed is an empty clipboard. */
-function parse(raw: string | null): Stored | null {
+/** Parses stored JSON; anything malformed, or copied by another (or no) account, is an empty clipboard. */
+function parse(raw: string | null, owner: string): Stored | null {
   if (!raw) return null;
   try {
     const d: unknown = JSON.parse(raw);
-    if (!isRecord(d) || d.v !== 1 || !fin(d.w) || !fin(d.h) || !Array.isArray(d.elements)) return null;
+    if (!isRecord(d) || d.v !== 1 || d.owner !== owner || !fin(d.w) || !fin(d.h) || !Array.isArray(d.elements)) return null;
     if (!d.elements.every(validElement)) return null;
-    return { v: 1, w: d.w, h: d.h, elements: d.elements };
+    return { v: 1, owner, w: d.w, h: d.h, elements: d.elements };
   } catch {
     return null;
+  }
+}
+
+/** Removes the device clipboard (before sign-out). Never throws. */
+export function clearDeviceClipboard(storage?: Pick<Storage, "removeItem">): void {
+  try {
+    (storage ?? defaultStorage())?.removeItem(CLIPBOARD_KEY);
+  } catch {
+    // Storage unavailable: nothing was stored.
   }
 }
 
@@ -67,39 +79,41 @@ function defaultStorage(): Storage | undefined {
 
 /**
  * Copied canvas elements, kept in memory and in device storage so they survive a reload and reach
- * other pages and tabs. Every storage access is guarded; failures fall back to memory.
+ * other pages and tabs. Scoped to `owner` (the signed-in user id); without one, nothing touches
+ * storage and the clipboard lives in memory only. Every storage access is guarded; failures fall back to memory.
  */
 export class Clipboard {
   private memory: Stored | null = null;
   /** The last copy could not be written: storage is stale, memory wins. */
   private memoryOnly = false;
   private storage: Storage | undefined;
+  private owner: string;
+  /** The last raw string read from storage and what it parsed to, so repeated reads (isEmpty) are cheap. */
+  private cache: { raw: string; data: Stored | null } | null = null;
 
-  constructor(opts?: { storage?: Storage }) {
-    this.storage = opts?.storage ?? defaultStorage();
-    this.memory = this.read();
+  constructor(opts?: { owner?: string | null; storage?: Storage }) {
+    this.owner = opts?.owner ?? "";
+    this.storage = this.owner ? (opts?.storage ?? defaultStorage()) : undefined;
+    this.memory = this.current();
   }
 
-  private read(): Stored | null {
-    try {
-      return parse(this.storage?.getItem(CLIPBOARD_KEY) ?? null);
-    } catch {
-      return null;
-    }
+  private parseCached(raw: string): Stored | null {
+    if (this.cache?.raw !== raw) this.cache = { raw, data: parse(raw, this.owner) };
+    return this.cache.data;
   }
 
   private current(): Stored | null {
     if (this.memoryOnly || !this.storage) return this.memory;
     try {
       const raw = this.storage.getItem(CLIPBOARD_KEY);
-      return raw === null ? this.memory : parse(raw);
+      return raw === null ? this.memory : this.parseCached(raw);
     } catch {
       return this.memory;
     }
   }
 
   get isEmpty(): boolean {
-    return this.items().length === 0;
+    return (this.current()?.elements.length ?? 0) === 0;
   }
 
   /** Stores deep copies of `elements`, normalised so their union bounds start at (0, 0). */
@@ -117,11 +131,13 @@ export class Clipboard {
       maxY = Math.max(maxY, b.maxY);
     }
     const sorted = [...elements].sort((a, b) => a.z - b.z);
-    const data: Stored = { v: 1, w: maxX - minX, h: maxY - minY, elements: sorted.map((el) => shift(structuredClone(el), -minX, -minY)) };
+    const data: Stored = { v: 1, owner: this.owner, w: maxX - minX, h: maxY - minY, elements: sorted.map((el) => shift(structuredClone(el), -minX, -minY)) };
     this.memory = data;
     try {
-      if (!this.storage) throw new Error("no storage");
-      this.storage.setItem(CLIPBOARD_KEY, JSON.stringify(data));
+      if (!this.storage) return;
+      const raw = JSON.stringify(data);
+      this.storage.setItem(CLIPBOARD_KEY, raw);
+      this.cache = { raw, data };
       this.memoryOnly = false;
     } catch {
       // Private mode or quota (a big selection of strokes): this tab still has it.

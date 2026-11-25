@@ -56,14 +56,13 @@ function readView(editor: Editor): View | null {
   return { mode: "paste", key: `paste:${at[0]},${at[1]}`, centerX: x, boxTop: y, boxBottom: y };
 }
 
-function MenuButton({ onClick, pressed, expanded, tone = "plain", children }: { onClick: () => void; pressed?: boolean; expanded?: boolean; tone?: "plain" | "danger"; children: ReactNode }) {
+function MenuButton({ onClick, expanded, tone = "plain", children }: { onClick: () => void; expanded?: boolean; tone?: "plain" | "danger"; children: ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      aria-pressed={pressed}
       aria-expanded={expanded}
-      className={`inline-flex h-11 min-w-11 shrink-0 touch-manipulation cursor-pointer items-center justify-center whitespace-nowrap rounded-full px-4 text-sm font-medium text-ink aria-pressed:bg-ink aria-pressed:text-card aria-expanded:bg-ink aria-expanded:text-card ${tone === "danger" ? "bg-pink" : "bg-card"}`}
+      className={`inline-flex h-11 min-w-11 shrink-0 touch-manipulation cursor-pointer items-center justify-center whitespace-nowrap rounded-full px-4 text-sm font-medium text-ink aria-expanded:bg-ink aria-expanded:text-card ${tone === "danger" ? "bg-pink" : "bg-card"}`}
     >
       {children}
     </button>
@@ -93,11 +92,6 @@ function StrokeColors({ editor, value }: { editor: Editor; value: string }) {
 function Actions({ editor, view }: { editor: Editor; view: View }) {
   const [colorOpen, setColorOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const resizing = useSyncExternalStore(
-    (cb) => editor.onSelectionChange(cb),
-    () => editor.resizeHandles,
-    () => editor.resizeHandles,
-  );
 
   if (view.mode === "paste") {
     return (
@@ -124,11 +118,7 @@ function Actions({ editor, view }: { editor: Editor; view: View }) {
   return (
     <>
       <div className="flex gap-1">
-        {view.kind === "image" ? (
-          <MenuButton pressed={resizing} onClick={() => editor.armResize(!resizing)}>
-            {t("resizeImage")}
-          </MenuButton>
-        ) : null}
+        {/* One image: its corner handle resizes it; Crop joins here (Task 9). */}
         {view.kind === "text" ? <MenuButton onClick={() => editor.editSelectedText()}>{t("editText")}</MenuButton> : null}
         {del}
         {view.kind === "strokes" ? (

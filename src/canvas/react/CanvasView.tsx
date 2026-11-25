@@ -89,6 +89,8 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     if (!box || !canvas) return;
     const editor = new Editor(canvas, {
       elements: initial,
+      // The page's signed-in user: copies never reach another account on this device.
+      owner: files?.ownerId,
       forgetImage: files ? (path) => files.service.forgetSignedUrl(path) : undefined,
       loadImage: files ? createImageLoader((path) => files.service.signedUrl(path)) : undefined,
     });
