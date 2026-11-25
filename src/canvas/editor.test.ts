@@ -920,6 +920,13 @@ describe("Editor image select and crop", () => {
     expect(editor.scene.get("p")).toMatchObject({ w: 100 });
   });
 
+  it("beforeRestore abandons an open crop", () => {
+    crop();
+    editor.beforeRestore();
+    expect(editor.crop.active).toBe(false);
+    expect(editor.scene.get("p")).toEqual(photo);
+  });
+
   it("Cancel, switching tools, and undo during crop all abandon it unchanged", () => {
     crop();
     editor.crop.cancel();

@@ -6,6 +6,7 @@ import type { TextEl } from "../model/types";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
 
 export const TEXT_FONT_SIZE = 18;
+export const TEXT_COLOR = "#1B1A1F";
 export const TEXT_WIDTH = 320;
 
 /** What the text box being edited looks like; `id` is null for a box not yet created. */
@@ -42,12 +43,8 @@ export interface TextInput {
 export interface TextEditingContext {
   scene: Scene;
   history: History;
-  /** Colour for new boxes. */
-  color: () => string;
-  /** Font size for new boxes; defaults to TEXT_FONT_SIZE. */
-  fontSize?: () => number;
-  /** Font and styles for new boxes; none means a plain box. */
-  style?: () => TextStyleFields;
+  /** Size, colour, font and styles for new boxes; anything missing means the default (plain box). */
+  style?: () => TextStyleFields & { size?: number; color?: string };
   newId?: () => string;
   now?: () => number;
 }
@@ -117,9 +114,10 @@ export class TextEditing {
 
   beginAt(x: number, y: number): void {
     this.commit();
+    const style = this.ctx.style?.() ?? {};
     this.open({
-      id: null, x, y, w: TEXT_WIDTH, fontSize: this.ctx.fontSize?.() ?? TEXT_FONT_SIZE, color: this.ctx.color(), text: "",
-      ...styleOf(this.ctx.style?.() ?? {}),
+      id: null, x, y, w: TEXT_WIDTH, fontSize: style.size ?? TEXT_FONT_SIZE, color: style.color ?? TEXT_COLOR, text: "",
+      ...styleOf(style),
     });
   }
 

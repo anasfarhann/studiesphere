@@ -77,11 +77,6 @@ export function applyCrop(el: ImageEl, crop: CropRect): ImageEl {
   return next;
 }
 
-/** The element showing its whole image at the scale it has now. */
-export function resetCrop(el: ImageEl): ImageEl {
-  return applyCrop(el, FULL_CROP);
-}
-
 /** History merges `before`/`after` over the live element, so a missing crop must be named (as undefined). */
 function named(el: ImageEl): ImageEl {
   return "crop" in el ? el : { ...el, crop: undefined };

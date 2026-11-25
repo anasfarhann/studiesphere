@@ -66,3 +66,50 @@ test("choose serif + bold, then type: the element is saved with that font and we
   expect(els).toHaveLength(1);
   expect(els[0]).toMatchObject({ text: "Lipids", font: "serif", bold: true });
 });
+
+for (const viewport of [
+  { width: 390, height: 844 },
+  { width: 844, height: 390 },
+]) {
+  test(`text options panel stays inside the viewport at ${viewport.width}x${viewport.height}`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    const box = await page.getByTestId("canvas").boundingBox();
+    if (!box) throw new Error("canvas has no box");
+    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    await page.keyboard.type("Golgi");
+    await page.keyboard.press("Escape");
+    // Select the new box with the lasso tool.
+    await page.evaluate(() => {
+      const ed = (window as unknown as { __editor: { setTool(t: string): void; selection: { set(ids: string[]): void }; scene: { all(): { id: string; type: string }[] } } }).__editor;
+      ed.setTool("lasso");
+      ed.selection.set(ed.scene.all().filter((e) => e.type === "text").map((e) => e.id));
+    });
+    await page.getByRole("button", { name: "Text options" }).click();
+    const panel = page.getByRole("group", { name: "Text options" });
+    await expect(panel).toBeVisible();
+    // Open the colour wheel (a custom colour control inside the panel).
+    // Tapping the selected swatch opens the colour wheel.
+    const wheelBtn = panel.locator('button[aria-pressed="true"][aria-expanded]').first();
+    await wheelBtn.scrollIntoViewIfNeeded();
+    await wheelBtn.click();
+    await expect(panel.getByRole("group", { name: "Colour wheel" })).toBeAttached();
+    const inside = async () => {
+      const b = await panel.boundingBox();
+      if (!b) throw new Error("no panel box");
+      expect(b.y).toBeGreaterThanOrEqual(0);
+      expect(b.x).toBeGreaterThanOrEqual(0);
+      expect(b.y + b.height).toBeLessThanOrEqual(viewport.height);
+      expect(b.x + b.width).toBeLessThanOrEqual(viewport.width);
+    };
+    await inside();
+    // Every control is reachable by scrolling the panel.
+    for (const c of [panel.getByRole("radio", { name: /Serif/ }).first(), panel.getByRole("button", { name: /Bold/ }).first()]) {
+      await c.scrollIntoViewIfNeeded();
+      await expect(c).toBeInViewport();
+    }
+    await inside();
+  });
+}

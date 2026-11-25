@@ -131,8 +131,6 @@ export class Editor {
     this.text = new TextEditing({
       scene: this.scene,
       history: this.history,
-      color: () => this.current.text.color,
-      fontSize: () => this.current.text.size,
       style: () => this.current.text,
     });
     this.text.onChange(() => {
@@ -365,11 +363,6 @@ export class Editor {
     return ids.length === 1 && this.scene.get(ids[0])?.type === "text" ? ids[0] : null;
   }
 
-  /** Whether a text style change would land on a box right now (one being typed, edited or selected). */
-  hasTextTarget(): boolean {
-    return this.text.session !== null || this.styleTargetId() !== null;
-  }
-
   /** Size, colour and style of the box the options act on, or null when there is none. */
   textStyle(): (TextStylePatch & { fontSize: number; color: string }) | null {
     const sess = this.text.session;
@@ -538,6 +531,15 @@ export class Editor {
     this.commitTextStyle();
     this.selection.clear();
     this.history.redo(this.scene);
+  }
+
+  /**
+   * Call before replacing the page from a saved version: abandons an open crop (it would otherwise keep
+   * previewing a photo that is about to change) and commits open text.
+   */
+  beforeRestore(): void {
+    this.crop.cancel();
+    this.text.commit();
   }
 
   canUndo(): boolean {

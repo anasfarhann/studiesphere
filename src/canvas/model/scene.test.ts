@@ -196,3 +196,17 @@ describe("Scene", () => {
     expect(fn).toHaveBeenCalledTimes(2); // emits normally again afterwards
   });
 });
+
+describe("Scene.update protected fields", () => {
+  it("never deletes id, type or updatedAt on an explicit undefined", () => {
+    const s = new Scene([stroke("a", 0, 0)]);
+    s.update("a", { updatedAt: undefined, id: undefined, type: undefined, x: 1 } as unknown as Partial<CanvasElement>);
+    const el = s.get("a") as StrokeEl;
+    expect(el.id).toBe("a");
+    expect(el.type).toBe("stroke");
+    expect(typeof el.updatedAt).toBe("number");
+    expect(el.updatedAt).toBeGreaterThan(1);
+    expect((el as unknown as { x: number }).x).toBe(1);
+    expect(s.takeDirty().upserts[0].updatedAt).toBe(el.updatedAt);
+  });
+});

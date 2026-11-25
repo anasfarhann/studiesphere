@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { History } from "../model/history";
 import { Scene } from "../model/scene";
 import type { ImageEl } from "../model/types";
-import { applyCrop, dragCrop, fullFrame, ImageCrop, MIN_CROP, resetCrop, validCrop, CROP_HANDLE_HIT_PX } from "./image-crop";
+import { applyCrop, dragCrop, fullFrame, ImageCrop, MIN_CROP, validCrop, CROP_HANDLE_HIT_PX } from "./image-crop";
 
 const img: ImageEl = { id: "i", z: 0, updatedAt: 1, type: "image", x: 100, y: 100, w: 200, h: 100, assetPath: "a" };
 
@@ -52,9 +52,9 @@ describe("crop math", () => {
     expect(b).toMatchObject({ x: 200, y: 150, w: 50, h: 50 });
   });
 
-  it("resetCrop restores the full image at the same scale", () => {
+  it("applyCrop with the full crop restores the whole image at the same scale", () => {
     const a = applyCrop(img, { x: 0.5, y: 0.25, w: 0.25, h: 0.5 });
-    const r = resetCrop(a);
+    const r = applyCrop(a, { x: 0, y: 0, w: 1, h: 1 });
     expect(r).toMatchObject({ x: 100, y: 100, w: 200, h: 100 });
     expect(r.crop).toBeUndefined();
     expect("crop" in r).toBe(false);

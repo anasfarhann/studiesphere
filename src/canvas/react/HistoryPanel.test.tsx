@@ -13,7 +13,7 @@ const stroke = (id: string): StrokeEl => ({
   points: [[0, 0, 0.5]], simulatePressure: true,
 });
 
-const fakeEditor = (scene: Scene) => ({ scene, history: new History(), text: { commit: () => {} }, selection: { clear: () => {} } }) as unknown as Editor;
+const fakeEditor = (scene: Scene) => ({ scene, history: new History(), beforeRestore: () => {}, selection: { clear: () => {} } }) as unknown as Editor;
 
 describe("HistoryPanel", () => {
   afterEach(cleanup);
@@ -44,14 +44,14 @@ describe("HistoryPanel", () => {
     expect(scene.all().map((e) => e.id)).toEqual(["a"]);
   });
 
-  it("commits an open text session before restoring and clears the selection", async () => {
+  it("runs the editor's beforeRestore (open text, crop) before restoring and clears the selection", async () => {
     const store = new MemorySnapshotStore();
     await store.create("p", [stroke("a")], 1000);
     const scene = new Scene([stroke("a")]);
     const clear = vi.fn();
     const editor = {
       scene, history: new History(), selection: { clear },
-      text: { commit: () => scene.add({ ...stroke("typed"), id: "typed" }) },
+      beforeRestore: () => scene.add({ ...stroke("typed"), id: "typed" }),
     } as unknown as Editor;
     render(<HistoryPanel store={store} pageId="p" editor={editor} onClose={() => {}} />);
     await userEvent.click(await screen.findByRole("button", { name: "Restore" }));

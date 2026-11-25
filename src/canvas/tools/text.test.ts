@@ -46,7 +46,7 @@ describe("TextEditing", () => {
     scene = new Scene();
     history = new History();
     n = 0;
-    editing = new TextEditing({ scene, history, color: () => "#2563eb", newId: () => `t${++n}`, now: () => 1000 });
+    editing = new TextEditing({ scene, history, style: () => ({ color: "#2563eb" }), newId: () => `t${++n}`, now: () => 1000 });
   });
 
   it("commit creates one TextEl with the typed text as one history step", () => {
@@ -119,8 +119,7 @@ describe("TextEditing styles", () => {
     const history = new History();
     let n = 0;
     const editing = new TextEditing({
-      scene, history, color: () => "#dc2626", fontSize: () => 30,
-      style: () => ({ font: "serif", bold: true, italic: false, underline: true }),
+      scene, history, style: () => ({ color: "#dc2626", size: 30, font: "serif", bold: true, italic: false, underline: true }),
       newId: () => `t${++n}`, now: () => 1,
     });
     return { scene, history, editing };
@@ -156,7 +155,7 @@ describe("TextTool", () => {
   it("a tap on empty canvas begins a new box on pointer up; a tap on a text box edits it", () => {
     const scene = new Scene();
     const history = new History();
-    const editing = new TextEditing({ scene, history, color: () => "#000", newId: () => "a", now: () => 1 });
+    const editing = new TextEditing({ scene, history, style: () => ({ color: "#000" }), newId: () => "a", now: () => 1 });
     const tool = new TextTool({ scene, editing, slop: () => 5 });
     tool.down([10, 10, 0.5], mouse);
     expect(editing.session).toBeNull(); // focus must happen on up (iOS keyboard gesture)
@@ -170,7 +169,7 @@ describe("TextTool", () => {
 
   it("a drag does not start a box", () => {
     const scene = new Scene();
-    const editing = new TextEditing({ scene, history: new History(), color: () => "#000" });
+    const editing = new TextEditing({ scene, history: new History(), style: () => ({ color: "#000" }) });
     const tool = new TextTool({ scene, editing, slop: () => 5 });
     tool.down([0, 0, 0.5], mouse);
     tool.move([[50, 0, 0.5]], mouse);

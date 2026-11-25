@@ -140,7 +140,7 @@ function Actions({ editor, view }: { editor: Editor; view: View }) {
         {copy}
       </div>
       {view.kind === "text" && textOpen ? (
-        <div role="group" aria-label={t("textOptions")} className="w-[min(20rem,calc(100vw-2rem))]">
+        <div role="group" aria-label={t("textOptions")} className="max-h-[max(9rem,calc(100dvh-15rem))] w-[min(20rem,calc(100vw-2rem))] overflow-y-auto overscroll-contain">
           <ToolOptions editor={editor} tool="text" />
         </div>
       ) : null}
