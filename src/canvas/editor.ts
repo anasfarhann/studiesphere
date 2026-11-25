@@ -13,7 +13,7 @@ import { PenTool } from "./tools/pen";
 import { TextEditing, TextTool, textAt } from "./tools/text";
 import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
 import { Selection } from "./selection";
-import { loadSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
+import { loadSettings, normalizeSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
 import type { Rect } from "./model/types";
 import { Camera } from "./view/camera";
 import { Renderer, type ImageLoader, type RendererOptions } from "./view/renderer";
@@ -71,6 +71,8 @@ export class Editor {
   private toolId: ToolId = "pen";
   private current: ToolSettings = loadSettings();
   private settingsListeners = new Set<() => void>();
+  private settingsTimer: ReturnType<typeof setTimeout> | null = null;
+  private settingsDirty = false;
   /** Every pointer currently down on the canvas, by pointerId. */
   private pointers = new Map<number, Active>();
   /** The pointer feeding the current tool, if any. */
@@ -193,13 +195,33 @@ export class Editor {
     return this.current;
   }
 
-  /** Applies `patch` to the settings, persists the result and notifies listeners. */
-  updateSettings(patch: (s: ToolSettings) => ToolSettings): void {
-    const next = patch(this.current);
-    if (next === this.current) return;
+  /**
+   * Applies `patch` to the settings (normalised: sizes clamped, colours validated, preset rules enforced),
+   * notifies listeners and persists. With `deferSave` (slider drags) the live value updates at once but the
+   * write waits for {@link flushSettings} or a 250 ms pause.
+   */
+  updateSettings(patch: (s: ToolSettings) => ToolSettings, opts?: { deferSave?: boolean }): void {
+    const next = normalizeSettings(patch(this.current));
+    if (JSON.stringify(next) === JSON.stringify(this.current)) return;
     this.current = next;
-    saveSettings(next);
+    if (opts?.deferSave) {
+      this.settingsDirty = true;
+      if (this.settingsTimer !== null) clearTimeout(this.settingsTimer);
+      this.settingsTimer = setTimeout(() => this.flushSettings(), 250);
+    } else {
+      this.settingsDirty = true;
+      this.flushSettings();
+    }
     for (const fn of [...this.settingsListeners]) fn();
+  }
+
+  /** Writes any pending settings change to storage now. */
+  flushSettings(): void {
+    if (this.settingsTimer !== null) clearTimeout(this.settingsTimer);
+    this.settingsTimer = null;
+    if (!this.settingsDirty) return;
+    this.settingsDirty = false;
+    saveSettings(this.current);
   }
 
   /** Fires after every settings change. Returns an unsubscribe. */
@@ -260,6 +282,8 @@ export class Editor {
   destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
+    this.flushSettings();
+    this.settingsListeners.clear();
     if (this.selectionFrame !== null) this.caf(this.selectionFrame);
     this.selectionFrame = null;
     this.cancelStroke();

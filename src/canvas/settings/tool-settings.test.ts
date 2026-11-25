@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { clampSize, DEFAULT_SETTINGS, loadSettings, saveSettings, SIZE_RANGE } from "./tool-settings";
+import { addPreset, clampSize, DEFAULT_SETTINGS, loadSettings, normalizeSettings, removePreset, saveSettings, SIZE_RANGE } from "./tool-settings";
 
 const store = (v: string | null) => ({ getItem: () => v });
 
@@ -43,5 +43,25 @@ describe("tool settings", () => {
     expect(clampSize("eraser", 81)).toBe(80);
     expect(clampSize("text", 20.4)).toBe(20);
     expect(clampSize("text", Number.NaN)).toBe(12);
+  });
+
+  it("normalizeSettings clamps sizes, validates colours and enforces preset rules", () => {
+    const messy = { ...DEFAULT_SETTINGS, pen: { ...DEFAULT_SETTINGS.pen, size: 999, color: "red", presets: ["#00AA55", "#00aa55", "nope", ...Array.from({ length: 20 }, (_, i) => `#0000${i.toString(16).padStart(2, "0")}`)] } };
+    const s = normalizeSettings(messy);
+    expect(s.pen.size).toBe(40);
+    expect(s.pen.color).toBe(DEFAULT_SETTINGS.pen.color);
+    expect(s.pen.presets.slice(0, 4)).toEqual([...DEFAULT_SETTINGS.pen.presets, "#00AA55"]);
+    expect(s.pen.presets).toHaveLength(12);
+    expect(normalizeSettings({ ...DEFAULT_SETTINGS, pen: { ...DEFAULT_SETTINGS.pen, presets: [] } }).pen.presets).toEqual(DEFAULT_SETTINGS.pen.presets);
+  });
+
+  it("addPreset dedupes and caps at 12; removePreset protects the defaults", () => {
+    let s = addPreset(DEFAULT_SETTINGS, "pen", "#00aa55");
+    expect(addPreset(s, "pen", "#00AA55").pen.presets).toEqual(s.pen.presets);
+    for (let i = 0; i < 20; i++) s = addPreset(s, "pen", `#1000${i.toString(16).padStart(2, "0")}`);
+    expect(s.pen.presets).toHaveLength(12);
+    expect(removePreset(s, "pen", "#00aa55").pen.presets).not.toContain("#00aa55");
+    expect(removePreset(s, "pen", "#2563EB").pen.presets).toContain("#2563EB");
+    expect(s.highlighter.presets).toEqual(DEFAULT_SETTINGS.highlighter.presets);
   });
 });

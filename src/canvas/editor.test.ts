@@ -105,6 +105,22 @@ describe("Editor input wiring", () => {
     expect(seen).toHaveBeenCalledTimes(1);
   });
 
+  it("updateSettings normalises, defers saves on request, and destroy flushes and drops listeners", () => {
+    const seen = vi.fn();
+    editor.onSettingsChange(seen);
+    editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, size: 500, color: "bad", presets: ["#00aa55"] } }));
+    expect(editor.settings.pen).toMatchObject({ size: 40, color: "#1B1A1F", presets: ["#1B1A1F", "#2563EB", "#DC2626", "#00aa55"] });
+    localStorage.clear();
+    editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, size: 9 } }), { deferSave: true });
+    expect(editor.settings.pen.size).toBe(9);
+    expect(localStorage.getItem("ss.tools.v1")).toBeNull();
+    editor.destroy();
+    expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").pen.size).toBe(9);
+    const n = seen.mock.calls.length;
+    editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, size: 10 } }));
+    expect(seen).toHaveBeenCalledTimes(n);
+  });
+
   it("the eraser radius is size / 2 / zoom", () => {
     const stroke = (id: string, x: number): StrokeEl => ({ id, z: 0, updatedAt: 0, type: "stroke", tool: "pen", color: "#000", size: 2, points: [[x, 0, 0.5], [x + 1, 0, 0.5]], simulatePressure: true });
     editor.scene.add(stroke("near", 0));

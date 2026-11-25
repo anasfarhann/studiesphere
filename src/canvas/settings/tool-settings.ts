@@ -44,10 +44,28 @@ const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
 
 function presets(v: unknown, d: string[]): string[] {
   if (!Array.isArray(v)) return [...d];
-  const out = [...new Set(v.filter((c): c is string => typeof c === "string" && HEX.test(c)))].slice(0, MAX_PRESETS);
-  // The three defaults are always present.
-  const rest = out.filter((c) => !d.includes(c));
+  // The three defaults are always present and first; others are de-duplicated case-insensitively.
+  const seen = new Set(d.map((c) => c.toLowerCase()));
+  const rest: string[] = [];
+  for (const c of v) {
+    if (typeof c !== "string" || !HEX.test(c) || seen.has(c.toLowerCase())) continue;
+    seen.add(c.toLowerCase());
+    rest.push(c);
+  }
   return [...d, ...rest].slice(0, MAX_PRESETS);
+}
+
+export const MAX_PRESET_COUNT = MAX_PRESETS;
+
+/** Colour presets of a stroke tool with `hex` appended (ignored when already present or the list is full). */
+export function addPreset(s: ToolSettings, tool: StrokeToolId, hex: string): ToolSettings {
+  return normalizeSettings({ ...s, [tool]: { ...s[tool], presets: [...s[tool].presets, hex] } });
+}
+
+/** Removes a preset; the three defaults are protected. */
+export function removePreset(s: ToolSettings, tool: StrokeToolId, hex: string): ToolSettings {
+  const keep = s[tool].presets.filter((c) => c.toLowerCase() !== hex.toLowerCase() || DEFAULT_SETTINGS[tool].presets.includes(c));
+  return normalizeSettings({ ...s, [tool]: { ...s[tool], presets: keep } });
 }
 
 function stroke(tool: StrokeToolId, v: unknown): ToolSettings[StrokeToolId] {
@@ -56,30 +74,34 @@ function stroke(tool: StrokeToolId, v: unknown): ToolSettings[StrokeToolId] {
   return { size: num(tool, r.size, d.size), color: col(r.color, d.color), presets: presets(r.presets, d.presets), snap: bool(r.snap, d.snap) };
 }
 
+/** Defaults overlaid with whatever valid fields `j` holds: sizes clamped, colours validated, preset rules enforced. */
+export function normalizeSettings(j: unknown): ToolSettings {
+  if (!isObj(j)) return structuredClone(DEFAULT_SETTINGS);
+  const e = isObj(j.eraser) ? j.eraser : {};
+  const x = isObj(j.text) ? j.text : {};
+  const dt = DEFAULT_SETTINGS.text;
+  return {
+    pen: stroke("pen", j.pen),
+    highlighter: stroke("highlighter", j.highlighter),
+    eraser: { size: num("eraser", e.size, DEFAULT_SETTINGS.eraser.size), mode: e.mode === "pixel" || e.mode === "stroke" ? e.mode : DEFAULT_SETTINGS.eraser.mode },
+    text: {
+      size: num("text", x.size, dt.size),
+      color: col(x.color, dt.color),
+      font: FONTS.find((f) => f === x.font) ?? dt.font,
+      bold: bool(x.bold, dt.bold),
+      italic: bool(x.italic, dt.italic),
+      underline: bool(x.underline, dt.underline),
+    },
+  };
+}
+
 /** Defaults overlaid with whatever valid fields storage holds; never throws. */
 export function loadSettings(storage?: Pick<Storage, "getItem">): ToolSettings {
   try {
     const s = storage ?? (typeof localStorage === "undefined" ? undefined : localStorage);
     const raw = s?.getItem(STORAGE_KEY);
     if (!raw) return structuredClone(DEFAULT_SETTINGS);
-    const j: unknown = JSON.parse(raw);
-    if (!isObj(j)) return structuredClone(DEFAULT_SETTINGS);
-    const e = isObj(j.eraser) ? j.eraser : {};
-    const x = isObj(j.text) ? j.text : {};
-    const dt = DEFAULT_SETTINGS.text;
-    return {
-      pen: stroke("pen", j.pen),
-      highlighter: stroke("highlighter", j.highlighter),
-      eraser: { size: num("eraser", e.size, DEFAULT_SETTINGS.eraser.size), mode: e.mode === "pixel" || e.mode === "stroke" ? e.mode : DEFAULT_SETTINGS.eraser.mode },
-      text: {
-        size: num("text", x.size, dt.size),
-        color: col(x.color, dt.color),
-        font: FONTS.find((f) => f === x.font) ?? dt.font,
-        bold: bool(x.bold, dt.bold),
-        italic: bool(x.italic, dt.italic),
-        underline: bool(x.underline, dt.underline),
-      },
-    };
+    return normalizeSettings(JSON.parse(raw));
   } catch {
     return structuredClone(DEFAULT_SETTINGS);
   }

@@ -168,7 +168,7 @@ export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo,
               id="tool-options"
               role="group"
               aria-label={t("toolOptions", { tool: t(TOOLS.find((x) => x.id === tool)?.label ?? "toolPen") })}
-              className={`absolute top-full left-1/2 z-30 mt-2 flex w-[min(332px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
+              className={`absolute top-full left-1/2 z-30 mt-2 flex max-h-[calc(100dvh-140px)] w-[min(332px,calc(100vw-24px))] overflow-y-auto overscroll-contain -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
             >
               {renderOptions?.(tool)}
             </div>

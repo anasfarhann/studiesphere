@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Editor } from "../editor";
 import { ToolOptions } from "./ToolOptions";
 
@@ -34,6 +34,8 @@ describe("ToolOptions", () => {
     fireEvent.change(screen.getByRole("slider", { name: "Pen size" }), { target: { value: "12" } });
     expect(editor.settings.pen.size).toBe(12);
     expect(screen.getByText("12 px")).toBeTruthy();
+    expect(localStorage.getItem("ss.tools.v1")).toBeNull(); // live value only; write is deferred
+    fireEvent.pointerUp(screen.getByRole("slider", { name: "Pen size" }));
     expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").pen.size).toBe(12);
     rerender(<ToolOptions editor={editor} tool="eraser" />);
     const slider = screen.getByRole("slider", { name: "Eraser size" }) as HTMLInputElement;
@@ -67,5 +69,70 @@ describe("ToolOptions", () => {
     expect(editor.settings.text.color).toBe("#DC2626");
     rerender(<ToolOptions editor={editor} tool="eraser" />);
     expect(screen.queryByRole("button", { name: /^Colour/ })).toBeNull();
+  });
+
+  it("debounces slider persistence to ~250 ms", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ToolOptions editor={editor} tool="pen" />);
+      const slider = screen.getByRole("slider", { name: "Pen size" });
+      for (const v of ["5", "6", "7"]) fireEvent.change(slider, { target: { value: v } });
+      expect(editor.settings.pen.size).toBe(7);
+      expect(localStorage.getItem("ss.tools.v1")).toBeNull();
+      vi.advanceTimersByTime(260);
+      expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").pen.size).toBe(7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("tapping the selected swatch opens the wheel; Add appends a deduped preset (max 12)", () => {
+    render(<ToolOptions editor={editor} tool="pen" />);
+    expect(screen.queryByRole("slider", { name: "Hue" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Colour #1B1A1F" })); // selected -> opens
+    expect(screen.getByRole("slider", { name: "Hue" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Hex" }), { target: { value: "#00aa55" } });
+    expect(editor.settings.pen.color).toBe("#00aa55");
+    fireEvent.click(screen.getByRole("button", { name: "Add to presets" }));
+    expect(editor.settings.pen.presets).toEqual(["#1B1A1F", "#2563EB", "#DC2626", "#00aa55"]);
+    expect(screen.getByRole("button", { name: "Colour #00aa55" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Add to presets" }) as HTMLButtonElement).disabled).toBe(true);
+    for (let i = 0; i < 12; i++) {
+      fireEvent.change(screen.getByRole("textbox", { name: "Hex" }), { target: { value: `#1000${i.toString(16).padStart(2, "0")}` } });
+      fireEvent.click(screen.getByRole("button", { name: "Add to presets" }));
+    }
+    expect(editor.settings.pen.presets).toHaveLength(12);
+    expect((screen.getByRole("button", { name: "Add to presets" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("long press (500 ms) removes a non-default swatch with a live announcement; defaults are protected", () => {
+    vi.useFakeTimers();
+    try {
+      act(() => editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, presets: [...s.pen.presets, "#00aa55"] } })));
+      render(<ToolOptions editor={editor} tool="pen" />);
+      const press = (name: string, ms: number) => {
+        const b = screen.getByRole("button", { name });
+        fireEvent.pointerDown(b, { clientX: 5, clientY: 5 });
+        act(() => void vi.advanceTimersByTime(ms));
+        fireEvent.pointerUp(b);
+      };
+      press("Colour #DC2626", 600);
+      expect(editor.settings.pen.presets).toContain("#DC2626");
+      press("Colour #00aa55", 300);
+      expect(editor.settings.pen.presets).toContain("#00aa55");
+      press("Colour #00aa55", 600);
+      expect(editor.settings.pen.presets).not.toContain("#00aa55");
+      expect(screen.getByTestId("preset-message").textContent).toBe("Removed #00aa55 from presets");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("highlighter presets are separate; the wheel updates the current colour", () => {
+    render(<ToolOptions editor={editor} tool="highlighter" />);
+    fireEvent.click(screen.getByRole("button", { name: "Colour #F4D35E" }));
+    fireEvent.keyDown(screen.getByRole("slider", { name: "Hue" }), { key: "ArrowRight" });
+    expect(editor.settings.highlighter.color).not.toBe("#F4D35E");
+    expect(editor.settings.pen.color).toBe("#1B1A1F");
   });
 });
