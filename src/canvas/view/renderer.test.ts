@@ -208,6 +208,28 @@ describe("Renderer", () => {
     expect(ctx.fill).toHaveBeenCalledTimes(6);
   });
 
+  it("draws the snap ghost at 40% alpha in the stroke colour with a dashed hint, building its path once", () => {
+    const r = make();
+    r.resize(200, 200, 1);
+    flush();
+    const ghost: StrokeEl = { ...stroke("g", 0), color: "#dc2626", points: [[0, 0, 0.5], [4, 0, 0.5], [8, 0, 0.5]] };
+    const seen: Array<{ alpha: number; fill: unknown }> = [];
+    ctx.fill.mockImplementation(() => { seen.push({ alpha: ctx.globalAlpha, fill: ctx.fillStyle }); });
+    const madeBefore = made;
+    r.setGhost(ghost);
+    flush();
+    expect(seen).toContainEqual({ alpha: 0.4, fill: "#dc2626" });
+    expect(ctx.setLineDash.mock.calls.some(([d]) => (d as number[]).length > 0)).toBe(true);
+    expect(ctx.strokeStyle).toBe("#dc2626");
+    expect(ctx.globalAlpha).toBe(1);
+    r.requestFrame(); flush();
+    expect(made - madeBefore).toBe(1);
+    const fills = ctx.fill.mock.calls.length;
+    r.setGhost(null);
+    flush();
+    expect(ctx.fill.mock.calls.length - fills).toBe(1); // only the dot grid
+  });
+
   it("draws text lines and a file card (badge, name, size)", () => {
     const els: CanvasElement[] = [
       { id: "t", z: 1, updatedAt: 1, type: "text", x: 0, y: 0, w: 100, text: "a\nb", fontSize: 16, color: "#000" },

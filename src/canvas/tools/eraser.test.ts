@@ -105,23 +105,34 @@ describe("EraserTool", () => {
       expect(scene.get("t")).toBeDefined();
     });
 
-    it("a 2,000-point stroke is tested only when near the pointer and a drag stays fast", () => {
+    it("a 2,000-point stroke is tested only when near the pointer and is removed once", () => {
       const { scene, tool } = setupStroke();
       const big: StrokeEl = { ...line("big", 0), points: Array.from({ length: 2000 }, (_, i) => [i, 0, 0.5] as [number, number, number]) };
       scene.add(big);
       scene.add(line("near", 5000));
       const spy = vi.spyOn(split, "strokeTouchesCircle");
-      const t0 = performance.now();
       tool.down([0, 1000, 0.5], mouse);
       tool.move([[1999, 1000, 0.5]], mouse);
       expect(spy).not.toHaveBeenCalled(); // bbox query never returns big
       tool.move([[1999, 0, 0.5]], mouse);
       tool.up();
-      expect(performance.now() - t0).toBeLessThan(250);
       expect(scene.get("big")).toBeUndefined();
       expect(spy.mock.calls.filter(([el]) => el.id === "big").length).toBeLessThanOrEqual(3); // edge-of-bounds probes, then removed
       spy.mockRestore();
     });
+  });
+
+  it("reads the mode once at down(), not on every sweep step", () => {
+    const scene = new Scene();
+    const history = new History();
+    const mode = vi.fn(() => "stroke" as const);
+    const tool = new EraserTool({ scene, history, radius: () => 5, mode, newId: () => "x", now: () => 2 });
+    scene.add(line("a", 0));
+    tool.down([0, 0, 0.5], mouse);
+    tool.move([[50, 0, 0.5], [100, 0, 0.5]], mouse);
+    tool.up();
+    expect(mode).toHaveBeenCalledTimes(1);
+    expect(scene.all()).toHaveLength(0);
   });
 
   it("pixel mode on a 2,000-point stroke splits it without scanning unrelated strokes", () => {

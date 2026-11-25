@@ -85,6 +85,8 @@ export const en = {
   eraserModePixel: "Pixel",
   sizePx: "{n} px",
   sizePreview: "Size preview",
+  snapToShape: "Snap to shape",
+  snapToShapeHint: "Hold still at the end of a stroke to make it a line, rectangle, circle or triangle.",
   colorPresets: "Colours",
   colorPreset: "Colour {hex}",
   colorHue: "Hue",

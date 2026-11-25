@@ -111,6 +111,9 @@ export class Editor {
       scene: this.scene,
       style: () => ({ color: this.current[tool].color, size: this.current[tool].size }),
       setLive: (s: StrokeEl | null) => this.renderer.setLive(s),
+      setGhost: (s: StrokeEl | null) => this.renderer.setGhost(s),
+      snap: () => this.current[tool].snap,
+      zoom: () => this.camera.zoom,
       onCommit: (c: Change) => {
         this.history.push(c);
         this.lastStroke = c;

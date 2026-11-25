@@ -20,6 +20,8 @@ export interface EraserToolContext {
 export class EraserTool implements Tool {
   readonly id = "eraser" as const;
   private active = false;
+  /** Read once per drag at down(): a settings change mid-drag does not switch modes. */
+  private whole = false;
   private last: [number, number] | null = null;
   /** Elements that existed before the drag and were erased (by id). */
   private before = new Map<string, CanvasElement>();
@@ -36,6 +38,7 @@ export class EraserTool implements Tool {
   down(p: WorldPoint, e: PointerInfo): void {
     void e;
     this.active = true;
+    this.whole = (this.ctx.mode?.() ?? "pixel") === "stroke";
     this.before.clear();
     this.after.clear();
     this.last = [p[0], p[1]];
@@ -83,7 +86,7 @@ export class EraserTool implements Tool {
 
   private eraseHits(hits: CanvasElement[], x: number, y: number, r: number): void {
     const { scene } = this.ctx;
-    const whole = (this.ctx.mode?.() ?? "pixel") === "stroke";
+    const whole = this.whole;
     for (const el of hits) {
       if (el.type !== "stroke") continue;
       if (whole) {

@@ -346,6 +346,7 @@ describe("Editor history and eraser", () => {
   let editor: Editor;
 
   beforeEach(() => {
+    localStorage.clear(); // settings persist across tests otherwise
     frames = [];
     canvas = document.createElement("canvas");
     canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
@@ -365,6 +366,51 @@ describe("Editor history and eraser", () => {
     for (const [x, y] of pts.slice(1)) fire(canvas, "pointermove", id, kind, x, y, extra);
     fire(canvas, "pointerup", id, kind, pts.at(-1)![0], pts.at(-1)![1], { buttons: 0 });
   }
+
+  describe("snap to shape", () => {
+    const rect: Array<[number, number]> = [];
+    for (const [ax, ay, bx, by] of [[0, 0, 200, 0], [200, 0, 200, 120], [200, 120, 0, 120], [0, 120, 0, 0]]) {
+      for (let k = 1; k <= 20; k++) rect.push([ax + ((bx - ax) * k) / 20 + (k % 3) - 1, ay + ((by - ay) * k) / 20 - (k % 3) + 1]);
+    }
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    const drawHeld = (id: number, holdMs: number) => {
+      fire(canvas, "pointerdown", id, "mouse", 0, 0);
+      for (const [x, y] of rect) {
+        vi.advanceTimersByTime(16);
+        fire(canvas, "pointermove", id, "mouse", x, y);
+      }
+      vi.advanceTimersByTime(holdMs);
+    };
+
+    it("a 500 ms hold with snap on commits a clean closed shape as one undo step", () => {
+      editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, snap: true } }));
+      drawHeld(1, 600);
+      fire(canvas, "pointerup", 1, "mouse", 0, 0, { buttons: 0 });
+      const all = editor.scene.all() as StrokeEl[];
+      expect(all).toHaveLength(1);
+      expect(all[0].points.at(-1)).toEqual(all[0].points[0]);
+      expect(all[0].points.length).toBeGreaterThan(rect.length);
+      editor.undo();
+      expect(editor.scene.all()).toHaveLength(0);
+      expect(editor.canUndo()).toBe(false);
+    });
+
+    it("snap is off by default, and switching tools mid-hold clears the ghost", () => {
+      drawHeld(1, 600);
+      fire(canvas, "pointerup", 1, "mouse", 0, 0, { buttons: 0 });
+      expect((editor.scene.all()[0] as StrokeEl).points).toHaveLength(rect.length + 1);
+      editor.updateSettings((s) => ({ ...s, highlighter: { ...s.highlighter, snap: true } }));
+      editor.setTool("highlighter");
+      const ghost = vi.spyOn((editor as unknown as { renderer: { setGhost(g: unknown): void } }).renderer, "setGhost");
+      drawHeld(2, 600);
+      expect(ghost).toHaveBeenLastCalledWith(expect.objectContaining({ tool: "highlighter" }));
+      editor.setTool("pen");
+      expect(ghost).toHaveBeenLastCalledWith(null);
+      expect(editor.scene.all()).toHaveLength(1);
+    });
+  });
 
   it("Ctrl+Z undoes a stroke and Shift+Ctrl+Z redoes it", () => {
     drag(1, "mouse", [[10, 10], [60, 10]]);
@@ -390,7 +436,8 @@ describe("Editor history and eraser", () => {
     expect((editor.scene.all()[0] as StrokeEl).tool).toBe("highlighter");
   });
 
-  it("the eraser (default whole-stroke mode) removes a touched stroke in one undo step", () => {
+  it("the eraser in whole-stroke mode removes a touched stroke in one undo step", () => {
+    editor.updateSettings((s) => ({ ...s, eraser: { ...s.eraser, mode: "stroke" } }));
     drag(1, "mouse", [[0, 10], [200, 10]]);
     editor.setTool("eraser");
     drag(2, "mouse", [[100, 0], [100, 10], [100, 20]]);
@@ -399,8 +446,8 @@ describe("Editor history and eraser", () => {
     expect(editor.scene.all()).toHaveLength(1);
   });
 
-  it("the eraser splits a stroke in pixel mode and one drag is one undo step", () => {
-    editor.updateSettings((s) => ({ ...s, eraser: { ...s.eraser, mode: "pixel" } }));
+  it("the eraser splits a stroke in pixel mode (the default) and one drag is one undo step", () => {
+    expect(editor.settings.eraser.mode).toBe("pixel");
     drag(1, "mouse", [[0, 10], [200, 10]]);
     editor.setTool("eraser");
     drag(2, "mouse", [[100, 0], [100, 10], [100, 20]]);

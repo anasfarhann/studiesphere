@@ -22,7 +22,7 @@ export const SIZE_RANGE: Record<"pen" | "highlighter" | "eraser" | "text", [min:
 export const DEFAULT_SETTINGS: ToolSettings = {
   pen: { size: 3, color: "#1B1A1F", presets: ["#1B1A1F", "#2563EB", "#DC2626"], snap: false },
   highlighter: { size: 18, color: "#F4D35E", presets: ["#F4D35E", "#8BE0A4", "#F6A5C0"], snap: false },
-  eraser: { size: 20, mode: "stroke" },
+  eraser: { size: 20, mode: "pixel" },
   text: { size: 20, color: "#1B1A1F", font: "sans", bold: false, italic: false, underline: false },
 };
 

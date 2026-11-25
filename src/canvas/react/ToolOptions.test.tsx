@@ -159,10 +159,28 @@ describe("ToolOptions", () => {
     expect(group).toBeTruthy();
     const whole = screen.getByRole("radio", { name: "Whole stroke" });
     const pixel = screen.getByRole("radio", { name: "Pixel" });
-    expect([whole.getAttribute("aria-checked"), pixel.getAttribute("aria-checked")]).toEqual(["true", "false"]);
-    fireEvent.click(pixel);
-    expect(editor.settings.eraser.mode).toBe("pixel");
-    expect(screen.getByRole("radio", { name: "Pixel" }).getAttribute("aria-checked")).toBe("true");
-    expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").eraser.mode).toBe("pixel");
+    expect([whole.getAttribute("aria-checked"), pixel.getAttribute("aria-checked")]).toEqual(["false", "true"]);
+    fireEvent.click(whole);
+    expect(editor.settings.eraser.mode).toBe("stroke");
+    expect(screen.getByRole("radio", { name: "Whole stroke" }).getAttribute("aria-checked")).toBe("true");
+    expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").eraser.mode).toBe("stroke");
+  });
+
+  it("pen and highlighter have a snap-to-shape switch (off by default) that persists per tool", () => {
+    const { rerender } = render(<ToolOptions editor={editor} tool="pen" />);
+    const sw = screen.getByRole("switch", { name: "Snap to shape" });
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(sw.className).toContain("h-11");
+    fireEvent.click(sw);
+    expect(editor.settings.pen.snap).toBe(true);
+    expect(editor.settings.highlighter.snap).toBe(false);
+    expect(screen.getByRole("switch", { name: "Snap to shape" }).getAttribute("aria-checked")).toBe("true");
+    expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").pen.snap).toBe(true);
+    rerender(<ToolOptions editor={editor} tool="highlighter" />);
+    expect(screen.getByRole("switch", { name: "Snap to shape" }).getAttribute("aria-checked")).toBe("false");
+    rerender(<ToolOptions editor={editor} tool="eraser" />);
+    expect(screen.queryByRole("switch", { name: "Snap to shape" })).toBeNull();
+    rerender(<ToolOptions editor={editor} tool="text" />);
+    expect(screen.queryByRole("switch", { name: "Snap to shape" })).toBeNull();
   });
 });

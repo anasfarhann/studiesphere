@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
 import { addPreset, clampSize, DEFAULT_SETTINGS, MAX_PRESET_COUNT, removePreset, SIZE_RANGE, type StrokeToolId, type ToolSettings } from "../settings/tool-settings";
@@ -36,6 +36,7 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
   const presets = presetsFor(s, tool);
 
   const presetTool: StrokeToolId = tool === "highlighter" ? "highlighter" : "pen";
+  const snapHintId = useId();
   const [wheelOpen, setWheelOpen] = useState(false);
   const [message, setMessage] = useState("");
   const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
@@ -128,6 +129,26 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
             style={{ width: size, height: size, backgroundColor: color }}
           />
         </div>
+      ) : null}
+      {tool === "pen" || tool === "highlighter" ? (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={s[tool].snap}
+          aria-describedby={snapHintId}
+          onClick={() => editor.updateSettings((cur) => ({ ...cur, [tool]: { ...cur[tool], snap: !cur[tool].snap } }))}
+          className="group flex h-11 w-full touch-manipulation cursor-pointer items-center justify-between gap-3 rounded-full px-2 text-sm font-medium text-ink"
+        >
+          <span>{t("snapToShape")}</span>
+          <span aria-hidden className="relative inline-flex h-6 w-10 shrink-0 items-center rounded-full border border-hairline bg-ground transition-colors group-aria-checked:border-ink group-aria-checked:bg-ink">
+            <span className="absolute left-0.5 size-5 rounded-full bg-card shadow-sm transition-transform group-aria-checked:translate-x-4" />
+          </span>
+        </button>
+      ) : null}
+      {tool === "pen" || tool === "highlighter" ? (
+        <p id={snapHintId} className="sr-only">
+          {t("snapToShapeHint")}
+        </p>
       ) : null}
       {hasColor ? (
         <>
