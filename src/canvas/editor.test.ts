@@ -693,3 +693,106 @@ describe("Editor history and eraser", () => {
     });
   });
 });
+
+describe("Editor lasso: tap to select, copy and paste, recolour", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+  const img = { id: "img", type: "image" as const, x: 0, y: 0, w: 100, h: 100, assetPath: "o/p/i.png", z: 0, updatedAt: 1 };
+  const ink = (id: string, y: number): StrokeEl => ({
+    id, type: "stroke", tool: "pen", color: "#1B1A1F", size: 3, z: 1, updatedAt: 1, simulatePressure: true,
+    points: [[200, y, 0.5], [300, y, 0.5]],
+  });
+  const tap = (id: number, kind: Kind, x: number, y: number) => {
+    fire(canvas, "pointerdown", id, kind, x, y);
+    fire(canvas, "pointerup", id, kind, x, y, { buttons: 0 });
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    frames = [];
+    canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [img, ink("a", 200), ink("b", 220)],
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+    editor.setTool("lasso");
+  });
+
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+  });
+
+  it("a tap selects the element under it; a tap on empty space offers Paste only with a clipboard", () => {
+    tap(1, "mouse", 50, 50);
+    expect(editor.selection.ids).toEqual(["img"]);
+    tap(1, "mouse", 600, 600);
+    expect(editor.selection.ids).toEqual([]);
+    expect(editor.getPasteAnchor()).toBeNull();
+    tap(1, "mouse", 50, 50);
+    editor.copySelection();
+    tap(1, "mouse", 600, 600);
+    expect(editor.getPasteAnchor()).toEqual([600, 600]);
+    const ids = editor.paste();
+    expect(editor.getPasteAnchor()).toBeNull();
+    expect(ids).toHaveLength(1);
+    expect(ids[0]).not.toBe("img");
+    expect(editor.scene.get(ids[0])).toMatchObject({ type: "image", x: 550, y: 550, assetPath: "o/p/i.png" });
+    expect(editor.selection.ids).toEqual(ids);
+    editor.undo();
+    expect(editor.scene.all()).toHaveLength(3);
+  });
+
+  it("palm touches neither select nor offer or withdraw Paste while the Pencil is active", () => {
+    tap(1, "pen", 50, 50);
+    editor.copySelection();
+    tap(1, "pen", 600, 600);
+    expect(editor.getPasteAnchor()).toEqual([600, 600]);
+    tap(2, "touch", 50, 50); // a palm on the image
+    expect(editor.selection.ids).toEqual([]);
+    expect(editor.getPasteAnchor()).toEqual([600, 600]);
+    // A palm resting while the Pencil taps empty space.
+    fire(canvas, "pointerdown", 3, "touch", 50, 50);
+    tap(4, "pen", 700, 700);
+    fire(canvas, "pointerup", 3, "touch", 50, 50, { buttons: 0 });
+    expect(editor.selection.ids).toEqual([]);
+    expect(editor.getPasteAnchor()).toEqual([700, 700]);
+  });
+
+  it("recolouring selected strokes is one undo step, including a live wheel drag", () => {
+    editor.selection.set(["a", "b", "img"]);
+    editor.recolorSelection("#2563EB");
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#2563EB");
+    expect((editor.scene.get("b") as StrokeEl).color).toBe("#2563EB");
+    editor.recolorSelection("#111111", { live: true });
+    editor.recolorSelection("#222222", { live: true });
+    editor.commitRecolor();
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#222222");
+    editor.undo();
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#2563EB");
+    editor.undo();
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#1B1A1F");
+    expect((editor.scene.get("b") as StrokeEl).color).toBe("#1B1A1F");
+    expect(editor.canUndo()).toBe(false);
+  });
+
+  it("the image resize handle works only after Resize, and resets with the selection", () => {
+    tap(1, "mouse", 50, 50);
+    expect(editor.resizeHandles).toBe(false);
+    fire(canvas, "pointerdown", 1, "mouse", 100, 100);
+    fire(canvas, "pointermove", 1, "mouse", 150, 150);
+    fire(canvas, "pointerup", 1, "mouse", 150, 150, { buttons: 0 });
+    expect(editor.scene.get("img")).toMatchObject({ w: 100 }); // moved, not resized
+    editor.armResize();
+    expect(editor.resizeHandles).toBe(true);
+    const el = editor.scene.get("img") as typeof img;
+    fire(canvas, "pointerdown", 1, "mouse", el.x + 100, el.y + 100);
+    fire(canvas, "pointermove", 1, "mouse", el.x + 200, el.y + 200);
+    fire(canvas, "pointerup", 1, "mouse", el.x + 200, el.y + 200, { buttons: 0 });
+    expect(editor.scene.get("img")).toMatchObject({ w: 200, h: 200 });
+    editor.selection.clear();
+    expect(editor.resizeHandles).toBe(false);
+  });
+});

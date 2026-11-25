@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { History } from "./model/history";
 import { Scene } from "./model/scene";
-import type { StrokeEl, TextEl } from "./model/types";
-import { Selection } from "./selection";
+import type { ImageEl, StrokeEl, TextEl } from "./model/types";
+import { elementAt, Selection } from "./selection";
 
 const s = (id: string): StrokeEl => ({
   id, type: "stroke", tool: "pen", color: "#000", size: 2, z: 0, updatedAt: 1, simulatePressure: true,
@@ -86,5 +86,49 @@ describe("Selection", () => {
     expect(sel.deleteAll().before).toHaveLength(3);
     expect(onScene).toHaveBeenCalledTimes(1);
     expect(scene.all()).toHaveLength(0);
+  });
+});
+
+describe("elementAt", () => {
+  const img: ImageEl = { id: "img", type: "image", x: 0, y: 0, w: 100, h: 100, assetPath: "o/p/i.png", z: 0, updatedAt: 1 };
+  const ink: StrokeEl = { ...s("ink"), z: 2, points: [[0, 50, 0.5], [100, 50, 0.5]] };
+  const hl: StrokeEl = { ...s("hl"), tool: "highlighter", size: 10, z: 1, points: [[50, 0, 0.5], [50, 100, 0.5]] };
+
+  it("returns the topmost element whose hit area contains the point", () => {
+    const scene = new Scene([img, ink, hl]);
+    expect(elementAt(scene, 50, 50, 8)).toBe("ink");
+    expect(elementAt(scene, 50, 20, 8)).toBe("hl");
+    expect(elementAt(scene, 20, 20, 8)).toBe("img");
+    expect(elementAt(scene, 200, 200, 8)).toBeNull();
+  });
+
+  it("a legacy highlighter is hit within half its 3x drawn width; a px one within half its size", () => {
+    const scene = new Scene([hl]);
+    expect(elementAt(scene, 64, 20, 8)).toBe("hl"); // legacy: 30 wide, reach 15
+    scene.update("hl", { sizeMode: "px" }); // 10 wide: reach max(5, 8) = 8
+    expect(elementAt(scene, 64, 20, 8)).toBeNull();
+    expect(elementAt(scene, 57, 20, 8)).toBe("hl");
+  });
+
+  it("a one-point stroke (a dot) is hit around the point", () => {
+    const dot: StrokeEl = { ...s("dot"), points: [[10, 10, 0.5]] };
+    expect(elementAt(new Scene([dot]), 15, 15, 8)).toBe("dot");
+  });
+});
+
+describe("Selection.recolor", () => {
+  it("recolours only the selected strokes, as one change", () => {
+    const scene = new Scene([s("a"), s("b"), t]);
+    const sel = new Selection(scene);
+    sel.set(["a", "b", "t"]);
+    const history = new History();
+    history.push(sel.recolor("#2563EB"));
+    expect((scene.get("a") as StrokeEl).color).toBe("#2563EB");
+    expect((scene.get("b") as StrokeEl).color).toBe("#2563EB");
+    expect((scene.get("t") as TextEl).color).toBe("#000");
+    history.undo(scene);
+    expect((scene.get("a") as StrokeEl).color).toBe("#000");
+    expect((scene.get("b") as StrokeEl).color).toBe("#000");
+    expect(history.canUndo()).toBe(false);
   });
 });

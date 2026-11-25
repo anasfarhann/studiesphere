@@ -1,14 +1,11 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
+import { useId, useSyncExternalStore } from "react";
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
 import { addPreset, clampSize, DEFAULT_SETTINGS, MAX_PRESET_COUNT, removePreset, SIZE_RANGE, type StrokeToolId, type ToolSettings } from "../settings/tool-settings";
 import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
-import { ColorWheel } from "./ColorWheel";
-
-const LONG_PRESS_MS = 500;
-const LONG_PRESS_SLOP = 10;
+import { ColorSwatches } from "./ColorSwatches";
 
 export type OptionsToolId = keyof typeof SIZE_RANGE;
 export const OPTION_TOOLS: ReadonlyArray<string> = ["pen", "highlighter", "eraser", "text"];
@@ -38,23 +35,6 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
 
   const presetTool: StrokeToolId = tool === "highlighter" ? "highlighter" : "pen";
   const snapHintId = useId();
-  const [wheelOpen, setWheelOpen] = useState(false);
-  const [message, setMessage] = useState("");
-  const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
-  const longPressed = useRef(false);
-
-  const [shownTool, setShownTool] = useState(tool);
-  if (shownTool !== tool) {
-    setShownTool(tool);
-    setWheelOpen(false);
-    setMessage("");
-  }
-  useEffect(
-    () => () => {
-      if (press.current) clearTimeout(press.current.timer);
-    },
-    [],
-  );
 
   const setSize = (n: number) => {
     const v = clampSize(tool, n);
@@ -66,19 +46,15 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
   const has = (c: string) => presets.some((p) => p.toLowerCase() === c.toLowerCase());
   const full = presets.length >= MAX_PRESET_COUNT;
 
-  const addCurrent = () => {
-    if (has(color)) return setMessage(t("colorAlready"));
-    if (full) return setMessage(t("colorFull"));
-    editor.updateSettings((cur) => addPreset(cur, presetTool, color));
-    setMessage(t("colorAdded", { hex: color }));
+  const addCurrent = (c: string): string => {
+    if (has(c)) return t("colorAlready");
+    if (full) return t("colorFull");
+    editor.updateSettings((cur) => addPreset(cur, presetTool, c));
+    return t("colorAdded", { hex: c });
   };
-  const removeAt = (c: string) => {
+  const removeAt = (c: string): string => {
     editor.updateSettings((cur) => removePreset(cur, presetTool, c));
-    setMessage(t("colorRemoved", { hex: c }));
-  };
-  const cancelPress = () => {
-    if (press.current) clearTimeout(press.current.timer);
-    press.current = null;
+    return t("colorRemoved", { hex: c });
   };
   const isDefault = (c: string) => DEFAULT_SETTINGS[presetTool].presets.some((d) => d.toLowerCase() === c.toLowerCase());
 
@@ -144,77 +120,15 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
         </>
       ) : null}
       {hasColor ? (
-        <>
-          <div role="group" aria-label={t("colorPresets")} className="flex flex-wrap items-center justify-center">
-            {presets.map((c) => {
-              const selected = color.toLowerCase() === c.toLowerCase();
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  aria-label={t("colorPreset", { hex: c })}
-                  title={t("colorPreset", { hex: c })}
-                  aria-pressed={selected}
-                  aria-expanded={selected ? wheelOpen : undefined}
-                  onPointerDown={(e) => {
-                    longPressed.current = false;
-                    cancelPress();
-                    if (isDefault(c)) return;
-                    press.current = {
-                      x: e.clientX,
-                      y: e.clientY,
-                      timer: setTimeout(() => {
-                        press.current = null;
-                        longPressed.current = true;
-                        removeAt(c);
-                      }, LONG_PRESS_MS),
-                    };
-                  }}
-                  onPointerMove={(e) => {
-                    const p = press.current;
-                    if (p && Math.hypot(e.clientX - p.x, e.clientY - p.y) > LONG_PRESS_SLOP) cancelPress();
-                  }}
-                  onPointerUp={cancelPress}
-                  onPointerLeave={cancelPress}
-                  onPointerCancel={cancelPress}
-                  onKeyDown={(e) => {
-                    if ((e.key === "Delete" || e.key === "Backspace") && !isDefault(c)) {
-                      e.preventDefault();
-                      removeAt(c);
-                    }
-                  }}
-                  onContextMenu={(e) => e.preventDefault()}
-                  onClick={() => {
-                    if (longPressed.current) {
-                      longPressed.current = false;
-                      return;
-                    }
-                    if (selected) setWheelOpen((o) => !o);
-                    else setColor(c);
-                  }}
-                  className="inline-flex size-11 shrink-0 touch-manipulation cursor-pointer select-none items-center justify-center rounded-full text-ink aria-pressed:shadow-[inset_0_0_0_2px_#1B1A1F]"
-                >
-                  <span className="block size-[22px] rounded-full border border-hairline" style={{ backgroundColor: c }} />
-                </button>
-              );
-            })}
-          </div>
-          {wheelOpen ? (
-            <div role="group" aria-label={t("colorWheelFor")} className="flex flex-col items-center gap-1">
-              <ColorWheel value={color} onChange={(c) => setColor(c, { deferSave: true })} onCommit={() => editor.flushSettings()} />
-              <button
-                type="button"
-                onClick={addCurrent}
-                className="inline-flex h-11 touch-manipulation cursor-pointer items-center justify-center rounded-full bg-ink px-5 text-sm font-medium text-card"
-              >
-                {t("colorAdd")}
-              </button>
-            </div>
-          ) : null}
-          <p data-testid="preset-message" role="status" aria-live="polite" className="min-h-5 text-center text-xs text-muted">
-            {message}
-          </p>
-        </>
+        <ColorSwatches
+          key={tool}
+          presets={presets}
+          value={color}
+          onPick={(c) => setColor(c)}
+          onWheelChange={(c) => setColor(c, { deferSave: true })}
+          onWheelCommit={() => editor.flushSettings()}
+          editing={{ isDefault, add: addCurrent, remove: removeAt }}
+        />
       ) : null}
     </div>
   );

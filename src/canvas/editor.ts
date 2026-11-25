@@ -1,3 +1,4 @@
+import { Clipboard, pasteInto } from "./clipboard";
 import { DoubleTap } from "./input/double-tap";
 import { pinchUpdate } from "./input/pinch";
 import { InputRouter, type InputKind } from "./input/router";
@@ -26,6 +27,8 @@ export interface EditorOptions {
   loadImage?: ImageLoader;
   /** Drops cached signed URLs for an asset before its image load is retried. */
   forgetImage?: (assetPath: string) => void;
+  /** Test seam; defaults to the device clipboard (localStorage). */
+  clipboard?: Clipboard;
 }
 
 type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number; lastY: number };
@@ -60,6 +63,14 @@ export class Editor {
   readonly history = new History();
   readonly selection: Selection;
   readonly text: TextEditing;
+  readonly clipboard: Clipboard;
+  /** Where a Paste offer is anchored (world), after a tap on empty space or an empty lasso. */
+  private pasteAnchor: [number, number] | null = null;
+  /** The selected image shows its resize handle (the menu's Resize). */
+  private resizeArmed = false;
+  /** A colour-wheel drag on the selection in progress: the strokes as they were before it. */
+  private recolorBefore: Change["before"] | null = null;
+  private selectionKey = "";
   /** Two quick taps on a text box edit it, whatever tool is selected. */
   private doubleTap = new DoubleTap();
   /** A second tap that landed on a text box: edit it when that pointer lifts. */
@@ -95,13 +106,22 @@ export class Editor {
     this.raf = opts.renderer?.raf ?? ((cb) => window.requestAnimationFrame(cb));
     this.caf = opts.renderer?.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.renderer = new Renderer(canvas, this.scene, this.camera, { loadImage: opts.loadImage, forgetImage: opts.forgetImage, ...opts.renderer });
+    this.renderer.setResizeHandles(false);
     this.selection = new Selection(this.scene);
+    this.clipboard = opts.clipboard ?? new Clipboard();
     this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.current.text.color, fontSize: () => this.current.text.size });
     this.text.onChange(() => {
       this.renderer.setHidden(this.text.hiddenId);
       this.notifySelection();
     });
     this.selection.onChange(() => {
+      const key = this.selection.ids.join(",");
+      if (key !== this.selectionKey) {
+        this.selectionKey = key;
+        this.commitRecolor();
+        this.setResizeArmed(false);
+        if (this.selection.ids.length > 0) this.pasteAnchor = null;
+      }
       this.renderer.setSelection(this.selection.ids);
       this.notifySelection();
     });
@@ -134,6 +154,12 @@ export class Editor {
         selection: this.selection,
         setLasso: (pts) => this.renderer.setLasso(pts),
         zoom: () => this.camera.zoom,
+        resizeEnabled: () => this.resizeArmed,
+        onEmpty: (at) => {
+          if (this.clipboard.isEmpty) return;
+          this.pasteAnchor = at;
+          this.notifySelection();
+        },
       }),
       text: new TextTool({ scene: this.scene, editing: this.text, slop: () => 6 / this.camera.zoom }),
       // Hand has no stroke of its own: while it is selected, drags pan (see onDown).
@@ -162,7 +188,88 @@ export class Editor {
     this.cancelStroke();
     this.text.commit();
     if (id !== "lasso") this.selection.clear();
+    this.setPasteAnchor(null);
     this.toolId = id;
+  }
+
+  /** Where the Paste offer is anchored (world), or null when there is none. */
+  getPasteAnchor(): [number, number] | null {
+    return this.pasteAnchor;
+  }
+
+  private setPasteAnchor(at: [number, number] | null): void {
+    if (this.pasteAnchor === at) return;
+    this.pasteAnchor = at;
+    this.notifySelection();
+  }
+
+  /** Copies the selection to the clipboard (memory and device storage). */
+  copySelection(): void {
+    const els = this.selection.elements();
+    if (els.length > 0) this.clipboard.copy(els);
+  }
+
+  /** Pastes the clipboard centred at `at` (default: the Paste anchor, else the view centre) as one undo step. */
+  paste(at?: [number, number]): string[] {
+    if (this.drawing) return [];
+    this.text.commit();
+    const spot = at ?? this.pasteAnchor ?? this.viewportCenter();
+    this.setPasteAnchor(null);
+    return pasteInto({ scene: this.scene, history: this.history, selection: this.selection }, this.clipboard, spot);
+  }
+
+  /**
+   * Recolours the selected strokes. Each call is one undo step, except `live` calls (colour-wheel
+   * drags), which preview until {@link commitRecolor} makes the whole drag one step.
+   */
+  recolorSelection(color: string, opts?: { live?: boolean }): void {
+    if (this.drawing) return;
+    const c = this.selection.recolor(color);
+    if (opts?.live) {
+      if (this.recolorBefore === null) this.recolorBefore = c.before;
+      else {
+        const seen = new Set(this.recolorBefore.map((e) => e.id));
+        for (const el of c.before) if (!seen.has(el.id)) this.recolorBefore.push(el);
+      }
+      return;
+    }
+    this.commitRecolor();
+    if (c.before.length > 0) this.history.push(c);
+  }
+
+  /** Ends a live recolour: pushes it as one undo step. Safe to call when none is in progress. */
+  commitRecolor(): void {
+    const before = this.recolorBefore;
+    this.recolorBefore = null;
+    if (!before || before.length === 0) return;
+    const after = before.map((el) => this.scene.get(el.id)).filter((el): el is CanvasElement => el !== undefined);
+    this.history.push({ before, after });
+  }
+
+  /** Whether the selected image's resize handle is showing. */
+  get resizeHandles(): boolean {
+    return this.resizeArmed;
+  }
+
+  /** Shows the resize handle on the single selected image (the menu's Resize). */
+  armResize(on = true): void {
+    this.setResizeArmed(on);
+  }
+
+  private setResizeArmed(on: boolean): void {
+    if (this.resizeArmed === on) return;
+    this.resizeArmed = on;
+    this.renderer.setResizeHandles(on);
+    this.notifySelection();
+  }
+
+  /** Opens the single selected text box in the text editor. */
+  editSelectedText(): boolean {
+    const ids = this.selection.ids;
+    if (ids.length !== 1 || this.scene.get(ids[0])?.type !== "text") return false;
+    const id = ids[0];
+    this.selection.clear();
+    return this.text.beginEdit(id);
   }
 
   /** Bounds of the current selection in world coordinates, or null. */
@@ -243,6 +350,7 @@ export class Editor {
   undo(): void {
     if (this.drawing) return;
     this.text.commit();
+    this.commitRecolor();
     this.selection.clear();
     this.history.undo(this.scene);
   }
@@ -250,6 +358,7 @@ export class Editor {
   redo(): void {
     if (this.drawing) return;
     this.text.commit();
+    this.commitRecolor();
     this.selection.clear();
     this.history.redo(this.scene);
   }
@@ -289,6 +398,7 @@ export class Editor {
     if (this.destroyed) return;
     this.destroyed = true;
     this.flushSettings();
+    this.commitRecolor();
     this.settingsListeners.clear();
     if (this.selectionFrame !== null) this.caf(this.selectionFrame);
     this.selectionFrame = null;
@@ -400,6 +510,9 @@ export class Editor {
         for (const p of this.pointers.values()) if (p.kind === "touch") p.mode = "ignore";
       }
       this.pointers.set(e.pointerId, { kind, mode: "draw", lastX: sx, lastY: sy });
+      this.commitRecolor();
+      // A new press (never a palm: those are ignored or pan above) withdraws any Paste offer.
+      this.setPasteAnchor(null);
       this.drawing = { id: e.pointerId, kind, tool };
       tool.down(this.worldPoint(e, kind), this.info(e, kind));
     } else if (gesture.kind === "pan" || gesture.kind === "pinch") {

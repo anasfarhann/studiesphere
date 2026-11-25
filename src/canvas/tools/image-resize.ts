@@ -13,6 +13,8 @@ export interface ImageResizeContext {
   history: History;
   selection: Selection;
   zoom: () => number;
+  /** Whether the handle is showing (the menu's Resize); always, when omitted. */
+  resizeEnabled?: () => boolean;
 }
 
 /** The selected image when it is the only selected element. */
@@ -31,6 +33,7 @@ export class ImageResize {
 
   /** Starts a resize when (x, y) is on the handle of the single selected image. */
   begin(x: number, y: number): boolean {
+    if (this.ctx.resizeEnabled && !this.ctx.resizeEnabled()) return false;
     const el = singleSelectedImage(this.ctx.scene, this.ctx.selection);
     if (!el) return false;
     const reach = HANDLE_HIT_PX / 2 / this.ctx.zoom();
