@@ -54,13 +54,13 @@ export async function createPageAction(notebookId: string): Promise<FormState> {
 }
 
 /** One-tap "New page": a page in the user's Quick notes subject, created on demand. */
-export async function createQuickPageAction(): Promise<void> {
+export async function createQuickPageAction(form: FormData): Promise<void> {
   const user = await getUser(); // redirects to /login when signed out
   const supabase = await createServerClient();
   let id: string;
   try {
     const notebookId = await ensureQuickNotebook(supabase, user.id);
-    id = (await new SupabaseLibraryRepo(supabase).createPage(notebookId, quickPageTitle(new Date()))).id;
+    id = (await new SupabaseLibraryRepo(supabase).createPage(notebookId, quickPageTitle(new Date(), form.get("tz")))).id;
   } catch (e) {
     // A bare <form action> has no state to show an error in, so surface it to the error boundary.
     throw new Error(toFormError(e).error);
