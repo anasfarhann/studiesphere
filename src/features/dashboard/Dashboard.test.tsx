@@ -10,7 +10,7 @@ vi.mock("next/link", () => ({
     <a href={href} {...rest}>{children}</a>
   ),
 }));
-vi.mock("@/features/library/actions", () => ({ createSubjectAction: async () => null }));
+vi.mock("@/features/library/actions", () => ({ createSubjectAction: async () => null, createQuickPageAction: async () => null }));
 
 const today = new Date(2026, 10, 23, 12);
 const subjects: SubjectSummary[] = [
@@ -23,6 +23,13 @@ const recent: RecentPage[] = [
 ];
 
 describe("Dashboard", () => {
+  it("offers a one-tap New page button in the header", () => {
+    render(<Dashboard name="Anas" subjects={subjects} recent={recent} today={today} />);
+    const b = screen.getByRole("button", { name: "New page" }) as HTMLButtonElement;
+    expect(b.type).toBe("submit");
+    expect(b.closest("form")).toBeTruthy();
+    expect(b.closest("header")).toBeTruthy();
+  });
   it("greets by name and shows the date and panel cards", () => {
     render(<Dashboard name="Anas" subjects={subjects} recent={recent} today={today} />);
     expect(screen.getByRole("heading", { level: 1, name: "Hi, Anas!" })).toBeTruthy();

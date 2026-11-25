@@ -21,7 +21,8 @@ import { TextEditorOverlay } from "./TextEditorOverlay";
 import { HistoryPanel } from "./HistoryPanel";
 import type { SnapshotStore } from "../persistence/snapshot-store";
 import { SelectionMenu } from "./SelectionMenu";
-import { INK_COLORS, PEN_SIZES, Toolbar } from "./Toolbar";
+import { Toolbar } from "./Toolbar";
+import { hasOptions, ToolOptions } from "./ToolOptions";
 
 declare global {
   interface Window {
@@ -68,9 +69,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [color, setColor] = useState(INK_COLORS[0].value);
   const [tool, setTool] = useState<ToolId>("pen");
-  const [size, setSize] = useState(PEN_SIZES[1].value);
   const [hist, setHist] = useState({ canUndo: false, canRedo: false });
   // Elements seed the editor once; later prop changes are not re-applied (persistence owns that, Task 12).
   const [initial] = useState(elements);
@@ -219,17 +218,9 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     return () => window.removeEventListener("beforeunload", guard);
   }, [audioBusy]);
 
-  const pickColor = (c: string) => {
-    setColor(c);
-    editorRef.current?.setColor(c);
-  };
   const pickTool = (id: ToolId) => {
     setTool(id);
     editorRef.current?.setTool(id);
-  };
-  const pickSize = (s: number) => {
-    setSize(s);
-    editorRef.current?.setSize(s);
   };
 
   return (
@@ -249,7 +240,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
             overscrollBehavior: "none",
           }}
         />
-        <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} color={color} size={size} onColor={pickColor} onSize={pickSize}
+        <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} renderOptions={(id) => (editor && hasOptions(id) ? <ToolOptions editor={editor} tool={id} /> : null)}
           canUndo={hist.canUndo}
           canRedo={hist.canRedo}
           onUndo={() => editorRef.current?.undo()}

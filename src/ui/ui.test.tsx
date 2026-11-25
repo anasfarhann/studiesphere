@@ -27,11 +27,23 @@ describe("PillButton", () => {
   });
 });
 
+vi.mock("@/features/library/actions", () => ({ createQuickPageAction: async () => null }));
+
 describe("AppRail", () => {
-  it("marks the active item with aria-current=page", () => {
-    render(<AppRail active="subjects" />);
-    expect(screen.getByRole("link", { name: "Subjects" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBeNull();
+  it("marks Home current for both home and subjects", () => {
+    const { unmount } = render(<AppRail active="subjects" />);
+    expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.queryByRole("link", { name: "Subjects" })).toBeNull();
+    unmount();
+    render(<AppRail active="home" />);
+    expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe("page");
+  });
+  it("has a New page submit button as the first nav control", () => {
+    render(<AppRail active="home" />);
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    const first = nav.querySelector("button, a[href]:not(.hidden)") as HTMLElement;
+    expect(first.getAttribute("aria-label")).toBe("New page");
+    expect((first as HTMLButtonElement).type).toBe("submit");
   });
   it("renders coming-soon items as disabled buttons", () => {
     render(<AppRail active="home" />);

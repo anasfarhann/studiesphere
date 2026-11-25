@@ -1,7 +1,9 @@
-import { eraseFromStroke } from "../geometry/split-stroke";
+import { eraseFromStroke, strokeTouchesCircle } from "../geometry/split-stroke";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
+import { strokeWidth } from "../model/stroke-style";
 import type { CanvasElement, StrokeEl } from "../model/types";
+import type { EraserMode } from "../settings/tool-settings";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
 
 export interface EraserToolContext {
@@ -9,14 +11,18 @@ export interface EraserToolContext {
   history: History;
   /** Eraser radius in world units (changes with zoom). */
   radius: () => number;
+  /** "pixel" splits strokes around the pointer, "stroke" removes whole strokes. Defaults to pixel. */
+  mode?: () => EraserMode;
   newId?: () => string;
   now?: () => number;
 }
 
-/** Partial eraser for strokes: splits them around the pointer. One drag is one undo step. */
+/** Eraser for strokes only: splits them around the pointer or removes them whole. One drag is one undo step. */
 export class EraserTool implements Tool {
   readonly id = "eraser" as const;
   private active = false;
+  /** Read once per drag at down(): a settings change mid-drag does not switch modes. */
+  private whole = false;
   private last: [number, number] | null = null;
   /** Elements that existed before the drag and were erased (by id). */
   private before = new Map<string, CanvasElement>();
@@ -33,6 +39,7 @@ export class EraserTool implements Tool {
   down(p: WorldPoint, e: PointerInfo): void {
     void e;
     this.active = true;
+    this.whole = (this.ctx.mode?.() ?? "pixel") === "stroke";
     this.before.clear();
     this.after.clear();
     this.last = [p[0], p[1]];
@@ -80,8 +87,17 @@ export class EraserTool implements Tool {
 
   private eraseHits(hits: CanvasElement[], x: number, y: number, r: number): void {
     const { scene } = this.ctx;
+    const whole = this.whole;
     for (const el of hits) {
       if (el.type !== "stroke") continue;
+      if (whole) {
+        // Touching the drawn ink counts, not just the centre line: wide highlighters are hit at their edge.
+        if (!strokeTouchesCircle(el, [x, y], r + strokeWidth(el) / 2)) continue;
+        scene.remove(el.id);
+        if (this.after.has(el.id)) this.after.delete(el.id);
+        else this.before.set(el.id, el);
+        continue;
+      }
       const pieces = eraseFromStroke(el, [x, y], r, this.newId);
       if (pieces.length === 1 && pieces[0] === el) continue;
       scene.remove(el.id);

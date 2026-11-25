@@ -75,7 +75,7 @@ export class SupabaseLibraryRepo implements LibraryRepo {
     return data;
   }
 
-  async createPage(notebookId: string): Promise<Page> {
+  async createPage(notebookId: string, title = "Untitled"): Promise<Page> {
     const { data: last, error: lastErr } = await this.db
       .from("pages")
       .select("sort_order")
@@ -86,7 +86,7 @@ export class SupabaseLibraryRepo implements LibraryRepo {
     const sort_order = last.length ? last[0].sort_order + 1 : 0;
     const { data, error } = await this.db
       .from("pages")
-      .insert({ notebook_id: notebookId, title: "Untitled", sort_order })
+      .insert({ notebook_id: notebookId, title, sort_order })
       .select()
       .single();
     if (error) throw new Error(error.message);

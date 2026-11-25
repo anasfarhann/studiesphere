@@ -1,7 +1,8 @@
 import { AttachmentError, MAX_ATTACHMENT_BYTES, type UploadOptions } from "../attachments/upload";
+import { renderPdfThumbnail } from "../attachments/pdf-thumbnail";
 import { CARD_H, CARD_W } from "../model/bounds";
 import { cleanFileName, fileExt } from "../model/file-card";
-import type { History } from "../model/history";
+import type { Change, History } from "../model/history";
 import type { Scene } from "../model/scene";
 import type { FileEl } from "../model/types";
 import { t } from "@/i18n/en";
@@ -19,6 +20,8 @@ export interface FileInserterContext {
   /** Viewport centre in world units, read when a file is picked. */
   center: () => [number, number];
   upload: (file: Blob, opts: UploadOptions) => Promise<{ assetPath: string }>;
+  /** First-page preview for PDFs (best effort); defaults to pdf.js, tests inject a fake. */
+  thumbnail?: (file: Blob) => Promise<Blob | null>;
   newId?: () => string;
   now?: () => number;
 }
@@ -97,8 +100,9 @@ export class FileInserter {
       this.busy = false;
       this.pending = null;
       if (this.disposed) return;
-      this.add(p, assetPath);
+      const change = this.add(p, assetPath);
       this.setStatus({ kind: "idle" });
+      if (p.mime === "application/pdf") void this.attachThumbnail(p.blob, change);
     } catch (e) {
       this.busy = false;
       if (e instanceof AttachmentError && e.code === "too_large") {
@@ -110,7 +114,26 @@ export class FileInserter {
     }
   }
 
-  private add(p: Pending, assetPath: string): void {
+  /**
+   * Best effort and after the card is already in: failures leave the card as it is. Success sets
+   * thumbPath with one update, folded into the card's own undo step (no extra step, one save).
+   */
+  private async attachThumbnail(blob: Blob, change: Change): Promise<void> {
+    const id = change.after[0].id;
+    try {
+      const thumb = await (this.ctx.thumbnail ?? renderPdfThumbnail)(blob);
+      if (!thumb || this.disposed) return;
+      const { assetPath } = await this.ctx.upload(thumb, { ownerId: this.ctx.ownerId, pageId: this.ctx.pageId, ext: "thumb.jpg" });
+      if (this.disposed || !this.ctx.scene.get(id)) return;
+      this.ctx.scene.update(id, { thumbPath: assetPath });
+      // Only this field: a move made while rendering must not leak into the insert snapshot.
+      change.after[0] = { ...change.after[0], thumbPath: assetPath } as FileEl;
+    } catch {
+      // No thumbnail: the card keeps its icon.
+    }
+  }
+
+  private add(p: Pending, assetPath: string): Change {
     const { scene, history } = this.ctx;
     const el: FileEl = {
       id: (this.ctx.newId ?? (() => crypto.randomUUID()))(),
@@ -125,7 +148,9 @@ export class FileInserter {
       bytes: p.bytes,
     };
     scene.add(el);
-    history.push({ before: [], after: [el] });
+    const change: Change = { before: [], after: [el] };
+    history.push(change);
+    return change;
   }
 
   private setStatus(s: FileStatus): void {

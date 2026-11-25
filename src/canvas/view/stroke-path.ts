@@ -1,14 +1,15 @@
 import { getStroke } from "perfect-freehand";
+import { strokeWidth } from "../model/stroke-style";
 import type { StrokeEl } from "../model/types";
 
 export type PathFactory = () => Path2D;
 
 const defaultFactory: PathFactory = () => new Path2D();
 
-/** Polygon outline of a stroke in world coordinates. Highlighters are 3x wider. */
+/** Polygon outline of a stroke in world coordinates, at its drawn width (see strokeWidth). */
 export function strokeOutline(el: StrokeEl): number[][] {
   return getStroke(el.points, {
-    size: el.tool === "highlighter" ? el.size * 3 : el.size,
+    size: strokeWidth(el),
     thinning: 0.6,
     smoothing: 0.5,
     streamline: 0.5,

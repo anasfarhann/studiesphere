@@ -1,33 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { t, type en } from "@/i18n/en";
 import { Icon, type IconName } from "@/ui/icons";
 import type { ToolId } from "../tools/tool";
-
-export const INK_COLORS: ReadonlyArray<{ value: string; label: keyof typeof en }> = [
-  { value: "#111827", label: "colorBlack" },
-  { value: "#2563eb", label: "colorBlue" },
-  { value: "#dc2626", label: "colorRed" },
-  { value: "#16a34a", label: "colorGreen" },
-  { value: "#ea580c", label: "colorOrange" },
-  { value: "#7c3aed", label: "colorPurple" },
-  { value: "#facc15", label: "colorYellow" },
-];
-
-export const PEN_SIZES: ReadonlyArray<{ value: number; label: keyof typeof en }> = [
-  { value: 2, label: "sizeThin" },
-  { value: 4, label: "sizeMedium" },
-  { value: 8, label: "sizeThick" },
-];
+import { hasOptions } from "./ToolOptions";
 
 export interface ToolbarProps {
   tool: ToolId;
   onTool: (id: ToolId) => void;
-  color: string;
-  size: number;
-  onColor: (c: string) => void;
-  onSize: (s: number) => void;
+  /** Content of the tool-options popover (shown on tapping the already-active pen, highlighter, eraser or text tool). */
+  renderOptions?: (tool: ToolId) => ReactNode;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -62,41 +45,26 @@ const SHADOW = "shadow-[0_8px_28px_rgba(27,26,31,0.10)]";
 const base = "inline-flex shrink-0 touch-manipulation cursor-pointer items-center justify-center rounded-full disabled:cursor-not-allowed disabled:opacity-40";
 const toolBtn = `${base} size-11 text-ink aria-pressed:bg-ink aria-pressed:text-white`;
 const insertBtn = `${base} size-11 bg-ground text-ink`;
-const swatchBtn = `${base} size-11 text-ink aria-pressed:shadow-[inset_0_0_0_2px_#1B1A1F]`;
 const clusterBtn = `${base} size-11 bg-card text-ink ${SHADOW}`;
 const Divider = () => <span aria-hidden="true" className="mx-1.5 h-7 w-px shrink-0 bg-hairline" />;
-
-const WIDE = "(min-width: 1024px)";
-const subscribeWide = (cb: () => void) => {
-  const mq = window.matchMedia?.(WIDE);
-  mq?.addEventListener("change", cb);
-  return () => mq?.removeEventListener("change", cb);
-};
-/** True from lg up, where the colour and size groups fit inline; below, they collapse into one popover button. */
-const useWide = () =>
-  useSyncExternalStore(
-    subscribeWide,
-    () => (typeof window.matchMedia === "function" ? window.matchMedia(WIDE).matches : true),
-    () => true,
-  );
 
 /**
  * The canvas top bar, floating over the drawing: title pill, tool pill, undo/redo/history and
  * save status. The bar itself ignores pointer events so strokes can start between the pills.
  */
-export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory, left, status, barRef }: ToolbarProps) {
+export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory, left, status, barRef }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const anyFileRef = useRef<HTMLInputElement>(null);
-  const wide = useWide();
   const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const close = useCallback((refocus: boolean) => {
     setOpen(false);
     if (refocus) triggerRef.current?.focus();
   }, []);
+  const showOptions = open && !!renderOptions && hasOptions(tool);
   useEffect(() => {
-    if (!open) return;
+    if (!showOptions) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close(true);
     const onDown = (e: PointerEvent) => {
       const n = e.target as Node;
@@ -108,42 +76,26 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onDown);
     };
-  }, [open, close]);
+  }, [showOptions, close]);
+  // The popover hangs below the bar, whose height varies (it wraps on phones): cap it at the viewport bottom
+  // from its measured top, scrolling inside. The top doesn't depend on the popover's height, so one pass is enough.
+  useLayoutEffect(() => {
+    const pop = popRef.current;
+    if (!showOptions || !pop) return;
+    const measure = () => pop.style.setProperty("--tool-options-top", `${Math.max(0, pop.getBoundingClientRect().top)}px`);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [showOptions]);
+  const pick = (id: ToolId) => {
+    if (id === tool && renderOptions && hasOptions(id)) {
+      setOpen((v) => !v);
+      return;
+    }
+    setOpen(false);
+    onTool(id);
+  };
 
-  const colorGroup = (
-    <div role="group" aria-label={t("inkColors")} className="flex shrink-0 flex-wrap items-center">
-      {INK_COLORS.map((c) => (
-        <button
-          key={c.value}
-          type="button"
-          aria-label={t(c.label)}
-          title={t(c.label)}
-          aria-pressed={color === c.value}
-          onClick={() => onColor(c.value)}
-          className={swatchBtn}
-        >
-          <span className="block size-[22px] rounded-full" style={{ backgroundColor: c.value }} />
-        </button>
-      ))}
-    </div>
-  );
-  const sizeGroup = (
-    <div role="group" aria-label={t("penSizes")} className="flex shrink-0 items-center">
-      {PEN_SIZES.map((s) => (
-        <button
-          key={s.value}
-          type="button"
-          aria-label={t(s.label)}
-          title={t(s.label)}
-          aria-pressed={size === s.value}
-          onClick={() => onSize(s.value)}
-          className={swatchBtn}
-        >
-          <span className="block rounded-full bg-ink" style={{ width: s.value * 2 + 2, height: s.value * 2 + 2 }} />
-        </button>
-      ))}
-    </div>
-  );
   return (
     <div
       ref={barRef}
@@ -160,38 +112,20 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
           {TOOLS.map((x) => (
             <button
               key={x.id}
+              ref={tool === x.id ? triggerRef : undefined}
               type="button"
               aria-pressed={tool === x.id}
+              aria-haspopup={hasOptions(x.id) ? "true" : undefined}
+              aria-expanded={tool === x.id && hasOptions(x.id) ? showOptions : undefined}
+              aria-controls={tool === x.id && showOptions ? "tool-options" : undefined}
               aria-label={t(x.label)}
               title={t(x.label)}
-              onClick={() => onTool(x.id)}
+              onClick={() => pick(x.id)}
               className={toolBtn}
             >
               <Icon name={x.icon} size={20} />
             </button>
           ))}
-          <Divider />
-          {wide ? (
-            <>
-              {colorGroup}
-              <Divider />
-              {sizeGroup}
-            </>
-          ) : (
-            <button
-              ref={triggerRef}
-              type="button"
-              aria-label={t("inkAndSize")}
-              title={t("inkAndSize")}
-              aria-haspopup="true"
-              aria-expanded={open}
-              aria-controls="ink-popover"
-              onClick={() => setOpen((v) => !v)}
-              className={`${base} size-11 text-ink aria-expanded:shadow-[inset_0_0_0_2px_#1B1A1F]`}
-            >
-              <span className="block size-[26px] rounded-full border border-hairline" style={{ backgroundColor: color }} />
-            </button>
-          )}
           {onPhoto || onFile || onRecord ? <Divider /> : null}
           {onPhoto ? (
             <>
@@ -238,14 +172,15 @@ export function Toolbar({ tool, onTool, color, size, onColor, onSize, canUndo, c
               />
             </>
           ) : null}
-          {!wide && open ? (
+          {showOptions ? (
             <div
               ref={popRef}
-              id="ink-popover"
-              className={`absolute top-full left-1/2 z-30 mt-2 flex w-[min(332px,calc(100vw-24px))] -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
+              id="tool-options"
+              role="group"
+              aria-label={t("toolOptions", { tool: t(TOOLS.find((x) => x.id === tool)?.label ?? "toolPen") })}
+              className={`absolute top-full left-1/2 z-30 mt-2 flex max-h-[calc(100dvh-var(--tool-options-top,140px)-12px)] w-[min(332px,calc(100vw-24px))] overflow-y-auto overscroll-contain -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
             >
-              {colorGroup}
-              {sizeGroup}
+              {renderOptions?.(tool)}
             </div>
           ) : null}
         </div>

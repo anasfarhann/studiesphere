@@ -1,7 +1,7 @@
 export type IconName =
   | "logo" | "home" | "book" | "calendar" | "cards" | "trophy" | "settings" | "search" | "plus"
   | "chevronLeft" | "chevronRight" | "bell" | "pen" | "highlighter" | "eraser" | "lasso" | "text"
-  | "hand" | "photo" | "mic" | "paperclip" | "undo" | "redo" | "history" | "trash" | "play" | "pause";
+  | "hand" | "photo" | "mic" | "paperclip" | "undo" | "redo" | "history" | "trash" | "play" | "pause" | "close";
 
 const P: Record<IconName, React.ReactNode> = {
   logo: (<><circle cx="12" cy="12" r="8" /><path d="M4.5 9.5c5 2 10 2 15 0M4.5 14.5c5-2 10-2 15 0" /></>),
@@ -31,6 +31,7 @@ const P: Record<IconName, React.ReactNode> = {
   trash: <path d="M5 7h14M10 7V4.5h4V7M7 7l1 13h8l1-13M10 11v6M14 11v6" />,
   play: <path d="M8 5v14l11-7z" />,
   pause: <path d="M8 5v14M16 5v14" />,
+  close: <path d="M6 6l12 12M18 6 6 18" />,
 };
 
 /** Stroke icon from the design's set. Decorative: always aria-hidden. */

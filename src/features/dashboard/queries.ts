@@ -30,32 +30,52 @@ export function pickRecent(
   return out;
 }
 
-/** Last edit = newest canvas element change per page; pages without elements fall back to pages.updated_at. RLS scopes every query. */
+type PageRow = { id: string; title: string; notebook_id: string; updated_at: string };
+
+const time = (iso: string) => {
+  const n = Date.parse(iso);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Merges pages found through recent element edits with the most recently updated pages (a blank, just-created
+ * page has no elements): each page's time is the later of its newest element edit and pages.updated_at.
+ * Deduped by id, newest first, at most `limit`.
+ */
+export function mergeRecent(
+  edited: { pageId: string; editedAt: string }[],
+  pages: PageRow[],
+  limit: number,
+): (PageRow & { editedAt: string })[] {
+  const editedAt = new Map(edited.map((p) => [p.pageId, p.editedAt]));
+  const byId = new Map<string, PageRow & { editedAt: string }>();
+  for (const p of pages) {
+    if (byId.has(p.id)) continue;
+    const e = editedAt.get(p.id);
+    byId.set(p.id, { ...p, editedAt: e !== undefined && time(e) > time(p.updated_at) ? e : p.updated_at });
+  }
+  return [...byId.values()].sort((a, b) => time(b.editedAt) - time(a.editedAt)).slice(0, limit);
+}
+
+/** Last edit = newest canvas element change per page, or pages.updated_at when later (or no elements). */
 export async function getRecentPages(limit = 3): Promise<RecentPage[]> {
-  await getUser();
+  const user = await getUser();
   const db = await createServerClient();
 
   const els = await db.from("canvas_elements").select("page_id, updated_at").order("updated_at", { ascending: false }).limit(200);
   if (els.error) throw new Error(els.error.message);
   const picked = pickRecent(els.data, limit);
-  const editedAt = new Map(picked.map((p) => [p.pageId, p.editedAt]));
 
-  const pageRows: { id: string; title: string; notebook_id: string; updated_at: string }[] = [];
-  if (picked.length > 0) {
-    const r = await db.from("pages").select("id, title, notebook_id, updated_at").in("id", [...editedAt.keys()]);
-    if (r.error) throw new Error(r.error.message);
-    pageRows.push(...r.data);
-  }
-  if (pageRows.length < limit) {
-    const r = await db
-      .from("pages")
-      .select("id, title, notebook_id, updated_at")
-      .order("updated_at", { ascending: false })
-      .limit(limit + pageRows.length);
-    if (r.error) throw new Error(r.error.message);
-    const have = new Set(pageRows.map((p) => p.id));
-    for (const p of r.data) if (!have.has(p.id) && pageRows.length < limit) pageRows.push(p);
-  }
+  // Always also the newest pages by pages.updated_at, so a blank page created just now is a candidate.
+  const [editedRows, newest] = await Promise.all([
+    picked.length > 0
+      ? db.from("pages").select("id, title, notebook_id, updated_at").in("id", picked.map((p) => p.pageId))
+      : Promise.resolve({ data: [] as PageRow[], error: null }),
+    db.from("pages").select("id, title, notebook_id, updated_at").eq("owner_id", user.id).order("updated_at", { ascending: false }).limit(limit),
+  ]);
+  if (editedRows.error) throw new Error(editedRows.error.message);
+  if (newest.error) throw new Error(newest.error.message);
+  const pageRows = mergeRecent(picked, [...editedRows.data, ...newest.data], limit);
   if (pageRows.length === 0) return [];
 
   const nbs = await db.from("notebooks").select("id, title, subject_id").in("id", [...new Set(pageRows.map((p) => p.notebook_id))]);
@@ -65,22 +85,19 @@ export async function getRecentPages(limit = 3): Promise<RecentPage[]> {
   const nbById = new Map(nbs.data.map((n) => [n.id, n]));
   const subById = new Map(subs.data.map((s) => [s.id, s]));
 
-  return pageRows
-    .map((p) => {
-      const nb = nbById.get(p.notebook_id);
-      const sub = nb && subById.get(nb.subject_id);
-      return {
-        id: p.id,
-        title: p.title,
-        subjectId: nb?.subject_id ?? "",
-        subjectName: sub?.name ?? "",
-        notebookTitle: nb?.title ?? "",
-        tint: toPastel(sub?.color ?? ""),
-        editedAt: editedAt.get(p.id) ?? p.updated_at,
-      };
-    })
-    .sort((a, b) => b.editedAt.localeCompare(a.editedAt))
-    .slice(0, limit);
+  return pageRows.map((p) => {
+    const nb = nbById.get(p.notebook_id);
+    const sub = nb && subById.get(nb.subject_id);
+    return {
+      id: p.id,
+      title: p.title,
+      subjectId: nb?.subject_id ?? "",
+      subjectName: sub?.name ?? "",
+      notebookTitle: nb?.title ?? "",
+      tint: toPastel(sub?.color ?? ""),
+      editedAt: p.editedAt,
+    };
+  });
 }
 
 export async function getSubjectSummaries(): Promise<SubjectSummary[]> {

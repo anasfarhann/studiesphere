@@ -3,6 +3,7 @@ import type { AudioEl, CanvasElement, FileEl, StrokeEl } from "../model/types";
 import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, FILE_ICON_X, TEXT_LINE_HEIGHT } from "../model/bounds";
 import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
 import { formatDuration } from "../model/format-duration";
+import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
 import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
@@ -42,7 +43,10 @@ type ImageEntry =
   | { state: "ready"; img: ImageBitmap | HTMLImageElement; bytes: number; lastUsed: number }
   | { state: "error"; failures: number; retryAt: number };
 
-const HIGHLIGHTER_ALPHA = 0.35;
+/** Snap-to-shape preview: the shape in the stroke colour at this alpha, plus a dashed centre line. */
+const GHOST_ALPHA = 0.4;
+const GHOST_DASH_PX: [number, number] = [6, 4];
+const GHOST_LINE_PX = 1.5;
 const GROUND_COLOR = "#FBF9F7";
 const DOT_COLOR = "#DDD5CD";
 const DOT_SPACING = 28;
@@ -59,6 +63,8 @@ export class Renderer {
   private dpr = 1;
   private pending: number | null = null;
   private live: StrokeEl | null = null;
+  /** The snapped shape preview and its path (built once when set). */
+  private ghost: { el: StrokeEl; path: Path2D } | null = null;
   private selection: string[] = [];
   private lasso: [number, number][] | null = null;
   private hidden: string | null = null;
@@ -135,6 +141,13 @@ export class Renderer {
 
   setLive(stroke: StrokeEl | null): void {
     this.live = stroke;
+    this.requestFrame();
+  }
+
+  /** The snap-to-shape preview drawn over the live stroke, or null. */
+  setGhost(stroke: StrokeEl | null): void {
+    if (stroke === this.ghost?.el) return;
+    this.ghost = stroke ? { el: stroke, path: this.createStrokePath(stroke) } : null;
     this.requestFrame();
   }
 
@@ -272,6 +285,7 @@ export class Renderer {
       if (el.id !== this.hidden) this.drawElement(el);
     }
     if (this.live) this.drawStroke(this.live, this.createStrokePath(this.live));
+    this.drawGhost();
     this.drawSelection();
     this.drawLasso();
     this.prune();
@@ -492,6 +506,26 @@ export class Renderer {
     const s = HANDLE_DRAW_PX / camera.zoom;
     ctx.fillStyle = "#2563eb";
     ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
+  }
+
+  private drawGhost(): void {
+    const g = this.ghost;
+    if (!g) return;
+    const { ctx, camera } = this;
+    const pts = g.el.points;
+    ctx.save();
+    ctx.globalAlpha = GHOST_ALPHA;
+    ctx.fillStyle = g.el.color;
+    ctx.fill(g.path);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = g.el.color;
+    ctx.lineWidth = GHOST_LINE_PX / camera.zoom;
+    ctx.setLineDash([GHOST_DASH_PX[0] / camera.zoom, GHOST_DASH_PX[1] / camera.zoom]);
+    ctx.beginPath();
+    ctx.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+    ctx.stroke();
+    ctx.restore();
   }
 
   private drawLasso(): void {
