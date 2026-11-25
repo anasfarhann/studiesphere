@@ -390,7 +390,17 @@ describe("Editor history and eraser", () => {
     expect((editor.scene.all()[0] as StrokeEl).tool).toBe("highlighter");
   });
 
-  it("the eraser splits a stroke and one drag is one undo step", () => {
+  it("the eraser (default whole-stroke mode) removes a touched stroke in one undo step", () => {
+    drag(1, "mouse", [[0, 10], [200, 10]]);
+    editor.setTool("eraser");
+    drag(2, "mouse", [[100, 0], [100, 10], [100, 20]]);
+    expect(editor.scene.all()).toHaveLength(0);
+    editor.undo();
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("the eraser splits a stroke in pixel mode and one drag is one undo step", () => {
+    editor.updateSettings((s) => ({ ...s, eraser: { ...s.eraser, mode: "pixel" } }));
     drag(1, "mouse", [[0, 10], [200, 10]]);
     editor.setTool("eraser");
     drag(2, "mouse", [[100, 0], [100, 10], [100, 20]]);
@@ -402,6 +412,7 @@ describe("Editor history and eraser", () => {
   });
 
   it("the pen eraser button erases whatever tool is selected", () => {
+    editor.updateSettings((s) => ({ ...s, eraser: { ...s.eraser, mode: "pixel" } }));
     drag(1, "mouse", [[0, 10], [200, 10]]);
     fire(canvas, "pointerdown", 2, "pen", 100, 10, { button: 5, buttons: 32 });
     fire(canvas, "pointerup", 2, "pen", 100, 10, { buttons: 0 });

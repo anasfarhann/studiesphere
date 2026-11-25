@@ -57,16 +57,43 @@ describe("ColorWheel", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it("the hex field accepts valid colours, ignores partial input and follows the wheel", () => {
+  it("ignores pointer-downs in the hole inside the ring", () => {
+    const spy = vi.fn();
+    render(<Harness spy={spy} />);
+    const hue = screen.getByRole("slider", { name: "Hue" });
+    rect(hue, 0, 0, 248, 248); // ring spans radius 80..124
+    fireEvent.pointerDown(hue, { clientX: 124 + 60, clientY: 124, pointerId: 3, button: 0 }); // radius 60
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.pointerDown(hue, { clientX: 124 + 100, clientY: 124, pointerId: 4, button: 0 }); // radius 100, on the ring
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
+  it("the hex field applies 6 digits immediately, 3-digit shorthand only on blur or Enter, and follows the wheel", () => {
     const spy = vi.fn();
     render(<Harness spy={spy} />);
     const input = screen.getByRole("textbox", { name: "Hex" }) as HTMLInputElement;
     fireEvent.change(input, { target: { value: "#00aa5" } });
     expect(spy).not.toHaveBeenCalled();
     fireEvent.change(input, { target: { value: "#00AA55" } });
+    expect(spy).toHaveBeenCalledTimes(1);
     expect(spy).toHaveBeenLastCalledWith("#00aa55");
+    spy.mockClear();
+    fireEvent.change(input, { target: { value: "#0af" } });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(spy).toHaveBeenLastCalledWith("#00aaff");
+    spy.mockClear();
+    fireEvent.change(input, { target: { value: "f00" } });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.blur(input);
+    expect(spy).toHaveBeenLastCalledWith("#ff0000");
+    spy.mockClear();
+    fireEvent.change(input, { target: { value: "#12" } });
+    fireEvent.blur(input);
+    expect(spy).not.toHaveBeenCalled();
+    expect(input.value).toBe("#ff0000");
     fireEvent.keyDown(screen.getByRole("slider", { name: "Hue" }), { key: "ArrowRight" });
-    expect(input.value).not.toBe("#00aa55");
+    expect(input.value).not.toBe("#ff0000");
     expect(input.value).toMatch(/^#[0-9a-f]{6}$/);
   });
 });

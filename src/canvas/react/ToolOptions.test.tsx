@@ -96,13 +96,18 @@ describe("ToolOptions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add to presets" }));
     expect(editor.settings.pen.presets).toEqual(["#1B1A1F", "#2563EB", "#DC2626", "#00aa55"]);
     expect(screen.getByRole("button", { name: "Colour #00aa55" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Add to presets" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "Add to presets" }));
+    expect(screen.getByTestId("preset-message").textContent).toBe("Already in presets");
+    expect(editor.settings.pen.presets).toHaveLength(4);
     for (let i = 0; i < 12; i++) {
       fireEvent.change(screen.getByRole("textbox", { name: "Hex" }), { target: { value: `#1000${i.toString(16).padStart(2, "0")}` } });
       fireEvent.click(screen.getByRole("button", { name: "Add to presets" }));
     }
     expect(editor.settings.pen.presets).toHaveLength(12);
-    expect((screen.getByRole("button", { name: "Add to presets" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(screen.getByRole("textbox", { name: "Hex" }), { target: { value: "#abcdef" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add to presets" }));
+    expect(screen.getByTestId("preset-message").textContent).toBe("Presets are full");
+    expect(editor.settings.pen.presets).toHaveLength(12);
   });
 
   it("long press (500 ms) removes a non-default swatch with a live announcement; defaults are protected", () => {
@@ -134,5 +139,30 @@ describe("ToolOptions", () => {
     fireEvent.keyDown(screen.getByRole("slider", { name: "Hue" }), { key: "ArrowRight" });
     expect(editor.settings.highlighter.color).not.toBe("#F4D35E");
     expect(editor.settings.pen.color).toBe("#1B1A1F");
+  });
+
+  it("Delete or Backspace on a focused custom swatch removes it; defaults stay", () => {
+    act(() => editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, presets: [...s.pen.presets, "#00aa55", "#aa0055"] } })));
+    render(<ToolOptions editor={editor} tool="pen" />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Colour #DC2626" }), { key: "Delete" });
+    expect(editor.settings.pen.presets).toContain("#DC2626");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Colour #00aa55" }), { key: "Delete" });
+    expect(editor.settings.pen.presets).not.toContain("#00aa55");
+    expect(screen.getByTestId("preset-message").textContent).toBe("Removed #00aa55 from presets");
+    fireEvent.keyDown(screen.getByRole("button", { name: "Colour #aa0055" }), { key: "Backspace" });
+    expect(editor.settings.pen.presets).not.toContain("#aa0055");
+  });
+
+  it("eraser shows a mode radio group that updates and persists the setting", () => {
+    render(<ToolOptions editor={editor} tool="eraser" />);
+    const group = screen.getByRole("radiogroup", { name: "Eraser mode" });
+    expect(group).toBeTruthy();
+    const whole = screen.getByRole("radio", { name: "Whole stroke" });
+    const pixel = screen.getByRole("radio", { name: "Pixel" });
+    expect([whole.getAttribute("aria-checked"), pixel.getAttribute("aria-checked")]).toEqual(["true", "false"]);
+    fireEvent.click(pixel);
+    expect(editor.settings.eraser.mode).toBe("pixel");
+    expect(screen.getByRole("radio", { name: "Pixel" }).getAttribute("aria-checked")).toBe("true");
+    expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").eraser.mode).toBe("pixel");
   });
 });

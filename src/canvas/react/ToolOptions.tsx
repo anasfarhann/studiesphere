@@ -104,6 +104,22 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
         />
         <output className="w-14 shrink-0 text-right text-sm tabular-nums text-ink">{t("sizePx", { n: size })}</output>
       </div>
+      {tool === "eraser" ? (
+        <div role="radiogroup" aria-label={t("eraserMode")} className="flex gap-2">
+          {(["stroke", "pixel"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="radio"
+              aria-checked={s.eraser.mode === m}
+              onClick={() => editor.updateSettings((cur) => ({ ...cur, eraser: { ...cur.eraser, mode: m } }))}
+              className="inline-flex h-11 flex-1 touch-manipulation cursor-pointer items-center justify-center rounded-full border border-hairline px-4 text-sm font-medium text-ink aria-checked:border-ink aria-checked:bg-ink aria-checked:text-card"
+            >
+              {t(m === "stroke" ? "eraserModeStroke" : "eraserModePixel")}
+            </button>
+          ))}
+        </div>
+      ) : null}
       {tool === "pen" || tool === "highlighter" ? (
         <div aria-label={t("sizePreview")} role="img" className="flex h-16 items-center justify-center overflow-hidden rounded-2xl bg-ground">
           <span
@@ -147,6 +163,12 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
                   onPointerUp={cancelPress}
                   onPointerLeave={cancelPress}
                   onPointerCancel={cancelPress}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Delete" || e.key === "Backspace") && !isDefault(c)) {
+                      e.preventDefault();
+                      removeAt(c);
+                    }
+                  }}
                   onContextMenu={(e) => e.preventDefault()}
                   onClick={() => {
                     if (longPressed.current) {
@@ -169,8 +191,7 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
               <button
                 type="button"
                 onClick={addCurrent}
-                className="inline-flex h-11 touch-manipulation cursor-pointer items-center justify-center rounded-full bg-ink px-5 text-sm font-medium text-card disabled:opacity-50"
-                disabled={has(color) || full}
+                className="inline-flex h-11 touch-manipulation cursor-pointer items-center justify-center rounded-full bg-ink px-5 text-sm font-medium text-card"
               >
                 {t("colorAdd")}
               </button>

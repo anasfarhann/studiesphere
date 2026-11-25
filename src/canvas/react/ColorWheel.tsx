@@ -36,6 +36,14 @@ export function ColorWheel({ value, onChange }: { value: string; onChange: (hex:
     onChange(hsvToHex(next.h, next.s, next.v));
   };
 
+  const commitHex = (text: string) => {
+    const n = normalizeHex(text);
+    if (!n || n === hsvToHex(hsv.h, hsv.s, hsv.v)) return;
+    const c = hexToHsv(n)!;
+    setHsv({ h: c.s === 0 || c.v === 0 ? hsv.h : c.h, s: c.s, v: c.v });
+    onChange(n);
+  };
+
   const hueAt = (e: PointerEvent) => {
     const r = ringRef.current!.getBoundingClientRect();
     const dx = e.clientX - (r.left + r.width / 2);
@@ -67,7 +75,7 @@ export function ColorWheel({ value, onChange }: { value: string; onChange: (hex:
   const ringDown = (e: PointerEvent) => {
     if (e.button > 0) return;
     const p = hueAt(e);
-    if (p.dist > p.outer) return; // the box corners outside the ring
+    if (p.dist > p.outer || p.dist < p.outer * (INNER / OUTER)) return; // box corners, or the hole inside the ring
     e.preventDefault();
     capture(e, "hue");
     apply({ ...hsv, h: p.deg });
@@ -177,14 +185,20 @@ export function ColorWheel({ value, onChange }: { value: string; onChange: (hex:
           onChange={(e) => {
             const text = e.currentTarget.value;
             setDraft(text);
-            const n = normalizeHex(text);
-            if (n) {
-              const c = hexToHsv(n)!;
-              setHsv({ h: c.s === 0 || c.v === 0 ? hsv.h : c.h, s: c.s, v: c.v });
-              onChange(n);
+            // Only a full 6-digit colour applies while typing; #abc waits for blur/Enter.
+            if (/^#?[0-9a-fA-F]{6}$/.test(text.trim())) commitHex(text);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              commitHex(e.currentTarget.value);
+              setDraft(null);
             }
           }}
-          onBlur={() => setDraft(null)}
+          onBlur={(e) => {
+            commitHex(e.currentTarget.value);
+            setDraft(null);
+          }}
           className="h-11 w-28 rounded-xl border border-hairline bg-ground px-3 font-mono text-ink"
         />
       </label>

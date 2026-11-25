@@ -1,7 +1,8 @@
-import { eraseFromStroke } from "../geometry/split-stroke";
+import { eraseFromStroke, strokeTouchesCircle } from "../geometry/split-stroke";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
 import type { CanvasElement, StrokeEl } from "../model/types";
+import type { EraserMode } from "../settings/tool-settings";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
 
 export interface EraserToolContext {
@@ -9,11 +10,13 @@ export interface EraserToolContext {
   history: History;
   /** Eraser radius in world units (changes with zoom). */
   radius: () => number;
+  /** "pixel" splits strokes around the pointer, "stroke" removes whole strokes. Defaults to pixel. */
+  mode?: () => EraserMode;
   newId?: () => string;
   now?: () => number;
 }
 
-/** Partial eraser for strokes: splits them around the pointer. One drag is one undo step. */
+/** Eraser for strokes only: splits them around the pointer or removes them whole. One drag is one undo step. */
 export class EraserTool implements Tool {
   readonly id = "eraser" as const;
   private active = false;
@@ -80,8 +83,16 @@ export class EraserTool implements Tool {
 
   private eraseHits(hits: CanvasElement[], x: number, y: number, r: number): void {
     const { scene } = this.ctx;
+    const whole = (this.ctx.mode?.() ?? "pixel") === "stroke";
     for (const el of hits) {
       if (el.type !== "stroke") continue;
+      if (whole) {
+        if (!strokeTouchesCircle(el, [x, y], r)) continue;
+        scene.remove(el.id);
+        if (this.after.has(el.id)) this.after.delete(el.id);
+        else this.before.set(el.id, el);
+        continue;
+      }
       const pieces = eraseFromStroke(el, [x, y], r, this.newId);
       if (pieces.length === 1 && pieces[0] === el) continue;
       scene.remove(el.id);

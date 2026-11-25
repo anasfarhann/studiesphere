@@ -123,6 +123,7 @@ export class Editor {
         scene: this.scene,
         history: this.history,
         radius: () => this.current.eraser.size / 2 / this.camera.zoom,
+        mode: () => this.current.eraser.mode,
       }),
       lasso: new LassoTool({
         scene: this.scene,

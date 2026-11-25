@@ -70,3 +70,26 @@ export function eraseFromStroke(
   if (!cut) return [el];
   return pieces.filter((p) => p.length >= 2).map((points) => ({ ...el, id: newId(), points }));
 }
+
+/** True when the circle (center, radius) touches the stroke's centre line. Early-outs on the first hit. */
+export function strokeTouchesCircle(el: StrokeEl, center: [number, number], radius: number): boolean {
+  const pts = el.points;
+  const r2 = radius * radius;
+  const [cx, cy] = center;
+  for (let i = 0; i < pts.length; i++) {
+    const b = pts[i];
+    if (i === 0) {
+      if ((b[0] - cx) ** 2 + (b[1] - cy) ** 2 < r2) return true;
+      continue;
+    }
+    const a = pts[i - 1];
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy;
+    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((cx - a[0]) * dx + (cy - a[1]) * dy) / len2));
+    const px = a[0] + dx * t - cx;
+    const py = a[1] + dy * t - cy;
+    if (px * px + py * py < r2) return true;
+  }
+  return false;
+}
