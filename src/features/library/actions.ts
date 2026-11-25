@@ -6,6 +6,7 @@ import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
 import { SUBJECT_COLORS } from "./colors";
 import { toFormError, type FormState } from "./form-error";
+import { ensureQuickNotebook, quickPageTitle } from "./quick-notes";
 import { SupabaseLibraryRepo } from "./supabase-repo";
 
 async function repo() {
@@ -49,5 +50,21 @@ export async function createPageAction(notebookId: string): Promise<FormState> {
   } catch (e) {
     return toFormError(e);
   }
+  redirect(`/app/p/${id}`);
+}
+
+/** One-tap "New page": a page in the user's Quick notes subject, created on demand. */
+export async function createQuickPageAction(): Promise<void> {
+  const user = await getUser(); // redirects to /login when signed out
+  const supabase = await createServerClient();
+  let id: string;
+  try {
+    const notebookId = await ensureQuickNotebook(supabase, user.id);
+    id = (await new SupabaseLibraryRepo(supabase).createPage(notebookId, quickPageTitle(new Date()))).id;
+  } catch (e) {
+    // A bare <form action> has no state to show an error in, so surface it to the error boundary.
+    throw new Error(toFormError(e).error);
+  }
+  revalidatePath("/app");
   redirect(`/app/p/${id}`);
 }

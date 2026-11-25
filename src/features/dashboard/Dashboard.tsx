@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import { SubjectForm } from "@/features/library/forms";
+import { NewPageForm } from "@/features/library/NewPageForm";
 import { t } from "@/i18n/en";
 import { PillButton } from "@/ui/Button";
 import { Dialog } from "@/ui/Dialog";
@@ -113,7 +114,9 @@ export function Dashboard({
             </h1>
             <p className="text-[17px] text-muted">{t("dashSubtitle")}</p>
           </div>
-          <label className="flex h-[52px] min-w-[260px] max-w-full items-center gap-2.5 rounded-full bg-card px-5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink max-md:w-full">
+          <div className="flex flex-wrap items-center gap-3 max-md:w-full">
+            <NewPageForm variant="pill" className="h-[52px]" />
+          <label className="flex h-[52px] min-w-[260px] max-w-full items-center gap-2.5 rounded-full bg-card px-5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink max-md:min-w-0 max-md:flex-1">
             <Icon name="search" size={18} className="shrink-0 text-muted" />
             <span className="sr-only">{t("dashSearch")}</span>
             <input
@@ -124,6 +127,7 @@ export function Dashboard({
               className="min-w-0 flex-1 bg-transparent text-[15px] text-ink outline-none"
             />
           </label>
+          </div>
         </header>
 
         {!empty && (

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
+import { NewPageForm } from "@/features/library/NewPageForm";
 import { t } from "@/i18n/en";
 import { Icon, type IconName } from "./icons";
 
@@ -67,8 +68,9 @@ export function AppRail({ active, account }: { active: "home" | "subjects"; acco
       >
         <Icon name="logo" size={26} />
       </Link>
-      <NavLink href="/app" label={t("navHome")} icon="home" active={active === "home"} />
-      <NavLink href="/app" label={t("navSubjects")} icon="book" active={active === "subjects"} />
+      <NewPageForm variant="rail" className={`${btn} cursor-pointer bg-ink text-white disabled:cursor-not-allowed disabled:opacity-50`} />
+      {/* Home and Subjects pointed at the same place, so they are one item (keeps six items inside 320 px). */}
+      <NavLink href="/app" label={t("navHome")} icon="home" active={active === "home" || active === "subjects"} />
       <Soon label={t("navTimetableSoon")} icon="calendar" />
       <Soon label={t("navFlashcardsSoon")} icon="cards" />
       <Soon label={t("navQuizSoon")} icon="trophy" />

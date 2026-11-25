@@ -69,14 +69,14 @@ export class MemoryLibraryRepo implements LibraryRepo {
       .sort((a, b) => a.sort_order - b.sort_order);
   }
 
-  async createPage(notebookId: string) {
+  async createPage(notebookId: string, title = "Untitled") {
     const existing = this.pages.filter((p) => p.notebook_id === notebookId);
     const ts = this.now();
     const page: Page = {
       id: crypto.randomUUID(),
       owner_id: OWNER,
       notebook_id: notebookId,
-      title: "Untitled",
+      title,
       sort_order: existing.length ? Math.max(...existing.map((p) => p.sort_order)) + 1 : 0,
       created_at: ts,
       updated_at: ts,

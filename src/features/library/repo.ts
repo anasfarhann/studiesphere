@@ -9,7 +9,7 @@ export interface LibraryRepo {
   listNotebooks(subjectId: string): Promise<Notebook[]>;
   createNotebook(subjectId: string, title: string): Promise<Notebook>;
   listPages(notebookId: string): Promise<Page[]>;
-  createPage(notebookId: string): Promise<Page>; // title 'Untitled', sort_order = last + 1
+  createPage(notebookId: string, title?: string): Promise<Page>; // title defaults to 'Untitled', sort_order = last + 1
 }
 
 /** Thrown for invalid user input; safe to map to a translated message. */

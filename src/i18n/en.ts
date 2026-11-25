@@ -7,7 +7,7 @@ export const en = {
   navMain: "Main",
   navHome: "Home",
   navHomeLogo: "Studiesphere home",
-  navSubjects: "Subjects",
+  navNewPage: "New page",
   navTimetableSoon: "Timetable (coming soon)",
   navFlashcardsSoon: "Flashcards (coming soon)",
   navQuizSoon: "Quiz rooms (coming soon)",

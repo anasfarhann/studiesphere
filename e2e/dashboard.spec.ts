@@ -45,3 +45,15 @@ test("long names truncate and keep cards inside their column", async ({ page }) 
   expect(await title.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   expect(await noOverflow(page)).toBe(true);
 });
+
+test("New page button in the header is at least 44 px and fits on a small phone", async ({ page }) => {
+  for (const w of [320, 1280]) {
+    await page.setViewportSize({ width: w, height: 800 });
+    await page.goto("/dev/dashboard");
+    const b = await page.getByRole("main").getByRole("button", { name: "New page" }).boundingBox();
+    expect(b!.width).toBeGreaterThanOrEqual(44);
+    expect(b!.height).toBeGreaterThanOrEqual(44);
+    expect(b!.x + b!.width).toBeLessThanOrEqual(w);
+    expect(await noOverflow(page)).toBe(true);
+  }
+});
