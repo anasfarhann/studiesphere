@@ -38,6 +38,7 @@ describe("Editor input wiring", () => {
   let editor: Editor;
 
   beforeEach(() => {
+    localStorage.clear();
     frames = [];
     canvas = document.createElement("canvas");
     canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
@@ -78,11 +79,47 @@ describe("Editor input wiring", () => {
   });
 
   it("uses the chosen colour and size", () => {
-    editor.setColor("#dc2626");
-    editor.setSize(8);
+    editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, color: "#dc2626", size: 8 } }));
     fire(canvas, "pointerdown", 1, "mouse", 0, 0);
     fire(canvas, "pointerup", 1, "mouse", 0, 0);
     expect(editor.scene.all()[0]).toMatchObject({ color: "#dc2626", size: 8 });
+  });
+
+  it("updateSettings persists, notifies, and the pen and highlighter keep separate sizes", () => {
+    const seen = vi.fn();
+    const off = editor.onSettingsChange(seen);
+    editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, size: 12 }, highlighter: { ...s.highlighter, size: 30 } }));
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(editor.settings.pen.size).toBe(12);
+    expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").pen.size).toBe(12);
+    fire(canvas, "pointerdown", 1, "mouse", 0, 0);
+    fire(canvas, "pointerup", 1, "mouse", 0, 0);
+    editor.setTool("highlighter");
+    fire(canvas, "pointerdown", 2, "mouse", 5, 5);
+    fire(canvas, "pointerup", 2, "mouse", 5, 5);
+    const [a, b] = editor.scene.all() as StrokeEl[];
+    expect([a.tool, a.size, a.color]).toEqual(["pen", 12, "#1B1A1F"]);
+    expect([b.tool, b.size, b.color]).toEqual(["highlighter", 30, "#F4D35E"]);
+    off();
+    editor.updateSettings((s) => s);
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("the eraser radius is size / 2 / zoom", () => {
+    const stroke = (id: string, x: number): StrokeEl => ({ id, z: 0, updatedAt: 0, type: "stroke", tool: "pen", color: "#000", size: 2, points: [[x, 0, 0.5], [x + 1, 0, 0.5]], simulatePressure: true });
+    editor.scene.add(stroke("near", 0));
+    editor.scene.add(stroke("far", 15));
+    editor.updateSettings((s) => ({ ...s, eraser: { ...s.eraser, size: 20 } }));
+    editor.camera.zoom = 2; // radius 5 world units: reaches x=5, not x=15
+    editor.setTool("eraser");
+    fire(canvas, "pointerdown", 3, "mouse", 10, 0); // world x = 5 at zoom 2
+    fire(canvas, "pointerup", 3, "mouse", 10, 0);
+    expect(editor.scene.get("near")).toBeUndefined();
+    expect(editor.scene.get("far")).toBeDefined();
+    editor.updateSettings((s) => ({ ...s, eraser: { ...s.eraser, size: 80 } })); // radius 20
+    fire(canvas, "pointerdown", 4, "mouse", 30, 0); // world x = 15
+    fire(canvas, "pointerup", 4, "mouse", 30, 0);
+    expect(editor.scene.get("far")).toBeUndefined();
   });
 
   it("a second touch arriving mid-stroke cancels the finger stroke", () => {

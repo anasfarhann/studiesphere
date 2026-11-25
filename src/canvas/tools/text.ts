@@ -30,6 +30,8 @@ export interface TextEditingContext {
   history: History;
   /** Colour for new boxes. */
   color: () => string;
+  /** Font size for new boxes; defaults to TEXT_FONT_SIZE. */
+  fontSize?: () => number;
   newId?: () => string;
   now?: () => number;
 }
@@ -99,7 +101,7 @@ export class TextEditing {
 
   beginAt(x: number, y: number): void {
     this.commit();
-    this.open({ id: null, x, y, w: TEXT_WIDTH, fontSize: TEXT_FONT_SIZE, color: this.ctx.color(), text: "" });
+    this.open({ id: null, x, y, w: TEXT_WIDTH, fontSize: this.ctx.fontSize?.() ?? TEXT_FONT_SIZE, color: this.ctx.color(), text: "" });
   }
 
   beginEdit(id: string): boolean {

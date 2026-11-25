@@ -134,24 +134,60 @@ for (const vp of [
   });
 }
 
-test("at phone width the colour is changed through the colour popover", async ({ page }) => {
+type SettingsHook = { __editor?: { scene: { all(): Array<{ size?: number; color?: string }> }; settings: { pen: { size: number; color: string } } } };
+
+for (const [w, h] of [[834, 1194], [390, 844]] as const) {
+  test(`tapping the active Pen opens its options, the slider sets the stroke size, Escape closes (${w}px)`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    const pen = page.getByRole("button", { name: "Pen", exact: true });
+    await expect(pen).toHaveAttribute("aria-expanded", "false");
+    await pen.click();
+    await expect(pen).toHaveAttribute("aria-expanded", "true");
+    const slider = page.getByRole("slider", { name: "Pen size" });
+    await expect(slider).toBeVisible();
+    await slider.fill("12");
+    await expect(page.getByText("12 px")).toBeVisible();
+
+    // Every control in the panel sits inside the viewport and is at least 44px tall.
+    const controls = page.locator("#tool-options").getByRole("slider").or(page.locator("#tool-options button"));
+    const n = await controls.count();
+    expect(n).toBeGreaterThan(1);
+    for (let i = 0; i < n; i++) {
+      const b = await controls.nth(i).boundingBox();
+      if (!b) throw new Error("control has no box");
+      expect(b.x).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width).toBeLessThanOrEqual(w);
+      expect(b.y + b.height).toBeLessThanOrEqual(h);
+      expect(b.height).toBeGreaterThanOrEqual(44);
+    }
+    const red = page.getByRole("button", { name: "Colour #DC2626" });
+    await red.click();
+    await expect(red).toHaveAttribute("aria-pressed", "true");
+
+    await page.keyboard.press("Escape");
+    await expect(pen).toHaveAttribute("aria-expanded", "false");
+    await expect(pen).toBeFocused();
+
+    const canvas = page.getByTestId("canvas");
+    const box = await canvas.boundingBox();
+    if (!box) throw new Error("canvas has no box");
+    await page.mouse.move(box.x + 100, box.y + 300);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 200, box.y + 350, { steps: 8 });
+    await page.mouse.up();
+    const stroke = await page.evaluate(() => (window as unknown as SettingsHook).__editor!.scene.all()[0]);
+    expect(stroke).toMatchObject({ size: 12, color: "#DC2626" });
+  });
+}
+
+test("tapping outside closes the tool options", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/dev/canvas");
-  const trigger = page.getByRole("button", { name: "Colour and pen size" });
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await trigger.click();
-  await expect(trigger).toHaveAttribute("aria-expanded", "true");
-  const red = page.getByRole("button", { name: "Red", exact: true });
-  const box = await red.boundingBox();
-  if (!box) throw new Error("no box");
-  expect(box.x).toBeGreaterThanOrEqual(0);
-  expect(box.x + box.width).toBeLessThanOrEqual(390);
-  await red.click();
-  await expect(red).toHaveAttribute("aria-pressed", "true");
-  await page.keyboard.press("Escape");
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(trigger).toBeFocused();
-  await trigger.click();
+  const pen = page.getByRole("button", { name: "Pen", exact: true });
+  await pen.click();
+  await expect(pen).toHaveAttribute("aria-expanded", "true");
   await page.mouse.click(200, 700);
-  await expect(trigger).toHaveAttribute("aria-expanded", "false");
+  await expect(pen).toHaveAttribute("aria-expanded", "false");
 });

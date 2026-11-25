@@ -13,6 +13,7 @@ import { PenTool } from "./tools/pen";
 import { TextEditing, TextTool, textAt } from "./tools/text";
 import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
 import { Selection } from "./selection";
+import { loadSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
 import type { Rect } from "./model/types";
 import { Camera } from "./view/camera";
 import { Renderer, type ImageLoader, type RendererOptions } from "./view/renderer";
@@ -32,13 +33,7 @@ type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number;
 /** A two-finger tap: both fingers down and up within this long, barely moving. */
 const TAP_MAX_MS = 250;
 const TAP_MAX_MOVE = 10;
-/** Eraser radius in screen pixels (converted to world units by the zoom). */
-const ERASER_SCREEN_RADIUS = 10;
-
 type Tap = { t0: number; ids: [number, number]; up: number; moved: number; zoom0: number };
-
-const DEFAULT_COLOR = "#111827";
-const DEFAULT_SIZE = 4;
 
 function isEditable(t: EventTarget | null): boolean {
   if (!(t instanceof HTMLElement)) return false;
@@ -74,8 +69,8 @@ export class Editor {
   private renderer: Renderer;
   private tools: Partial<Record<ToolId, Tool>>;
   private toolId: ToolId = "pen";
-  private color = DEFAULT_COLOR;
-  private size = DEFAULT_SIZE;
+  private current: ToolSettings = loadSettings();
+  private settingsListeners = new Set<() => void>();
   /** Every pointer currently down on the canvas, by pointerId. */
   private pointers = new Map<number, Active>();
   /** The pointer feeding the current tool, if any. */
@@ -99,7 +94,7 @@ export class Editor {
     this.caf = opts.renderer?.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.renderer = new Renderer(canvas, this.scene, this.camera, { loadImage: opts.loadImage, forgetImage: opts.forgetImage, ...opts.renderer });
     this.selection = new Selection(this.scene);
-    this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.color });
+    this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.current.text.color, fontSize: () => this.current.text.size });
     this.text.onChange(() => {
       this.renderer.setHidden(this.text.hiddenId);
       this.notifySelection();
@@ -110,22 +105,22 @@ export class Editor {
     });
     // Elements removed elsewhere (eraser, undo, sync) drop out of the selection.
     this.scene.onChange(() => this.selection.prune());
-    const stroke = {
+    const stroke = (tool: StrokeToolId) => ({
       scene: this.scene,
-      style: () => ({ color: this.color, size: this.size }),
+      style: () => ({ color: this.current[tool].color, size: this.current[tool].size }),
       setLive: (s: StrokeEl | null) => this.renderer.setLive(s),
       onCommit: (c: Change) => {
         this.history.push(c);
         this.lastStroke = c;
       },
-    };
+    });
     this.tools = {
-      pen: new PenTool(stroke),
-      highlighter: new HighlighterTool(stroke),
+      pen: new PenTool(stroke("pen")),
+      highlighter: new HighlighterTool(stroke("highlighter")),
       eraser: new EraserTool({
         scene: this.scene,
         history: this.history,
-        radius: () => ERASER_SCREEN_RADIUS / this.camera.zoom,
+        radius: () => this.current.eraser.size / 2 / this.camera.zoom,
       }),
       lasso: new LassoTool({
         scene: this.scene,
@@ -193,12 +188,26 @@ export class Editor {
     });
   }
 
-  setColor(c: string): void {
-    this.color = c;
+  /** The current per-tool settings (replaced, never mutated, on every update). */
+  get settings(): ToolSettings {
+    return this.current;
   }
 
-  setSize(s: number): void {
-    this.size = s;
+  /** Applies `patch` to the settings, persists the result and notifies listeners. */
+  updateSettings(patch: (s: ToolSettings) => ToolSettings): void {
+    const next = patch(this.current);
+    if (next === this.current) return;
+    this.current = next;
+    saveSettings(next);
+    for (const fn of [...this.settingsListeners]) fn();
+  }
+
+  /** Fires after every settings change. Returns an unsubscribe. */
+  onSettingsChange(fn: () => void): () => void {
+    this.settingsListeners.add(fn);
+    return () => {
+      this.settingsListeners.delete(fn);
+    };
   }
 
   /**
