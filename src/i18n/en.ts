@@ -134,6 +134,7 @@ export const en = {
   fileUploadFailed: "Couldn't upload file — tap to retry",
   fileStatusLabel: "File upload status",
   fileOpen: "Open {name}",
+  filePreview: "First page of {name}",
   filePreparing: "Preparing file — tap again",
   toolRecord: "Record",
   recordingBarLabel: "Recording",

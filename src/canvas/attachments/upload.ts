@@ -30,6 +30,7 @@ export interface UploadOptions {
 }
 
 function cleanExt(ext: string): string {
+  if (ext === "thumb.jpg") return ext; // PDF first-page preview, stored beside its file
   const e = ext.toLowerCase().replace(/[^a-z0-9]/g, "");
   return e.length > 0 && e.length <= 10 ? e : "bin";
 }

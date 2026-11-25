@@ -28,6 +28,10 @@ function DemoNotices() {
 }
 
 const DEV_PAGE = "dev-page";
+const DEMO_THUMB_PATH = "dev-owner/dev-page/demo.thumb.jpg";
+/** A pale-blue page preview, so the e2e can see an image render without a real PDF. */
+const DEMO_THUMB_URL = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="480" height="640"><rect width="480" height="640" fill="#dbeafe"/><rect x="40" y="40" width="400" height="24" fill="#2563eb"/></svg>')}`;
+const DEMO_FILE: CanvasElement = { id: "demo-file", z: 0, updatedAt: 1, type: "file", x: 120, y: 260, assetPath: "dev-owner/dev-page/demo.pdf", fileName: "demo.pdf", mime: "application/pdf", bytes: 2048, thumbPath: DEMO_THUMB_PATH };
 const KEY = "dev-canvas-elements";
 
 /** Dev-only: the in-memory store, mirrored to sessionStorage so a reload keeps the page (e2e). */
@@ -38,6 +42,7 @@ class SessionElementStore implements ElementStore {
   async load(pageId: string): Promise<CanvasElement[]> {
     if (!this.seeded) {
       this.seeded = true;
+      if (new URLSearchParams(window.location.search).get("demo") === "thumb") await this.inner.save(pageId, [DEMO_FILE], []);
       try {
         const raw = window.sessionStorage.getItem(KEY);
         if (raw) await this.inner.save(pageId, JSON.parse(raw) as CanvasElement[], []);
@@ -67,6 +72,7 @@ function memoryAttachmentStorage(): AttachmentStorage {
       return { error: null };
     },
     createSignedUrl: async (path) => {
+      if (path === DEMO_THUMB_PATH) return { url: DEMO_THUMB_URL, error: null };
       const blob = blobs.get(path);
       return blob ? { url: URL.createObjectURL(blob), error: null } : { url: null, error: { message: "not found" } };
     },
