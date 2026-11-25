@@ -7,12 +7,12 @@ type Row = Record<string, string | number>;
 
 const T0 = Date.parse("2026-11-25T12:00:00Z");
 const iso = (msAgo: number) => new Date(T0 - msAgo).toISOString();
-const NOW = new Date(T0);
 const MIN = 60_000;
 
 /** Minimal in-memory stand-in for the supabase query builder shapes ensureQuickNotebook uses. */
 function fakeDb(afterList?: (table: string, calls: number, tables: Record<string, Row[]>) => void) {
   const tables: Record<string, Row[]> = { subjects: [], notebooks: [], pages: [] };
+  let deleteCalls = 0;
   const listCalls: Record<string, number> = {};
   let n = 0;
   const db = {
@@ -46,7 +46,7 @@ function fakeDb(afterList?: (table: string, calls: number, tables: Record<string
           tables[table].push({ owner_id: "u1", ...row, id: `${table}-${n}`, created_at: iso(0) });
           return { then: (res: (v: unknown) => unknown) => res({ error: null }) };
         },
-        delete: () => ({
+        delete: () => (deleteCalls++, {
           eq: async (k: string, v: unknown) => {
             tables[table] = tables[table].filter((x) => x[k] !== v);
             return { error: null };
@@ -56,7 +56,7 @@ function fakeDb(afterList?: (table: string, calls: number, tables: Record<string
       return q;
     },
   };
-  return { db: db as unknown as SupabaseClient<Database>, tables: () => tables };
+  return { db: db as unknown as SupabaseClient<Database>, tables: () => tables, deletes: () => deleteCalls };
 }
 
 const subj = (id: string, ago: number, owner = "u1"): Row => ({ id, owner_id: owner, name: "Quick notes", color: "#DCD6FA", created_at: iso(ago) });
@@ -65,7 +65,7 @@ const nb = (id: string, subject_id: string, ago: number): Row => ({ id, owner_id
 describe("ensureQuickNotebook", () => {
   it("creates Quick notes (lavender) and Pages when missing", async () => {
     const { db, tables } = fakeDb();
-    const id = await ensureQuickNotebook(db, "u1", NOW);
+    const id = await ensureQuickNotebook(db, "u1");
     const t = tables();
     expect(t.subjects).toHaveLength(1);
     expect(t.subjects[0]).toMatchObject({ name: "Quick notes", color: "#DCD6FA" });
@@ -74,8 +74,8 @@ describe("ensureQuickNotebook", () => {
 
   it("reuses existing subject and notebook", async () => {
     const { db, tables } = fakeDb();
-    const a = await ensureQuickNotebook(db, "u1", NOW);
-    expect(await ensureQuickNotebook(db, "u1", NOW)).toBe(a);
+    const a = await ensureQuickNotebook(db, "u1");
+    expect(await ensureQuickNotebook(db, "u1")).toBe(a);
     expect(tables().subjects).toHaveLength(1);
     expect(tables().notebooks).toHaveLength(1);
   });
@@ -83,7 +83,7 @@ describe("ensureQuickNotebook", () => {
   it("does not reuse another owner's subject", async () => {
     const { db, tables } = fakeDb();
     tables().subjects.push(subj("x", 0, "other"));
-    await ensureQuickNotebook(db, "u1", NOW);
+    await ensureQuickNotebook(db, "u1");
     expect(tables().subjects).toHaveLength(2);
   });
 
@@ -92,42 +92,33 @@ describe("ensureQuickNotebook", () => {
       // After our post-insert re-select, the other tab's older subject shows up.
       if (table === "subjects" && calls === 2) t.subjects.unshift(subj("other-s", 5_000));
     });
-    const first = await ensureQuickNotebook(db, "u1", NOW);
+    const first = await ensureQuickNotebook(db, "u1");
     expect(tables().subjects.map((s) => s.id)).toContain("subjects-1"); // ours was not deleted
-    const second = await ensureQuickNotebook(db, "u1", NOW);
-    const third = await ensureQuickNotebook(db, "u1", NOW);
+    const second = await ensureQuickNotebook(db, "u1");
+    const third = await ensureQuickNotebook(db, "u1");
     expect(second).toBe(third);
     expect(tables().notebooks.find((n) => n.id === second)!.subject_id).toBe("other-s");
     expect(first).toBeTruthy();
   });
 
-  it("(b) a duplicate that has a notebook is never deleted, nor one whose notebook has pages", async () => {
+  it("(b) duplicates are never deleted, and the oldest subject/notebook wins", async () => {
     const { db, tables } = fakeDb();
     const t = tables();
-    t.subjects.push(subj("s1", 10 * MIN), subj("s2", 9 * MIN), subj("s3", 8 * MIN));
+    t.subjects.push(subj("s2", 9 * MIN), subj("s1", 10 * MIN), subj("s3", 8 * MIN));
     t.notebooks.push(nb("n1", "s1", 10 * MIN), nb("n1b", "s1", 9 * MIN), nb("n2", "s2", 9 * MIN));
     t.pages.push({ id: "p1", notebook_id: "n1b" });
-    expect(await ensureQuickNotebook(db, "u1", NOW)).toBe("n1");
-    expect(tables().subjects.map((s) => s.id)).toEqual(["s1", "s2"]); // s3 empty+old gone, s2 has a notebook
-    expect(tables().notebooks.map((n) => n.id)).toEqual(["n1", "n1b", "n2"]); // n1b has a page
+    expect(await ensureQuickNotebook(db, "u1")).toBe("n1");
+    expect(tables().subjects).toHaveLength(3);
+    expect(tables().notebooks).toHaveLength(3);
   });
 
-  it("(c) an empty duplicate older than 2 minutes is cleaned up", async () => {
-    const { db, tables } = fakeDb();
-    tables().subjects.push(subj("s1", 10 * MIN), subj("s2", 3 * MIN));
-    tables().notebooks.push(nb("n1", "s1", 10 * MIN), nb("n1dup", "s1", 3 * MIN));
-    await ensureQuickNotebook(db, "u1", NOW);
-    expect(tables().subjects.map((s) => s.id)).toEqual(["s1"]);
-    expect(tables().notebooks.map((n) => n.id)).toEqual(["n1"]);
-  });
-
-  it("(d) an empty duplicate younger than 2 minutes is left alone", async () => {
-    const { db, tables } = fakeDb();
-    tables().subjects.push(subj("s1", 10 * MIN), subj("s2", 1 * MIN));
-    tables().notebooks.push(nb("n1", "s1", 10 * MIN), nb("n1dup", "s1", 1 * MIN));
-    await ensureQuickNotebook(db, "u1", NOW);
-    expect(tables().subjects.map((s) => s.id)).toEqual(["s1", "s2"]);
-    expect(tables().notebooks.map((n) => n.id)).toEqual(["n1", "n1dup"]);
+  it("never issues any delete", async () => {
+    const { db, deletes } = fakeDb((table, calls, t) => {
+      if (table === "subjects" && calls === 2) t.subjects.unshift(subj("other-s", 5_000));
+    });
+    await ensureQuickNotebook(db, "u1");
+    await ensureQuickNotebook(db, "u1");
+    expect(deletes()).toBe(0);
   });
 });
 

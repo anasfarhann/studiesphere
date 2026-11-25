@@ -8,11 +8,7 @@ export const QUICK_SUBJECT = "Quick notes";
 export const QUICK_NOTEBOOK = "Pages";
 const LAVENDER = PASTELS.find((p) => p.id === "lavender")!.hex;
 
-const STALE_MS = 2 * 60_000;
-
 type Row = { id: string; created_at: string };
-
-const age = (r: Row, now: Date) => now.getTime() - Date.parse(r.created_at);
 
 async function listSubjects(db: Client, ownerId: string): Promise<Row[]> {
   const { data, error } = await db
@@ -39,36 +35,17 @@ async function listNotebooks(db: Client, ownerId: string, subjectId: string): Pr
   return data;
 }
 
-/** Ids among `ids` that have at least one child row in `child` (so they must not be deleted). */
-async function withChildren(db: Client, child: "notebooks" | "pages", fk: "subject_id" | "notebook_id", ids: string[]) {
-  const { data, error } = await db.from(child).select(fk).in(fk, ids);
-  if (error) throw new Error(error.message);
-  return new Set((data as unknown as Record<string, string>[]).map((r) => r[fk]));
-}
-
-/** Deletes empty duplicates that are old enough that no in-flight request can still be using them. */
-async function cleanup(db: Client, table: "subjects" | "notebooks", dupes: Row[], now: Date) {
-  const old = dupes.filter((r) => age(r, now) > STALE_MS);
-  if (!old.length) return;
-  const used =
-    table === "subjects"
-      ? await withChildren(db, "notebooks", "subject_id", old.map((r) => r.id))
-      : await withChildren(db, "pages", "notebook_id", old.map((r) => r.id));
-  for (const r of old) {
-    if (used.has(r.id)) continue;
-    const { error } = await db.from(table).delete().eq("id", r.id);
-    if (error) throw new Error(error.message);
-  }
-}
-
 /**
  * Finds or creates the user's "Quick notes" subject and its "Pages" notebook, returning the notebook id.
  * There is no unique constraint, so concurrent first taps can insert duplicates. Every request picks the
- * first row ordered by (created_at, id), so they converge on the same one. A request never deletes what it
- * created (another request may already be using it); instead, duplicates that are empty and older than two
- * minutes are cleaned up on later calls.
+ * first row ordered by (created_at, id), so they converge on the same one.
+ *
+ * Deliberately there is no cleanup and no deletes at all: subjects and notebooks cascade on delete, and a
+ * check-then-delete cannot be made atomic from the client, so a notebook or page added under a duplicate
+ * between the check and the delete would be silently lost. An empty duplicate is harmless. The proper fix
+ * is a partial unique index (owner_id, name) on the Quick notes subject, which needs a migration.
  */
-export async function ensureQuickNotebook(db: Client, ownerId: string, now: Date = new Date()): Promise<string> {
+export async function ensureQuickNotebook(db: Client, ownerId: string): Promise<string> {
   let subjects = await listSubjects(db, ownerId);
   if (!subjects.length) {
     const { data: last, error: lastErr } = await db
@@ -85,7 +62,6 @@ export async function ensureQuickNotebook(db: Client, ownerId: string, now: Date
   }
   const subject = subjects[0];
   if (!subject) throw new Error("Quick notes subject missing");
-  await cleanup(db, "subjects", subjects.slice(1), now);
 
   let notebooks = await listNotebooks(db, ownerId, subject.id);
   if (!notebooks.length) {
@@ -95,7 +71,6 @@ export async function ensureQuickNotebook(db: Client, ownerId: string, now: Date
   }
   const notebook = notebooks[0];
   if (!notebook) throw new Error("Quick notes notebook missing");
-  await cleanup(db, "notebooks", notebooks.slice(1), now);
   return notebook.id;
 }
 
