@@ -215,3 +215,50 @@ describe("ToolOptions", () => {
     expect(screen.queryByRole("switch", { name: "Snap to shape" })).toBeNull();
   });
 });
+
+describe("ToolOptions text styles", () => {
+  it("offers four fonts, each set in its own face, and B / I / U toggles of at least 44px", () => {
+    render(<ToolOptions editor={editor} tool="text" />);
+    const radios = screen.getAllByRole("radio");
+    expect(radios.map((r) => r.textContent)).toEqual(["Sans", "Serif", "Hand", "Mono"]);
+    expect((radios[1] as HTMLElement).style.fontFamily).toContain("Lora");
+    expect(radios[0].getAttribute("aria-checked")).toBe("true");
+    for (const name of ["Bold", "Italic", "Underline"]) {
+      const b = screen.getByRole("button", { name });
+      expect(b.getAttribute("aria-pressed")).toBe("false");
+      expect(b.className).toContain("h-11");
+      expect(b.className).toContain("min-w-11");
+    }
+  });
+
+  it("choosing a font and toggles updates the text settings used for the next box", () => {
+    render(<ToolOptions editor={editor} tool="text" />);
+    fireEvent.click(screen.getByRole("radio", { name: "Mono" }));
+    fireEvent.click(screen.getByRole("button", { name: "Italic" }));
+    expect(editor.settings.text).toMatchObject({ font: "mono", italic: true, bold: false });
+    expect(screen.getByRole("radio", { name: "Mono" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("button", { name: "Italic" }).getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Italic" }));
+    expect(editor.settings.text.italic).toBe(false);
+  });
+
+  it("with a box being edited, options show and change that box, not other boxes", () => {
+    editor.scene.add({ id: "a", z: 0, updatedAt: 1, type: "text", x: 0, y: 0, w: 100, text: "a", fontSize: 30, color: "#000000" });
+    editor.scene.add({ id: "b", z: 1, updatedAt: 1, type: "text", x: 300, y: 0, w: 100, text: "b", fontSize: 18, color: "#000000" });
+    editor.text.beginEdit("a");
+    render(<ToolOptions editor={editor} tool="text" />);
+    expect((screen.getByRole("slider", { name: "Text size" }) as HTMLInputElement).value).toBe("30");
+    fireEvent.click(screen.getByRole("radio", { name: "Hand" }));
+    fireEvent.change(screen.getByRole("slider", { name: "Text size" }), { target: { value: "50" } });
+    fireEvent.pointerUp(screen.getByRole("slider", { name: "Text size" }));
+    expect(editor.scene.get("a")).toMatchObject({ font: "hand", fontSize: 50 });
+    expect(editor.scene.get("b")).toMatchObject({ fontSize: 18 });
+    expect((editor.scene.get("b") as { font?: string }).font).toBeUndefined();
+    editor.text.commit();
+    editor.undo();
+    expect(editor.scene.get("a")).toMatchObject({ font: "hand", fontSize: 30 });
+    editor.undo();
+    expect((editor.scene.get("a") as { font?: string }).font).toBeUndefined();
+  });
+});
+

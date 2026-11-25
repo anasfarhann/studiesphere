@@ -45,3 +45,24 @@ test("double-click a text box with the pen tool edits it", async ({ page }) => {
   await expect(editor).toBeFocused();
   await expect(editor).toHaveValue("Ribosome");
 });
+
+test("choose serif + bold, then type: the element is saved with that font and weight", async ({ page }) => {
+  await page.goto("/dev/canvas");
+  await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+  const box = await page.getByTestId("canvas").boundingBox();
+  if (!box) throw new Error("canvas has no box");
+  const toolBtn = page.getByRole("button", { name: "Text", exact: true });
+  await toolBtn.click();
+  await toolBtn.click(); // second tap opens the text options
+  await page.getByRole("radio", { name: "Serif" }).click();
+  await page.getByRole("button", { name: "Bold" }).click();
+  await page.mouse.click(box.x + 200, box.y + 200);
+  await expect(page.getByTestId("text-editor")).toBeFocused();
+  await page.keyboard.type("Lipids");
+  await page.keyboard.press("Escape");
+  const els = await page.evaluate(() =>
+    (window as unknown as { __editor: { scene: { all(): Record<string, unknown>[] } } }).__editor.scene.all().filter((e) => e.type === "text"),
+  );
+  expect(els).toHaveLength(1);
+  expect(els[0]).toMatchObject({ text: "Lipids", font: "serif", bold: true });
+});

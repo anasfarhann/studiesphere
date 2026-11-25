@@ -4,6 +4,7 @@ import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, F
 import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
 import { formatDuration } from "../model/format-duration";
 import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
+import { cssFont, whenFontReady } from "../model/text-style";
 import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
@@ -356,17 +357,32 @@ export class Renderer {
     }
   }
 
+  /** Fonts already asked for: a face still loading is drawn in its fallback, then redrawn once it arrives. */
+  private fontsAsked = new Set<string>();
+
+  private awaitFont(font: string): void {
+    if (this.fontsAsked.has(font)) return;
+    this.fontsAsked.add(font);
+    whenFontReady(font, () => this.requestFrame());
+  }
+
   private drawElement(el: CanvasElement): void {
     const { ctx } = this;
     if (el.type === "stroke") {
       this.drawStroke(el, this.cachedPath(el));
     } else if (el.type === "text") {
       ctx.fillStyle = el.color;
-      ctx.font = `${el.fontSize}px sans-serif`;
+      const font = cssFont(el, el.fontSize);
+      ctx.font = font;
+      this.awaitFont(font);
       ctx.textBaseline = "alphabetic";
       const measure: Measure = typeof ctx.measureText === "function" ? (str) => ctx.measureText(str).width : approxMeasure;
       const lines = wrapText(measure, el.text, el.w, el.fontSize);
-      lines.forEach((line, i) => ctx.fillText(line, el.x, el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1)));
+      lines.forEach((line, i) => {
+        const baseline = el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1);
+        ctx.fillText(line, el.x, baseline);
+        if (el.underline && line !== "") ctx.fillRect(el.x, baseline + el.fontSize * 0.1, measure(line, el.fontSize), Math.max(1, el.fontSize / 16));
+      });
     } else if (el.type === "image") {
       const entry = this.imageFor(el.assetPath);
       if (entry.state === "ready") ctx.drawImage(entry.img, el.x, el.y, el.w, el.h);

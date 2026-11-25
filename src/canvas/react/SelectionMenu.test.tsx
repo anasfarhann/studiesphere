@@ -63,13 +63,27 @@ describe("SelectionMenu actions per selection", () => {
     expect(names()).toEqual(["Delete", "Copy"]);
   });
 
-  it("one text: Edit, Delete, Copy; Edit opens the text editor", () => {
+  it("one text: Edit, Aa, Delete, Copy; Edit opens the text editor", () => {
     select(["txt"]);
-    expect(names()).toEqual(["Edit", "Delete", "Copy"]);
+    expect(names()).toEqual(["Edit", "Aa", "Delete", "Copy"]);
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(editor.text.session?.id).toBe("txt");
     flush();
     expect(screen.queryByRole("toolbar")).toBeNull();
+  });
+
+  it("Aa opens the text options for the selected box: a font or style tap restyles only it, in one undo step", () => {
+    select(["txt"]);
+    fireEvent.click(screen.getByRole("button", { name: "Text options" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Serif" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bold" }));
+    flush();
+    expect(editor.scene.get("txt")).toMatchObject({ font: "serif", bold: true });
+    expect((editor.scene.get("a") as { font?: string }).font).toBeUndefined();
+    expect(screen.getByRole("button", { name: "Bold" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("radio", { name: "Serif" }).getAttribute("aria-checked")).toBe("true");
+    act(() => editor.undo());
+    expect((editor.scene.get("txt") as { bold?: boolean }).bold).toBeFalsy();
   });
 
   it("mixed: Delete, Copy", () => {

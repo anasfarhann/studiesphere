@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, typ
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
 import { ColorSwatches } from "./ColorSwatches";
+import { ToolOptions } from "./ToolOptions";
 
 /** Gap between the selection box and the menu, and from the view's edges, in CSS pixels. */
 const GAP = 8;
@@ -56,12 +57,13 @@ function readView(editor: Editor): View | null {
   return { mode: "paste", key: `paste:${at[0]},${at[1]}`, centerX: x, boxTop: y, boxBottom: y };
 }
 
-function MenuButton({ onClick, expanded, tone = "plain", children }: { onClick: () => void; expanded?: boolean; tone?: "plain" | "danger"; children: ReactNode }) {
+function MenuButton({ onClick, expanded, tone = "plain", label, children }: { onClick: () => void; expanded?: boolean; tone?: "plain" | "danger"; label?: string; children: ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-expanded={expanded}
+      aria-label={label}
       className={`inline-flex h-11 min-w-11 shrink-0 touch-manipulation cursor-pointer items-center justify-center whitespace-nowrap rounded-full px-4 text-sm font-medium text-ink aria-expanded:bg-ink aria-expanded:text-card ${tone === "danger" ? "bg-pink" : "bg-card"}`}
     >
       {children}
@@ -91,6 +93,7 @@ function StrokeColors({ editor, value }: { editor: Editor; value: string }) {
 
 function Actions({ editor, view }: { editor: Editor; view: View }) {
   const [colorOpen, setColorOpen] = useState(false);
+  const [textOpen, setTextOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
   if (view.mode === "paste") {
@@ -120,6 +123,11 @@ function Actions({ editor, view }: { editor: Editor; view: View }) {
       <div className="flex gap-1">
         {/* One image: its corner handle resizes it; Crop joins here (Task 9). */}
         {view.kind === "text" ? <MenuButton onClick={() => editor.editSelectedText()}>{t("editText")}</MenuButton> : null}
+        {view.kind === "text" ? (
+          <MenuButton expanded={textOpen} label={t("textOptions")} onClick={() => setTextOpen((o) => !o)}>
+            {t("textOptionsShort")}
+          </MenuButton>
+        ) : null}
         {del}
         {view.kind === "strokes" ? (
           <MenuButton expanded={colorOpen} onClick={() => setColorOpen((o) => !o)}>
@@ -128,6 +136,11 @@ function Actions({ editor, view }: { editor: Editor; view: View }) {
         ) : null}
         {copy}
       </div>
+      {view.kind === "text" && textOpen ? (
+        <div role="group" aria-label={t("textOptions")} className="w-[min(20rem,calc(100vw-2rem))]">
+          <ToolOptions editor={editor} tool="text" />
+        </div>
+      ) : null}
       {view.kind === "strokes" && colorOpen ? <StrokeColors editor={editor} value={view.strokeColor} /> : null}
     </>
   );

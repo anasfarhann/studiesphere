@@ -6,6 +6,8 @@ import type { Editor } from "../editor";
 import { addPreset, clampSize, DEFAULT_SETTINGS, MAX_PRESET_COUNT, removePreset, SIZE_RANGE, type StrokeToolId, type ToolSettings } from "../settings/tool-settings";
 import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
 import { ColorSwatches } from "./ColorSwatches";
+import { TextStyleControls } from "./TextStyleControls";
+import { useTextStyle } from "./useTextStyle";
 
 export type OptionsToolId = keyof typeof SIZE_RANGE;
 export const OPTION_TOOLS: ReadonlyArray<string> = ["pen", "highlighter", "eraser", "text"];
@@ -27,10 +29,12 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
     () => editor.settings,
     () => editor.settings,
   );
-  const size = s[tool].size;
+  // For text the options show (and change) the box being typed in or selected, else the next-box settings.
+  const textStyle = useTextStyle(editor);
+  const size = tool === "text" ? textStyle.size : s[tool].size;
   const [min, max] = SIZE_RANGE[tool];
   const hasColor = tool !== "eraser";
-  const color = tool === "eraser" ? "" : s[tool].color;
+  const color = tool === "eraser" ? "" : tool === "text" ? textStyle.color : s[tool].color;
   const presets = presetsFor(s, tool);
 
   const presetTool: StrokeToolId = tool === "highlighter" ? "highlighter" : "pen";
@@ -38,9 +42,11 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
 
   const setSize = (n: number) => {
     const v = clampSize(tool, n);
+    if (tool === "text") editor.restyleText({ fontSize: v }, { live: true });
     editor.updateSettings((cur) => ({ ...cur, [tool]: { ...cur[tool], size: v } }), { deferSave: true });
   };
   const setColor = (c: string, opts?: { deferSave?: boolean }) => {
+    if (tool === "text") editor.restyleText({ color: c }, { live: opts?.deferSave });
     editor.updateSettings((cur) => ({ ...cur, [tool]: { ...cur[tool], color: c } }), opts);
   };
   const has = (c: string) => presets.some((p) => p.toLowerCase() === c.toLowerCase());
@@ -58,8 +64,18 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
   };
   const isDefault = (c: string) => DEFAULT_SETTINGS[presetTool].presets.some((d) => d.toLowerCase() === c.toLowerCase());
 
+  const endDrag = () => {
+    editor.flushSettings();
+    if (tool === "text") editor.commitTextStyle();
+  };
+
   return (
-    <div className="flex w-full flex-col gap-1 px-2 py-1">
+    <div
+      className="flex w-full flex-col gap-1 px-2 py-1"
+      // Tapping an option must not pull focus out of a text box being typed in (it would end the edit).
+      onMouseDown={tool === "text" ? (e) => { if (!(e.target instanceof HTMLInputElement)) e.preventDefault(); } : undefined}
+      data-keeps-text-open={tool === "text" ? "" : undefined}
+    >
       <div className="flex items-center gap-3">
         <input
           type="range"
@@ -69,9 +85,9 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
           step={1}
           value={size}
           onChange={(e) => setSize(e.currentTarget.valueAsNumber)}
-          onPointerUp={() => editor.flushSettings()}
-          onKeyUp={() => editor.flushSettings()}
-          onBlur={() => editor.flushSettings()}
+          onPointerUp={endDrag}
+          onKeyUp={endDrag}
+          onBlur={endDrag}
           className="h-11 min-w-0 flex-1 cursor-pointer touch-manipulation accent-ink"
         />
         <output className="w-14 shrink-0 text-right text-sm tabular-nums text-ink">{t("sizePx", { n: size })}</output>
@@ -92,6 +108,7 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
           ))}
         </div>
       ) : null}
+      {tool === "text" ? <TextStyleControls editor={editor} /> : null}
       {tool === "pen" || tool === "highlighter" ? (
         <>
           <div aria-label={t("sizePreview")} role="img" className="flex h-16 items-center justify-center overflow-hidden rounded-2xl bg-ground">
@@ -126,7 +143,7 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
           value={color}
           onPick={(c) => setColor(c)}
           onWheelChange={(c) => setColor(c, { deferSave: true })}
-          onWheelCommit={() => editor.flushSettings()}
+          onWheelCommit={endDrag}
           editing={{ isDefault, add: addCurrent, remove: removeAt }}
         />
       ) : null}

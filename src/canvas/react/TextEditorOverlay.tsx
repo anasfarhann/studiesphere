@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
 import { TEXT_LINE_HEIGHT } from "../model/bounds";
+import { cssFont, fontFamily, whenFontReady } from "../model/text-style";
 import type { TextSession } from "../tools/text";
 
 type Box = { left: number; top: number; width: number; fontSize: number; session: TextSession };
@@ -60,6 +61,12 @@ export function TextEditorOverlay({ editor }: { editor: Editor }) {
     };
   }, [editor]);
 
+  // The face may still be loading: re-measure the textarea when it arrives.
+  const faceCss = box ? cssFont(box.session, box.session.fontSize) : null;
+  useEffect(() => {
+    if (faceCss) whenFontReady(faceCss, grow);
+  }, [faceCss, grow]);
+
   const active = box !== null;
   useLayoutEffect(() => {
     const ta = ref.current;
@@ -69,7 +76,7 @@ export function TextEditorOverlay({ editor }: { editor: Editor }) {
       ta.value = "";
       ta.blur();
     }
-  }, [active, box?.width, box?.fontSize, grow]);
+  }, [active, box?.width, box?.fontSize, faceCss, grow]);
 
   const commit = () => editor.text.commit();
 
@@ -86,7 +93,12 @@ export function TextEditorOverlay({ editor }: { editor: Editor }) {
         editor.text.draft(e.currentTarget.value);
         grow();
       }}
-      onBlur={commit}
+      onBlur={(e) => {
+        // Moving into the text options (a size slider) must not end the edit.
+        const to = e.relatedTarget;
+        if (to instanceof Element && to.closest("[data-keeps-text-open]")) return;
+        commit();
+      }}
       onKeyDown={(e) => {
         if (e.key === "Escape" || ((e.metaKey || e.ctrlKey) && e.key === "Enter")) {
           e.preventDefault();
@@ -104,7 +116,10 @@ export function TextEditorOverlay({ editor }: { editor: Editor }) {
         pointerEvents: active ? "auto" : "none",
         fontSize: box?.fontSize ?? 16, // >= 16px avoids iOS focus-zoom when idle
         lineHeight: TEXT_LINE_HEIGHT,
-        fontFamily: "sans-serif",
+        fontFamily: box ? fontFamily(box.session) : "sans-serif",
+        fontWeight: box?.session.bold ? "bold" : "normal",
+        fontStyle: box?.session.italic ? "italic" : "normal",
+        textDecoration: box?.session.underline ? "underline" : "none",
         color: box?.session.color ?? "#000",
         whiteSpace: "pre-wrap",
         overflowWrap: "break-word",

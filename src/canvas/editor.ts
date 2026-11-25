@@ -6,15 +6,15 @@ import { wheelAction } from "./input/wheel";
 import { History } from "./model/history";
 import { Scene } from "./model/scene";
 import type { Change } from "./model/history";
-import type { CanvasElement, StrokeEl } from "./model/types";
+import type { CanvasElement, StrokeEl, TextEl } from "./model/types";
 import { EraserTool } from "./tools/eraser";
 import { HighlighterTool } from "./tools/highlighter";
 import { LassoTool } from "./tools/lasso";
 import { PenTool } from "./tools/pen";
-import { TextEditing, TextTool, textAt } from "./tools/text";
+import { TextEditing, TextTool, textAt, type TextStylePatch } from "./tools/text";
 import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
 import { Selection } from "./selection";
-import { loadSettings, normalizeSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
+import { clampSize, loadSettings, normalizeSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
 import type { Rect } from "./model/types";
 import { Camera } from "./view/camera";
 import { Renderer, type ImageLoader, type RendererOptions } from "./view/renderer";
@@ -70,6 +70,8 @@ export class Editor {
   private pasteAnchor: [number, number] | null = null;
   /** A colour-wheel drag on the selection in progress: the strokes as they were before it. */
   private recolorBefore: Change["before"] | null = null;
+  /** The text box as it was when a live restyle (size slider drag) began; null when none is in progress. */
+  private textStyleBefore: TextEl | null = null;
   private selectionKey = "";
   /** Two quick taps on a text box edit it, whatever tool is selected. */
   private doubleTap = new DoubleTap();
@@ -108,8 +110,15 @@ export class Editor {
     this.renderer = new Renderer(canvas, this.scene, this.camera, { loadImage: opts.loadImage, forgetImage: opts.forgetImage, ...opts.renderer });
     this.selection = new Selection(this.scene);
     this.clipboard = opts.clipboard ?? new Clipboard({ owner: opts.owner });
-    this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.current.text.color, fontSize: () => this.current.text.size });
+    this.text = new TextEditing({
+      scene: this.scene,
+      history: this.history,
+      color: () => this.current.text.color,
+      fontSize: () => this.current.text.size,
+      style: () => this.current.text,
+    });
     this.text.onChange(() => {
+      if (!this.text.session) this.commitTextStyle();
       this.renderer.setHidden(this.text.hiddenId);
       this.notifySelection();
     });
@@ -118,6 +127,7 @@ export class Editor {
       if (key !== this.selectionKey) {
         this.selectionKey = key;
         this.commitRecolor();
+        this.commitTextStyle();
         if (this.selection.ids.length > 0) this.pasteAnchor = null;
       }
       this.renderer.setSelection(this.selection.ids);
@@ -243,6 +253,78 @@ export class Editor {
     this.history.push({ before, after });
   }
 
+  /** The text element the style options act on: the box being edited, else the one selected text box. */
+  private styleTargetId(): string | null {
+    const sess = this.text.session;
+    if (sess) return sess.id;
+    const ids = this.selection.ids;
+    return ids.length === 1 && this.scene.get(ids[0])?.type === "text" ? ids[0] : null;
+  }
+
+  /** Whether a text style change would land on a box right now (one being typed, edited or selected). */
+  hasTextTarget(): boolean {
+    return this.text.session !== null || this.styleTargetId() !== null;
+  }
+
+  /** Size, colour and style of the box the options act on, or null when there is none. */
+  textStyle(): (TextStylePatch & { fontSize: number; color: string }) | null {
+    const sess = this.text.session;
+    if (sess) return { fontSize: sess.fontSize, color: sess.color, font: sess.font, bold: sess.bold, italic: sess.italic, underline: sess.underline };
+    const id = this.styleTargetId();
+    const el = id ? this.scene.get(id) : undefined;
+    if (!el || el.type !== "text") return null;
+    return { fontSize: el.fontSize, color: el.color, font: el.font, bold: el.bold, italic: el.italic, underline: el.underline };
+  }
+
+  /**
+   * Restyles the text box being typed in, edited, or (when it is the only selection) selected; other boxes are
+   * untouched. Each call is one undo step, except `live` calls (size slider drags), which preview until
+   * {@link commitTextStyle}. Returns false when there is no such box.
+   */
+  restyleText(patch: TextStylePatch, opts?: { live?: boolean }): boolean {
+    if (this.drawing) return false;
+    const sess = this.text.session;
+    if (sess && sess.id === null) {
+      this.text.restyle(patch);
+      return true;
+    }
+    const id = this.styleTargetId();
+    const current = id ? this.scene.get(id) : undefined;
+    if (!id || !current || current.type !== "text") return false;
+    const next: TextStylePatch = { ...patch };
+    // Undo merges `before` over the live element, so a style the box did not have must be named (as undefined).
+    const before: TextEl = { ...current };
+    for (const k of Object.keys(next) as (keyof TextStylePatch)[]) if (!(k in before)) Object.assign(before, { [k]: undefined });
+    if (next.fontSize !== undefined) next.fontSize = clampSize("text", next.fontSize);
+    const changed = (Object.keys(next) as (keyof TextStylePatch)[]).some((k) => (before[k] ?? false) !== (next[k] ?? false));
+    if (!changed) return true;
+    if (opts?.live) {
+      if (this.textStyleBefore === null || this.textStyleBefore.id !== id) {
+        this.commitTextStyle();
+        this.textStyleBefore = before;
+      }
+    } else {
+      this.commitTextStyle();
+    }
+    this.scene.update(id, next satisfies Partial<TextEl>);
+    if (!opts?.live) {
+      const after = this.scene.get(id);
+      if (after) this.history.push({ before: [before], after: [after] });
+    }
+    if (sess) this.text.restyle(next);
+    this.notifySelection();
+    return true;
+  }
+
+  /** Ends a live restyle: pushes it as one undo step. Safe to call when none is in progress. */
+  commitTextStyle(): void {
+    const before = this.textStyleBefore;
+    this.textStyleBefore = null;
+    if (!before) return;
+    const after = this.scene.get(before.id);
+    if (after) this.history.push({ before: [before], after: [after] });
+  }
+
   /** Opens the single selected text box in the text editor. */
   editSelectedText(): boolean {
     const ids = this.selection.ids;
@@ -331,6 +413,7 @@ export class Editor {
     if (this.drawing) return;
     this.text.commit();
     this.commitRecolor();
+    this.commitTextStyle();
     this.selection.clear();
     this.history.undo(this.scene);
   }
@@ -339,6 +422,7 @@ export class Editor {
     if (this.drawing) return;
     this.text.commit();
     this.commitRecolor();
+    this.commitTextStyle();
     this.selection.clear();
     this.history.redo(this.scene);
   }

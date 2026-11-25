@@ -587,6 +587,82 @@ describe("Editor history and eraser", () => {
     });
   });
 
+  describe("text styles", () => {
+    const addText = (id: string, x: number) => {
+      editor.scene.add({ id, z: editor.scene.nextZ(), updatedAt: 1, type: "text", x, y: 0, w: 100, text: id, fontSize: 18, color: "#000" });
+    };
+
+    it("a new box uses the text settings", () => {
+      editor.updateSettings((s) => ({ ...s, text: { ...s.text, size: 40, color: "#2563EB", font: "serif", bold: true, italic: true, underline: true } }));
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.commit("hi");
+      expect(editor.scene.all()[0]).toMatchObject({ fontSize: 40, color: "#2563EB", font: "serif", bold: true, italic: true, underline: true });
+    });
+
+    it("restyling the selected box is one undo step and leaves other boxes alone", () => {
+      addText("a", 0);
+      addText("b", 200);
+      editor.selection.set(["a"]);
+      expect(editor.restyleText({ font: "mono" })).toBe(true);
+      expect(editor.restyleText({ bold: true })).toBe(true);
+      expect(editor.scene.get("a")).toMatchObject({ font: "mono", bold: true });
+      expect((editor.scene.get("b") as { font?: string }).font).toBeUndefined();
+      editor.undo();
+      expect((editor.scene.get("a") as { bold?: boolean }).bold).toBeFalsy();
+      expect(editor.scene.get("a")).toMatchObject({ font: "mono" });
+      editor.undo();
+      expect((editor.scene.get("a") as { font?: string }).font).toBeUndefined();
+      expect(editor.canUndo()).toBe(false);
+    });
+
+    it("a live size drag is one undo step once committed", () => {
+      addText("a", 0);
+      editor.selection.set(["a"]);
+      editor.restyleText({ fontSize: 24 }, { live: true });
+      editor.restyleText({ fontSize: 30 }, { live: true });
+      editor.commitTextStyle();
+      expect((editor.scene.get("a") as { fontSize: number }).fontSize).toBe(30);
+      editor.undo();
+      expect((editor.scene.get("a") as { fontSize: number }).fontSize).toBe(18);
+      expect(editor.canUndo()).toBe(false);
+    });
+
+    it("with several elements selected, or none, restyle does nothing", () => {
+      addText("a", 0);
+      addText("b", 200);
+      expect(editor.restyleText({ bold: true })).toBe(false);
+      editor.selection.set(["a", "b"]);
+      expect(editor.restyleText({ bold: true })).toBe(false);
+      expect(editor.canUndo()).toBe(false);
+    });
+
+    it("while editing an existing box a style change is its own step, then the text edit another", () => {
+      addText("a", 0);
+      editor.text.beginEdit("a");
+      editor.restyleText({ italic: true });
+      expect(editor.textStyle()).toMatchObject({ italic: true, fontSize: 18 });
+      editor.text.commit("a2");
+      expect(editor.scene.get("a")).toMatchObject({ italic: true, text: "a2" });
+      editor.undo();
+      expect(editor.scene.get("a")).toMatchObject({ italic: true, text: "a" });
+      editor.undo();
+      expect((editor.scene.get("a") as { italic?: boolean }).italic).toBeFalsy();
+    });
+
+    it("while typing in a new box the change styles the pending box", () => {
+      editor.setTool("text");
+      editor.text.beginAt(5, 5);
+      expect(editor.restyleText({ font: "hand", fontSize: 50 })).toBe(true);
+      editor.text.commit("new");
+      expect(editor.scene.all()[0]).toMatchObject({ font: "hand", fontSize: 50 });
+      expect(editor.canUndo()).toBe(true);
+      editor.undo();
+      expect(editor.scene.all()).toHaveLength(0);
+    });
+  });
+
   describe("text tool", () => {
     it("tap with the text tool opens a session on pointer up; typed text commits on the next canvas press", () => {
       editor.setTool("text");
