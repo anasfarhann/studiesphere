@@ -84,6 +84,17 @@ describe("PenTool", () => {
     expect((scene.all()[0] as StrokeEl).color).toBe("#111827");
     expect(typeof scene.all()[0].id).toBe("string");
   });
+
+  it("pen strokes carry no size marker; highlighter strokes are marked to draw at exactly their size", () => {
+    tool.down([0, 0, 0.5], pen);
+    tool.up();
+    expect((scene.all()[0] as StrokeEl).sizeMode).toBeUndefined();
+    const hl = new PenTool({ scene, strokeTool: "highlighter", style: () => ({ color: "#ff0", size: 18 }), setLive: () => {}, newId: () => "hl" });
+    hl.down([0, 0, 0.5], pen);
+    hl.move([[50, 0, 0.5]], pen);
+    hl.up();
+    expect(scene.get("hl")).toMatchObject({ tool: "highlighter", size: 18, sizeMode: "px" });
+  });
 });
 
 /** Manual clock: timers fire only when `advance` passes their due time. */
@@ -168,6 +179,15 @@ describe("PenTool snap to shape", () => {
     clock.advance(1);
     expect(last()?.points.length).toBeGreaterThan(50);
     expect(last()).toMatchObject({ color: "#2563eb", size: 4, tool: "pen" });
+  });
+
+  it("a highlighter ghost keeps the exact-size marker", () => {
+    tool = new PenTool({ scene, strokeTool: "highlighter", style: () => ({ color: "#ff0", size: 18 }), setLive: () => {}, setGhost: (g) => ghosts.push(g), snap: () => true, clock, newId: () => "g" });
+    drawRect();
+    clock.advance(500);
+    expect(last()).toMatchObject({ tool: "highlighter", size: 18, sizeMode: "px" });
+    tool.up();
+    expect(scene.get("g")).toMatchObject({ sizeMode: "px" });
   });
 
   it("tiny movement within 4 screen px keeps the hold; the threshold scales with zoom", () => {

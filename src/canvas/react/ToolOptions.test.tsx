@@ -53,6 +53,9 @@ describe("ToolOptions", () => {
     expect(dot.style.backgroundColor).toBe("rgb(244, 211, 94)");
     act(() => editor.updateSettings((s) => ({ ...s, highlighter: { ...s.highlighter, size: 30, color: "#8BE0A4" } })));
     expect(screen.getByTestId("size-preview").style.width).toBe("30px");
+    expect(screen.getByTestId("size-preview").style.opacity).toBe("0.35"); // drawn at the highlighter's alpha
+    rerender(<ToolOptions editor={editor} tool="pen" />);
+    expect(screen.getByTestId("size-preview").style.opacity).toBe("");
     rerender(<ToolOptions editor={editor} tool="eraser" />);
     expect(screen.queryByTestId("size-preview")).toBeNull();
   });
@@ -139,6 +142,34 @@ describe("ToolOptions", () => {
     fireEvent.keyDown(screen.getByRole("slider", { name: "Hue" }), { key: "ArrowRight" });
     expect(editor.settings.highlighter.color).not.toBe("#F4D35E");
     expect(editor.settings.pen.color).toBe("#1B1A1F");
+  });
+
+  it("wheel drags update the colour live but write storage only when the drag ends", () => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    try {
+      render(<ToolOptions editor={editor} tool="pen" />);
+      fireEvent.click(screen.getByRole("button", { name: "Colour #1B1A1F" }));
+      setItem.mockClear();
+      const sv = screen.getByRole("slider", { name: "Saturation and brightness" });
+      sv.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, width: 100, height: 100, right: 100, bottom: 100, toJSON() {} }) as DOMRect;
+      fireEvent.pointerDown(sv, { clientX: 10, clientY: 10, pointerId: 1, button: 0 });
+      for (let i = 0; i < 10; i++) fireEvent.pointerMove(sv, { clientX: 20 + i * 5, clientY: 20 + i * 3, pointerId: 1 });
+      expect(editor.settings.pen.color).not.toBe("#1B1A1F");
+      expect(setItem).not.toHaveBeenCalled();
+      fireEvent.pointerUp(sv, { pointerId: 1 });
+      expect(setItem).toHaveBeenCalledTimes(1);
+      expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").pen.color).toBe(editor.settings.pen.color);
+    } finally {
+      setItem.mockRestore();
+    }
+  });
+
+  it("removing the pen's current custom colour resets pen and text to the first default", () => {
+    act(() => editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, color: "#00aa55", presets: [...s.pen.presets, "#00aa55"] }, text: { ...s.text, color: "#00aa55" } })));
+    render(<ToolOptions editor={editor} tool="text" />);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Colour #00aa55" }), { key: "Delete" });
+    expect(editor.settings.pen.color).toBe("#1B1A1F");
+    expect(editor.settings.text.color).toBe("#1B1A1F");
   });
 
   it("Delete or Backspace on a focused custom swatch removes it; defaults stay", () => {

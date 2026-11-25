@@ -64,4 +64,23 @@ describe("tool settings", () => {
     expect(removePreset(s, "pen", "#2563EB").pen.presets).toContain("#2563EB");
     expect(s.highlighter.presets).toEqual(DEFAULT_SETTINGS.highlighter.presets);
   });
+
+  it("removing a pen preset resets the pen and text colours that used it to the first default", () => {
+    const s = addPreset(addPreset(DEFAULT_SETTINGS, "pen", "#00aa55"), "highlighter", "#00aa55");
+    const using = { ...s, pen: { ...s.pen, color: "#00AA55" }, text: { ...s.text, color: "#00aa55" }, highlighter: { ...s.highlighter, color: "#00aa55" } };
+    const next = removePreset(using, "pen", "#00aa55");
+    expect(next.pen.color).toBe("#1B1A1F");
+    expect(next.text.color).toBe("#1B1A1F");
+    expect(next.highlighter.color).toBe("#00aa55"); // its own presets are separate
+    // Only the matching colour is reset.
+    const other = removePreset({ ...s, pen: { ...s.pen, color: "#2563EB" }, text: { ...s.text, color: "#00aa55" } }, "pen", "#00aa55");
+    expect(other.pen.color).toBe("#2563EB");
+    expect(other.text.color).toBe("#1B1A1F");
+    // A highlighter removal resets only the highlighter.
+    const hl = removePreset(using, "highlighter", "#00aa55");
+    expect(hl.highlighter.color).toBe("#F4D35E");
+    expect(hl.pen.color).toBe("#00AA55");
+    // Protected defaults are not removed, so nothing is reset.
+    expect(removePreset({ ...s, pen: { ...s.pen, color: "#2563EB" } }, "pen", "#2563EB").pen.color).toBe("#2563EB");
+  });
 });

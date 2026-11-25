@@ -1,6 +1,7 @@
 import { eraseFromStroke, strokeTouchesCircle } from "../geometry/split-stroke";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
+import { strokeWidth } from "../model/stroke-style";
 import type { CanvasElement, StrokeEl } from "../model/types";
 import type { EraserMode } from "../settings/tool-settings";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
@@ -90,7 +91,8 @@ export class EraserTool implements Tool {
     for (const el of hits) {
       if (el.type !== "stroke") continue;
       if (whole) {
-        if (!strokeTouchesCircle(el, [x, y], r)) continue;
+        // Touching the drawn ink counts, not just the centre line: wide highlighters are hit at their edge.
+        if (!strokeTouchesCircle(el, [x, y], r + strokeWidth(el) / 2)) continue;
         scene.remove(el.id);
         if (this.after.has(el.id)) this.after.delete(el.id);
         else this.before.set(el.id, el);

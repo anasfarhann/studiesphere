@@ -105,6 +105,26 @@ describe("EraserTool", () => {
       expect(scene.get("t")).toBeDefined();
     });
 
+    it("a wide highlighter is removed when its drawn edge is touched, not only its centre line", () => {
+      const { scene, tool } = setupStroke();
+      // New highlighter, 40 wide: ink spans y -20..20. Eraser radius 5 at y = 23 reaches y 18.
+      const hl: StrokeEl = { ...line("hl", 0), tool: "highlighter", size: 40, sizeMode: "px" };
+      scene.add(hl);
+      tool.down([50, 23, 0.5], mouse);
+      tool.up();
+      expect(scene.get("hl")).toBeUndefined();
+      // Just beyond the edge (y = 26 reaches y 21): untouched.
+      scene.add(hl);
+      tool.down([50, 26, 0.5], mouse);
+      tool.up();
+      expect(scene.get("hl")).toBeDefined();
+      // A legacy highlighter (no sizeMode) of size 40 draws 120 wide, so y = 60 still touches it.
+      scene.add({ ...hl, id: "legacy", sizeMode: undefined, points: [[0, 300, 0.5], [100, 300, 0.5]] });
+      tool.down([50, 362, 0.5], mouse);
+      tool.up();
+      expect(scene.get("legacy")).toBeUndefined();
+    });
+
     it("a 2,000-point stroke is tested only when near the pointer and is removed once", () => {
       const { scene, tool } = setupStroke();
       const big: StrokeEl = { ...line("big", 0), points: Array.from({ length: 2000 }, (_, i) => [i, 0, 0.5] as [number, number, number]) };

@@ -10,7 +10,7 @@ vi.mock("next/link", () => ({
     <a href={href} {...rest}>{children}</a>
   ),
 }));
-vi.mock("@/features/library/actions", () => ({ createSubjectAction: async () => null, createQuickPageAction: async () => {} }));
+vi.mock("@/features/library/actions", () => ({ createSubjectAction: async () => null, createQuickPageAction: async () => null }));
 
 const today = new Date(2026, 10, 23, 12);
 const subjects: SubjectSummary[] = [

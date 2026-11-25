@@ -9,6 +9,13 @@ const MAX_SPACING = 4;
 const MIN_DIAGONAL = 8;
 /** Line: RMS distance from the fitted line, relative to its length. */
 const LINE_RMS = 0.035;
+/** Line: path length (after LINE_PATH_SPACING decimation) at most this multiple of the line's extent. */
+const LINE_PATH_RATIO = 1.25;
+/** Line: path length is measured over points at least this fraction of the extent apart, so hand jitter doesn't count. */
+const LINE_PATH_SPACING = 0.02;
+/** Line: moving back along the axis by more than this fraction of the extent (or LINE_REVERSAL_MIN) is a reversal. */
+const LINE_REVERSAL = 0.08;
+const LINE_REVERSAL_MIN = 3;
 /** Closed shapes: the end must be within this fraction of the bbox diagonal from the start. */
 const CLOSE_GAP = 0.2;
 /** Closed outlines are resampled to this many points for corner detection. */
@@ -113,6 +120,8 @@ function fitLine(pts: P[]): RecognizedShape | null {
   }
   const len = hi - lo;
   if (!(len > 0) || Math.sqrt(sq / pts.length) / len > LINE_RMS) return null;
+  // Close to the axis is not enough: cursive (a low wave) and back-and-forth hatching also fit tightly.
+  if (wanders(pts, ux, uy, len)) return null;
   const proj = (p: P): P => {
     const t = (p[0] - cx) * ux + (p[1] - cy) * uy;
     return [cx + t * ux, cy + t * uy];
@@ -122,6 +131,41 @@ function fitLine(pts: P[]): RecognizedShape | null {
   // The stroke must run end to end, not double back past its ends.
   if (dist(a, b) < 0.9 * len) return null;
   return { kind: "line", points: densify([a, b]) };
+}
+
+/**
+ * True when a stroke that fits a line closely still isn't one: its path is much longer than its extent
+ * along the axis (a cursive word, a wave), or it doubles back along the axis (hatching).
+ */
+function wanders(pts: P[], ux: number, uy: number, len: number): boolean {
+  const spacing = len * LINE_PATH_SPACING;
+  const back = Math.max(len * LINE_REVERSAL, LINE_REVERSAL_MIN);
+  let path = 0;
+  let last = pts[0];
+  // Direction along the axis (+1/-1, 0 until known) and the furthest projection reached in it.
+  let dir = 0;
+  const t0 = last[0] * ux + last[1] * uy;
+  let extreme = t0;
+  for (let i = 1; i < pts.length; i++) {
+    const p = pts[i];
+    const d = dist(p, last);
+    if (d >= spacing || i === pts.length - 1) {
+      path += d;
+      last = p;
+    }
+    const t = p[0] * ux + p[1] * uy;
+    if (dir === 0) {
+      if (Math.abs(t - t0) > back) {
+        dir = t > t0 ? 1 : -1;
+        extreme = t;
+      }
+    } else if ((t - extreme) * dir > 0) {
+      extreme = t;
+    } else if ((extreme - t) * dir > back) {
+      return true;
+    }
+  }
+  return path > LINE_PATH_RATIO * len;
 }
 
 /** `n` points evenly spaced around the closed loop through `pts` (closing segment included). */

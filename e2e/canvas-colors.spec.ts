@@ -34,3 +34,30 @@ test("a custom colour from the wheel becomes a preset and draws", async ({ page 
   const colors = await page.evaluate(() => (window as unknown as EditorHook).__editor!.scene.all().map((e) => e.color));
   expect(colors).toEqual(["#00aa55"]);
 });
+
+test("with 12 pen presets and the wheel open, the options popover stays on screen and scrolls to Add", async ({ page }) => {
+  const extra = Array.from({ length: 9 }, (_, i) => `#10${(0x20 + i * 16).toString(16).padStart(2, "0")}aa`);
+  await page.addInitScript((presets) => {
+    localStorage.setItem("ss.tools.v1", JSON.stringify({ pen: { presets: ["#1B1A1F", "#2563EB", "#DC2626", ...presets] } }));
+  }, extra);
+  await page.goto("/dev/canvas");
+  await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+  await page.getByRole("button", { name: "Pen", exact: true }).click();
+  const opts = page.getByRole("group", { name: "Pen options" });
+  await expect(opts.getByRole("button", { name: /^Colour #/ })).toHaveCount(12);
+  await opts.getByRole("button", { name: "Colour #1B1A1F" }).click();
+  await expect(opts.getByRole("slider", { name: "Hue" })).toBeVisible();
+  const box = (await opts.boundingBox())!;
+  expect(box.y + box.height).toBeLessThanOrEqual(844);
+  // Capped from its measured top (not a fixed guess): it ends 12 px above the viewport bottom at most.
+  const cap = await opts.evaluate((el) => ({ top: el.getBoundingClientRect().top, max: parseFloat(getComputedStyle(el).maxHeight) }));
+  expect(Math.abs(cap.top + cap.max - (844 - 12))).toBeLessThanOrEqual(1);
+  const add = opts.getByRole("button", { name: "Add to presets" });
+  await add.scrollIntoViewIfNeeded();
+  const a = (await add.boundingBox())!;
+  expect(a.y).toBeGreaterThanOrEqual(box.y);
+  expect(a.y + a.height).toBeLessThanOrEqual(Math.min(844, box.y + box.height) + 0.5);
+  await opts.getByRole("textbox", { name: "Hex" }).fill("#00aa55");
+  await add.click();
+  await expect(opts.getByTestId("preset-message")).toHaveText("Presets are full");
+});

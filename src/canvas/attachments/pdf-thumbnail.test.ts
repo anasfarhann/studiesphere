@@ -33,6 +33,7 @@ describe("renderPdfThumbnail", () => {
     expect(canvas.height).toBe(400);
     expect(render).toHaveBeenCalledTimes(1);
     expect(destroy).toHaveBeenCalled();
+    expect(getDocument).toHaveBeenCalledWith(expect.objectContaining({ isEvalSupported: false }));
   });
 
   it("returns null when pdfjs throws", async () => {
@@ -46,5 +47,35 @@ describe("renderPdfThumbnail", () => {
     const p = renderPdfThumbnail(new Blob(["x"]));
     await vi.advanceTimersByTimeAsync(8000);
     expect(await p).toBeNull();
+  });
+
+  it("on timeout destroys the loading task, and again when a document arrives later; nothing renders", async () => {
+    vi.useFakeTimers();
+    const taskDestroy = vi.fn();
+    const getPage = vi.fn();
+    let open!: (d: unknown) => void;
+    getDocument.mockReturnValue({ promise: new Promise((r) => (open = r)), destroy: taskDestroy });
+    const p = renderPdfThumbnail(new Blob(["x"]));
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await p).toBeNull();
+    expect(taskDestroy).toHaveBeenCalled();
+    const before = taskDestroy.mock.calls.length;
+    // The document resolves after the timeout (a slow worker): torn down again, and no page is rendered.
+    open({ getPage });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(taskDestroy.mock.calls.length).toBeGreaterThan(before);
+    expect(getPage).not.toHaveBeenCalled();
+  });
+
+  it("a timeout before pdfjs has even loaded never opens the document", async () => {
+    vi.useFakeTimers();
+    let release!: (b: ArrayBuffer) => void;
+    const file = { arrayBuffer: () => new Promise<ArrayBuffer>((r) => (release = r)) } as unknown as Blob;
+    const p = renderPdfThumbnail(file);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(await p).toBeNull();
+    release(new ArrayBuffer(4));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(getDocument).not.toHaveBeenCalled();
   });
 });

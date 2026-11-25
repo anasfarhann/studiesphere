@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { t, type en } from "@/i18n/en";
 import { Icon, type IconName } from "@/ui/icons";
 import type { ToolId } from "../tools/tool";
@@ -77,6 +77,16 @@ export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo,
       document.removeEventListener("pointerdown", onDown);
     };
   }, [showOptions, close]);
+  // The popover hangs below the bar, whose height varies (it wraps on phones): cap it at the viewport bottom
+  // from its measured top, scrolling inside. The top doesn't depend on the popover's height, so one pass is enough.
+  useLayoutEffect(() => {
+    const pop = popRef.current;
+    if (!showOptions || !pop) return;
+    const measure = () => pop.style.setProperty("--tool-options-top", `${Math.max(0, pop.getBoundingClientRect().top)}px`);
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [showOptions]);
   const pick = (id: ToolId) => {
     if (id === tool && renderOptions && hasOptions(id)) {
       setOpen((v) => !v);
@@ -168,7 +178,7 @@ export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo,
               id="tool-options"
               role="group"
               aria-label={t("toolOptions", { tool: t(TOOLS.find((x) => x.id === tool)?.label ?? "toolPen") })}
-              className={`absolute top-full left-1/2 z-30 mt-2 flex max-h-[calc(100dvh-140px)] w-[min(332px,calc(100vw-24px))] overflow-y-auto overscroll-contain -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
+              className={`absolute top-full left-1/2 z-30 mt-2 flex max-h-[calc(100dvh-var(--tool-options-top,140px)-12px)] w-[min(332px,calc(100vw-24px))] overflow-y-auto overscroll-contain -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
             >
               {renderOptions?.(tool)}
             </div>

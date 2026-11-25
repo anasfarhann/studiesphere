@@ -62,10 +62,18 @@ export function addPreset(s: ToolSettings, tool: StrokeToolId, hex: string): Too
   return normalizeSettings({ ...s, [tool]: { ...s[tool], presets: [...s[tool].presets, hex] } });
 }
 
-/** Removes a preset; the three defaults are protected. */
+/**
+ * Removes a preset; the three defaults are protected. A tool whose colour was the removed one falls back to
+ * the first default: for the pen presets that is both the pen and the text (text colours come from them).
+ */
 export function removePreset(s: ToolSettings, tool: StrokeToolId, hex: string): ToolSettings {
-  const keep = s[tool].presets.filter((c) => c.toLowerCase() !== hex.toLowerCase() || DEFAULT_SETTINGS[tool].presets.includes(c));
-  return normalizeSettings({ ...s, [tool]: { ...s[tool], presets: keep } });
+  const gone = hex.toLowerCase();
+  const keep = s[tool].presets.filter((c) => c.toLowerCase() !== gone || DEFAULT_SETTINGS[tool].presets.includes(c));
+  const fallback = DEFAULT_SETTINGS[tool].presets[0];
+  const swap = (c: string) => (c.toLowerCase() === gone && !keep.some((k) => k.toLowerCase() === gone) ? fallback : c);
+  const next: ToolSettings = { ...s, [tool]: { ...s[tool], presets: keep, color: swap(s[tool].color) } };
+  if (tool === "pen") next.text = { ...s.text, color: swap(s.text.color) };
+  return normalizeSettings(next);
 }
 
 function stroke(tool: StrokeToolId, v: unknown): ToolSettings[StrokeToolId] {

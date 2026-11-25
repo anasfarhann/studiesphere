@@ -191,6 +191,30 @@ describe("recognizeShape", () => {
     expect(recognizeShape(pts)).toBeNull();
   });
 
+  it("returns null for a cursive word held still at the end (a low wave)", () => {
+    // "minimum" in cursive: ~200 wide, ~12 tall, one hump per stroke of m/i/n/u (15 humps).
+    const r = rng(21);
+    const word: P[] = [];
+    for (let x = 0; x <= 200; x += 1.5) word.push([40 + x, 300 + 6 * Math.sin((x / 200) * Math.PI * 2 * 15) + (r() - 0.5) * 0.8]);
+    expect(recognizeShape(word)).toBeNull();
+    // Slanted, with uneven humps.
+    expect(recognizeShape(rotate(word.map(([x, y], i) => [x, y + 2 * Math.sin(i / 7)] as P), -8, [140, 300]))).toBeNull();
+  });
+
+  it("returns null for back-and-forth hatching", () => {
+    // Five passes over the same band, drifting 2 units sideways each time, ending at the far end.
+    const hatch = trace([[0, 0], [150, 2], [0, 4], [150, 6], [0, 8], [150, 10]], { amp: 0.8, seed: 22 });
+    expect(recognizeShape(hatch)).toBeNull();
+    // Two quick strokes back and forth on a long line, too.
+    expect(recognizeShape(trace([[0, 0], [200, 4], [60, 2], [220, 6]], { amp: 0.8, seed: 23 }))).toBeNull();
+  });
+
+  it("a slowly drawn, slightly wavy line is still a line", () => {
+    const pts: P[] = [];
+    for (let x = 0; x <= 240; x += 2) pts.push([x, 50 + 2 * Math.sin(x / 40)]);
+    expect(recognizeShape(pts)?.kind).toBe("line");
+  });
+
   it("returns null for a handwritten 'a'", () => {
     // Bowl drawn anticlockwise from the top right, back up, then the stem down with a small tail.
     const bowl = ellipse(30, 40, 25, 28, { from: -40, sweep: -320, n: 50, amp: 0.8, seed: 14 }).map(([x, y]) => [x, y] as P);

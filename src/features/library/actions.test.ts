@@ -23,7 +23,7 @@ describe("createQuickPageAction", () => {
     vi.setSystemTime(new Date("2026-11-24T20:00:00Z"));
     const f = new FormData();
     f.set("tz", "Asia/Kuala_Lumpur");
-    await createQuickPageAction(f);
+    await createQuickPageAction(null, f);
     expect(m.createPage).toHaveBeenCalledWith("nb1", "Page · 25 Nov");
     expect(m.redirect).toHaveBeenCalledWith("/app/p/p9");
   });
@@ -32,7 +32,16 @@ describe("createQuickPageAction", () => {
     vi.setSystemTime(new Date("2026-11-24T20:00:00Z"));
     const f = new FormData();
     f.set("tz", "bogus");
-    await createQuickPageAction(f);
+    await createQuickPageAction(null, f);
     expect(m.createPage).toHaveBeenCalledWith("nb1", "Page · 24 Nov");
+  });
+  it("returns a translated form error instead of throwing when creating fails, and does not redirect", async () => {
+    m.createPage.mockRejectedValue(new Error("db down: secret detail"));
+    const f = new FormData();
+    f.set("tz", "UTC");
+    await expect(createQuickPageAction(null, f)).resolves.toEqual({ error: "Something went wrong, please try again" });
+    expect(m.redirect).not.toHaveBeenCalled();
+    m.ensure.mockRejectedValue(new Error("no notebook"));
+    await expect(createQuickPageAction(null, f)).resolves.toEqual({ error: "Something went wrong, please try again" });
   });
 });

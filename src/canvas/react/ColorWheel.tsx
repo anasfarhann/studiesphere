@@ -16,8 +16,10 @@ type Drag = "hue" | "sv" | null;
 /**
  * Hue ring + saturation/value square + hex field. Pointer events (mouse, touch, Apple Pencil) with
  * capture, arrow keys on the focusable ring and square, no dependencies. `value` is `#rrggbb`.
+ * `onChange` fires live (every drag move); `onCommit` fires when a change is finished (pointer up,
+ * key up, hex applied), so callers can defer persisting until then.
  */
-export function ColorWheel({ value, onChange }: { value: string; onChange: (hex: string) => void }) {
+export function ColorWheel({ value, onChange, onCommit }: { value: string; onChange: (hex: string) => void; onCommit?: () => void }) {
   const [hsv, setHsv] = useState<Hsv>(() => hexToHsv(value) ?? { h: 0, s: 1, v: 1 });
   const [draft, setDraft] = useState<string | null>(null);
   const drag = useRef<Drag>(null);
@@ -42,6 +44,7 @@ export function ColorWheel({ value, onChange }: { value: string; onChange: (hex:
     const c = hexToHsv(n)!;
     setHsv({ h: c.s === 0 || c.v === 0 ? hsv.h : c.h, s: c.s, v: c.v });
     onChange(n);
+    onCommit?.();
   };
 
   const hueAt = (e: PointerEvent) => {
@@ -64,7 +67,9 @@ export function ColorWheel({ value, onChange }: { value: string; onChange: (hex:
     }
   };
   const release = (e: PointerEvent) => {
+    const wasDragging = drag.current !== null;
     drag.current = null;
+    if (wasDragging) onCommit?.();
     try {
       e.currentTarget.releasePointerCapture?.(e.pointerId);
     } catch {
@@ -137,6 +142,7 @@ export function ColorWheel({ value, onChange }: { value: string; onChange: (hex:
           onPointerUp={release}
           onPointerCancel={release}
           onKeyDown={ringKey}
+          onKeyUp={() => onCommit?.()}
           className={`absolute inset-0 rounded-full ${focusCls}`}
           style={{
             touchAction: "none",
@@ -160,6 +166,7 @@ export function ColorWheel({ value, onChange }: { value: string; onChange: (hex:
           onPointerUp={release}
           onPointerCancel={release}
           onKeyDown={squareKey}
+          onKeyUp={() => onCommit?.()}
           className={`absolute rounded-lg ${focusCls}`}
           style={{
             touchAction: "none",

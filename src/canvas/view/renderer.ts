@@ -3,6 +3,7 @@ import type { AudioEl, CanvasElement, FileEl, StrokeEl } from "../model/types";
 import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, FILE_ICON_X, TEXT_LINE_HEIGHT } from "../model/bounds";
 import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
 import { formatDuration } from "../model/format-duration";
+import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
 import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
@@ -42,7 +43,6 @@ type ImageEntry =
   | { state: "ready"; img: ImageBitmap | HTMLImageElement; bytes: number; lastUsed: number }
   | { state: "error"; failures: number; retryAt: number };
 
-const HIGHLIGHTER_ALPHA = 0.35;
 /** Snap-to-shape preview: the shape in the stroke colour at this alpha, plus a dashed centre line. */
 const GHOST_ALPHA = 0.4;
 const GHOST_DASH_PX: [number, number] = [6, 4];

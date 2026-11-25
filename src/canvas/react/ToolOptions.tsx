@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react"
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
 import { addPreset, clampSize, DEFAULT_SETTINGS, MAX_PRESET_COUNT, removePreset, SIZE_RANGE, type StrokeToolId, type ToolSettings } from "../settings/tool-settings";
+import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
 import { ColorWheel } from "./ColorWheel";
 
 const LONG_PRESS_MS = 500;
@@ -59,8 +60,8 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
     const v = clampSize(tool, n);
     editor.updateSettings((cur) => ({ ...cur, [tool]: { ...cur[tool], size: v } }), { deferSave: true });
   };
-  const setColor = (c: string) => {
-    editor.updateSettings((cur) => ({ ...cur, [tool]: { ...cur[tool], color: c } }));
+  const setColor = (c: string, opts?: { deferSave?: boolean }) => {
+    editor.updateSettings((cur) => ({ ...cur, [tool]: { ...cur[tool], color: c } }), opts);
   };
   const has = (c: string) => presets.some((p) => p.toLowerCase() === c.toLowerCase());
   const full = presets.length >= MAX_PRESET_COUNT;
@@ -72,13 +73,7 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
     setMessage(t("colorAdded", { hex: color }));
   };
   const removeAt = (c: string) => {
-    editor.updateSettings((cur) => {
-      const next = removePreset(cur, presetTool, c);
-      // Text follows the pen presets, so a removed colour falls back to the tool's first default.
-      const fallback = DEFAULT_SETTINGS[presetTool].presets[0];
-      const swap = (v: string) => (v.toLowerCase() === c.toLowerCase() ? fallback : v);
-      return { ...next, [tool]: { ...next[tool], color: swap((next[tool] as { color: string }).color) } } as ToolSettings;
-    });
+    editor.updateSettings((cur) => removePreset(cur, presetTool, c));
     setMessage(t("colorRemoved", { hex: c }));
   };
   const cancelPress = () => {
@@ -122,33 +117,31 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
         </div>
       ) : null}
       {tool === "pen" || tool === "highlighter" ? (
-        <div aria-label={t("sizePreview")} role="img" className="flex h-16 items-center justify-center overflow-hidden rounded-2xl bg-ground">
-          <span
-            data-testid="size-preview"
-            className="block shrink-0 rounded-full"
-            style={{ width: size, height: size, backgroundColor: color }}
-          />
-        </div>
-      ) : null}
-      {tool === "pen" || tool === "highlighter" ? (
-        <button
-          type="button"
-          role="switch"
-          aria-checked={s[tool].snap}
-          aria-describedby={snapHintId}
-          onClick={() => editor.updateSettings((cur) => ({ ...cur, [tool]: { ...cur[tool], snap: !cur[tool].snap } }))}
-          className="group flex h-11 w-full touch-manipulation cursor-pointer items-center justify-between gap-3 rounded-full px-2 text-sm font-medium text-ink"
-        >
-          <span>{t("snapToShape")}</span>
-          <span aria-hidden className="relative inline-flex h-6 w-10 shrink-0 items-center rounded-full border border-hairline bg-ground transition-colors group-aria-checked:border-ink group-aria-checked:bg-ink">
-            <span className="absolute left-0.5 size-5 rounded-full bg-card shadow-sm transition-transform group-aria-checked:translate-x-4" />
-          </span>
-        </button>
-      ) : null}
-      {tool === "pen" || tool === "highlighter" ? (
-        <p id={snapHintId} className="sr-only">
-          {t("snapToShapeHint")}
-        </p>
+        <>
+          <div aria-label={t("sizePreview")} role="img" className="flex h-16 items-center justify-center overflow-hidden rounded-2xl bg-ground">
+            <span
+              data-testid="size-preview"
+              className="block shrink-0 rounded-full"
+              style={{ width: size, height: size, backgroundColor: color, opacity: tool === "highlighter" ? HIGHLIGHTER_ALPHA : undefined }}
+            />
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={s[tool].snap}
+            aria-describedby={snapHintId}
+            onClick={() => editor.updateSettings((cur) => ({ ...cur, [tool]: { ...cur[tool], snap: !cur[tool].snap } }))}
+            className="group flex h-11 w-full touch-manipulation cursor-pointer items-center justify-between gap-3 rounded-full px-2 text-sm font-medium text-ink"
+          >
+            <span>{t("snapToShape")}</span>
+            <span aria-hidden className="relative inline-flex h-6 w-10 shrink-0 items-center rounded-full border border-hairline bg-ground transition-colors group-aria-checked:border-ink group-aria-checked:bg-ink">
+              <span className="absolute left-0.5 size-5 rounded-full bg-card shadow-sm transition-transform group-aria-checked:translate-x-4" />
+            </span>
+          </button>
+          <p id={snapHintId} className="sr-only">
+            {t("snapToShapeHint")}
+          </p>
+        </>
       ) : null}
       {hasColor ? (
         <>
@@ -208,7 +201,7 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
           </div>
           {wheelOpen ? (
             <div role="group" aria-label={t("colorWheelFor")} className="flex flex-col items-center gap-1">
-              <ColorWheel value={color} onChange={setColor} />
+              <ColorWheel value={color} onChange={(c) => setColor(c, { deferSave: true })} onCommit={() => editor.flushSettings()} />
               <button
                 type="button"
                 onClick={addCurrent}

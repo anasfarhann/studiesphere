@@ -16,7 +16,8 @@ export interface Clock {
 }
 
 const systemClock: Clock = {
-  now: () => Date.now(),
+  // Monotonic: only differences are used, and a wall-clock jump must not end or fake a hold.
+  now: () => performance.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
   clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
 };
@@ -80,6 +81,8 @@ export class PenTool implements Tool {
       points: [p],
       simulatePressure: e.kind !== "pen",
     };
+    // New highlighters are drawn at exactly the chosen size (legacy ones stay 3x, see strokeWidth).
+    if (this.id === "highlighter") this.live.sizeMode = "px";
     this.ctx.setLive(this.live);
     this.snapping = this.ctx.snap?.() ?? false;
     if (this.snapping) {

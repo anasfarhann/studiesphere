@@ -1,3 +1,4 @@
+import { strokeWidth } from "./stroke-style";
 import type { CanvasElement, Rect } from "./types";
 import { approxMeasure, wrapText } from "./wrap-text";
 
@@ -27,8 +28,8 @@ export function boundsOf(el: CanvasElement): Rect {
         if (y > maxY) maxY = y;
       }
       if (minX === Infinity) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-      // Highlighters are drawn 3x wider (see strokeOutline), so their ink radius is 1.5x size.
-      const pad = el.tool === "highlighter" ? el.size * 1.5 : el.size / 2;
+      // Ink radius at the drawn width (legacy highlighters are 3x wide, see strokeWidth).
+      const pad = strokeWidth(el) / 2;
       return { minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
     }
     case "text": {

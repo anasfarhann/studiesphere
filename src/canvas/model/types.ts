@@ -7,6 +7,8 @@ export type StrokeEl = Base & {
   size: number;
   points: Point[];
   simulatePressure: boolean;
+  /** "px": drawn at exactly `size`. Absent on older strokes, whose highlighters draw 3x wide (see strokeWidth). */
+  sizeMode?: "px";
 };
 export type TextEl = Base & {
   type: "text";

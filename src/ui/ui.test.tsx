@@ -27,7 +27,7 @@ describe("PillButton", () => {
   });
 });
 
-vi.mock("@/features/library/actions", () => ({ createQuickPageAction: async () => {} }));
+vi.mock("@/features/library/actions", () => ({ createQuickPageAction: async () => null }));
 
 describe("AppRail", () => {
   it("marks Home current for both home and subjects", () => {

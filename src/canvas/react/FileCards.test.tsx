@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Editor } from "../editor";
 import type { CanvasElement, FileEl } from "../model/types";
+import { t } from "@/i18n/en";
 import { FileCards } from "./FileCards";
 
 const file = (id: string, thumbPath?: string): FileEl => ({ id, z: 0, updatedAt: 1, type: "file", x: 0, y: 200, assetPath: `p/${id}.pdf`, fileName: `${id}.pdf`, mime: "application/pdf", bytes: 1, thumbPath });
@@ -79,6 +80,29 @@ describe("FileCards thumbnail", () => {
     await act(async () => { fire(); await new Promise((r) => setTimeout(r, 50)); });
     expect(thumbCalls(resolve)).toBe(2);
     expect((screen.getByTestId("file-thumb") as HTMLImageElement).src).toBe("https://x/2");
+    now.mockRestore();
+  });
+
+  it("a preview whose signing failed is retried after 60 s, not before", async () => {
+    let fail = true;
+    const resolve = vi.fn(async (p: string) => {
+      if (p.endsWith(".thumb.jpg") && fail) throw new Error("offline");
+      return `https://x/${p}`;
+    });
+    render(<FileCards editor={fakeEditor([file("a", "p/a.thumb.jpg")])} resolveUrl={resolve} forgetUrl={() => {}} />);
+    await flush();
+    expect(screen.queryByTestId("file-thumb")).toBeNull();
+    expect(thumbCalls(resolve)).toBe(1);
+    fail = false;
+    const real = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(real + 30 * 1000);
+    await act(async () => { fire(); await new Promise((r) => setTimeout(r, 50)); });
+    expect(thumbCalls(resolve)).toBe(1); // failure still remembered
+    now.mockReturnValue(real + 61 * 1000);
+    await act(async () => { fire(); await new Promise((r) => setTimeout(r, 50)); });
+    expect(thumbCalls(resolve)).toBe(2);
+    expect((screen.getByTestId("file-thumb") as HTMLImageElement).src).toBe("https://x/p/a.thumb.jpg");
+    expect(screen.getByTestId("file-thumb").getAttribute("alt")).toBe(t("filePreview", { name: "a.pdf" }));
     now.mockRestore();
   });
 
