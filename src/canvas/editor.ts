@@ -273,8 +273,10 @@ export class Editor {
   }
 
   /** Elements in the visible area (what the renderer draws), by z. */
-  visibleElements(): CanvasElement[] {
-    return this.scene.getVisible(this.camera.viewRect(this.viewW, this.viewH));
+  visibleElements(padBottom = 0): CanvasElement[] {
+    const r = this.camera.viewRect(this.viewW, this.viewH);
+    // padBottom (world units) also finds elements just below the view whose attachments reach into it.
+    return this.scene.getVisible(padBottom > 0 ? { ...r, maxY: r.maxY + padBottom } : r);
   }
 
   resize(cssW: number, cssH: number, dpr: number): void {

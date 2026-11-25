@@ -103,4 +103,18 @@ describe("FileInserter", () => {
     await settle();
     expect(thumbnail).not.toHaveBeenCalled();
   });
+
+  it("a card moved while the preview renders redoes at its original spot and keeps thumbPath", async () => {
+    const upload = vi.fn(async (_b: Blob, o: { ext: string }) => ({ assetPath: o.ext === "pdf" ? "own/pg/u.pdf" : "own/pg/u.thumb.jpg" }));
+    let release!: (b: Blob) => void;
+    const { scene, history, files } = setup(upload, () => new Promise<Blob | null>((r) => (release = r)));
+    await files.insert(pdf);
+    scene.update("f-1", { x: 5000, y: 6000 });
+    release(new Blob(["j"]));
+    await settle();
+    expect(scene.get("f-1")).toMatchObject({ x: 5000, y: 6000, thumbPath: "own/pg/u.thumb.jpg" });
+    history.undo(scene);
+    history.redo(scene);
+    expect(scene.get("f-1")).toMatchObject({ x: 880, y: 468, thumbPath: "own/pg/u.thumb.jpg" });
+  });
 });

@@ -126,8 +126,8 @@ export class FileInserter {
       const { assetPath } = await this.ctx.upload(thumb, { ownerId: this.ctx.ownerId, pageId: this.ctx.pageId, ext: "thumb.jpg" });
       if (this.disposed || !this.ctx.scene.get(id)) return;
       this.ctx.scene.update(id, { thumbPath: assetPath });
-      const cur = this.ctx.scene.get(id);
-      if (cur) change.after[0] = cur;
+      // Only this field: a move made while rendering must not leak into the insert snapshot.
+      change.after[0] = { ...change.after[0], thumbPath: assetPath } as FileEl;
     } catch {
       // No thumbnail: the card keeps its icon.
     }

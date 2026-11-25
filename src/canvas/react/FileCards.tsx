@@ -32,6 +32,7 @@ const THUMB_GAP = 6;
 
 const MIN_BUTTON = 44;
 /** Our own copy of a signed URL is trusted this long (the service keeps them 50 min, they live 60). */
+const nowMs = () => Date.now();
 const URL_FRESH_MS = 45 * 60 * 1000;
 
 function sameSpots(a: Spot[], b: Spot[]): boolean {
@@ -50,8 +51,8 @@ function sameSpots(a: Spot[], b: Spot[]): boolean {
 export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
   const [spots, setSpots] = useState<Spot[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
-  const [thumbUrls, setThumbUrls] = useState<Record<string, string | null>>({});
-  const thumbAsked = useRef(new Set<string>());
+  const [thumbUrls, setThumbUrls] = useState<Record<string, { url: string | null; at: number }>>({});
+  const thumbState = useRef(new Map<string, { asking: boolean; retried: boolean }>());
   const urls = useRef(new Map<string, { url: string; at: number }>());
   const resolveRef = useRef(resolveUrl);
   const forgetRef = useRef(forgetUrl);
@@ -68,7 +69,48 @@ export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
 
   const fresh = (assetPath: string): string | null => {
     const hit = urls.current.get(assetPath);
-    return hit && Date.now() - hit.at < URL_FRESH_MS ? hit.url : null;
+    return hit && nowMs() - hit.at < URL_FRESH_MS ? hit.url : null;
+  };
+
+  const thumbsRef = useRef(thumbUrls);
+  useEffect(() => {
+    thumbsRef.current = thumbUrls;
+  });
+
+  /** Signs a preview URL unless a fresh one (or a failure) is already held; stale ones are re-signed. */
+  const loadThumb = (tp: string) => {
+    const st = thumbState.current.get(tp) ?? { asking: false, retried: false };
+    thumbState.current.set(tp, st);
+    const have = thumbsRef.current[tp];
+    if (st.asking || (have && (have.url === null || nowMs() - have.at < URL_FRESH_MS))) return;
+    st.asking = true;
+    resolveRef.current(tp).then(
+      (url) => {
+        st.asking = false;
+        setThumbUrls((m) => ({ ...m, [tp]: { url, at: Date.now() } }));
+      },
+      () => {
+        st.asking = false;
+        setThumbUrls((m) => ({ ...m, [tp]: { url: null, at: Date.now() } }));
+      },
+    );
+  };
+
+  /** A preview that fails to load gets one fresh URL, then the icon alone. */
+  const thumbFailed = (tp: string) => {
+    const st = thumbState.current.get(tp) ?? { asking: false, retried: false };
+    thumbState.current.set(tp, st);
+    forgetRef.current(tp);
+    if (st.retried) {
+      setThumbUrls((m) => ({ ...m, [tp]: { url: null, at: Date.now() } }));
+      return;
+    }
+    st.retried = true;
+    st.asking = false;
+    const without = (m: typeof thumbUrls) => Object.fromEntries(Object.entries(m).filter(([k]) => k !== tp));
+    thumbsRef.current = without(thumbsRef.current);
+    setThumbUrls(without);
+    loadThumb(tp);
   };
 
   useEffect(() => {
@@ -77,7 +119,7 @@ export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
       frame = null;
       const z = editor.camera.zoom;
       const next: Spot[] = [];
-      for (const el of editor.visibleElements()) {
+      for (const el of editor.visibleElements(THUMB_H + THUMB_GAP)) {
         if (el.type !== "file") continue;
         const [sx, sy] = editor.camera.worldToScreen(el.x + FILE_ICON_X, el.y + CARD_H / 2);
         const [px, py] = editor.camera.worldToScreen(el.x, el.y - THUMB_H - THUMB_GAP);
@@ -94,14 +136,7 @@ export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
           tw: CARD_W * z,
           th: THUMB_H * z,
         });
-        const tp = el.thumbPath;
-        if (tp && !thumbAsked.current.has(tp)) {
-          thumbAsked.current.add(tp);
-          resolveRef.current(tp).then(
-            (url) => setThumbUrls((m) => ({ ...m, [tp]: url })),
-            () => setThumbUrls((m) => ({ ...m, [tp]: null })),
-          );
-        }
+        if (el.thumbPath) loadThumb(el.thumbPath);
         if (!fresh(el.assetPath)) void warm(el.assetPath).catch(() => {});
       }
       setSpots((prev) => (sameSpots(prev, next) ? prev : next));
@@ -154,14 +189,14 @@ export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
     <>
       {spots.map((s) => (
         <div key={s.id}>
-          {s.thumbPath && thumbUrls[s.thumbPath] ? (
+          {s.thumbPath && thumbUrls[s.thumbPath]?.url ? (
             // eslint-disable-next-line @next/next/no-img-element -- signed storage URL, not optimisable
             <img
               data-testid="file-thumb"
-              src={thumbUrls[s.thumbPath] ?? undefined}
+              src={thumbUrls[s.thumbPath]?.url ?? undefined}
               alt={t("filePreview").replace("{name}", s.name)}
               draggable={false}
-              onError={() => setThumbUrls((m) => ({ ...m, [s.thumbPath as string]: null }))}
+              onError={() => thumbFailed(s.thumbPath as string)}
               className="pointer-events-none absolute z-10 rounded-lg border border-[#cbd5e1] bg-white object-cover object-top"
               style={{ left: s.tx, top: s.ty, width: s.tw, height: s.th }}
             />
