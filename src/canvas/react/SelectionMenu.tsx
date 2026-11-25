@@ -36,6 +36,8 @@ function sameView(a: View | null, b: View | null): boolean {
 }
 
 function readView(editor: Editor): View | null {
+  // The crop overlay replaces the menu while it is open.
+  if (editor.crop.active) return null;
   const els = editor.selection.elements();
   if (els.length > 0) {
     const b = editor.getSelectionBounds();
@@ -121,7 +123,8 @@ function Actions({ editor, view }: { editor: Editor; view: View }) {
   return (
     <>
       <div className="flex gap-1">
-        {/* One image: its corner handle resizes it; Crop joins here (Task 9). */}
+        {/* One image: its corner handle resizes it; Crop opens the crop overlay. */}
+        {view.kind === "image" ? <MenuButton onClick={() => editor.beginCrop()}>{t("cropImage")}</MenuButton> : null}
         {view.kind === "text" ? <MenuButton onClick={() => editor.editSelectedText()}>{t("editText")}</MenuButton> : null}
         {view.kind === "text" ? (
           <MenuButton expanded={textOpen} label={t("textOptions")} onClick={() => setTextOpen((o) => !o)}>

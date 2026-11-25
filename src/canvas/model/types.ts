@@ -32,6 +32,8 @@ export type ImageEl = Base & {
   w: number;
   h: number;
   assetPath: string;
+  /** Visible part of the source image, in source fractions 0-1. Absent: the whole image. */
+  crop?: { x: number; y: number; w: number; h: number };
 };
 export type AudioEl = Base & {
   type: "audio";

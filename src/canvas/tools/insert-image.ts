@@ -24,6 +24,8 @@ export interface PhotoInserterContext {
   compress?: (file: File) => Promise<CompressedImage>;
   newId?: () => string;
   now?: () => number;
+  /** Called with the new photo's id once it is on the page (also after a retried upload). */
+  onInserted?: (id: string) => void;
 }
 
 type Pending = { image: CompressedImage; at: [number, number] };
@@ -135,6 +137,7 @@ export class PhotoInserter {
     };
     scene.add(el);
     history.push({ before: [], after: [el] });
+    this.ctx.onInserted?.(el.id);
   }
 
   private setStatus(s: PhotoStatus): void {

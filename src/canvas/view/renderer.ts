@@ -8,6 +8,7 @@ import { cssFont, whenFontReady } from "../model/text-style";
 import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
+import { validCrop } from "../tools/image-crop";
 import { outlineToPath, strokeOutline, type PathFactory } from "./stroke-path";
 
 export interface RendererOptions {
@@ -69,6 +70,8 @@ export class Renderer {
   private selection: string[] = [];
   private lasso: [number, number][] | null = null;
   private hidden: string | null = null;
+  /** A photo drawn at another rectangle, whole (crop mode shows the full source). */
+  private imagePreview: { id: string; x: number; y: number; w: number; h: number } | null = null;
   private cache = new Map<string, { updatedAt: number; path: Path2D }>();
   private maybeRemoved = false;
   private unsubscribe: () => void;
@@ -160,6 +163,12 @@ export class Renderer {
   /** An element not to draw (the text box being edited in the overlay), or null. */
   setHidden(id: string | null): void {
     this.hidden = id;
+    this.requestFrame();
+  }
+
+  /** Draws photo `p.id` whole at p's rectangle (crop mode), or as it is with null. Scene untouched. */
+  setImagePreview(p: { id: string; x: number; y: number; w: number; h: number } | null): void {
+    this.imagePreview = p;
     this.requestFrame();
   }
 
@@ -385,8 +394,15 @@ export class Renderer {
       });
     } else if (el.type === "image") {
       const entry = this.imageFor(el.assetPath);
-      if (entry.state === "ready") ctx.drawImage(entry.img, el.x, el.y, el.w, el.h);
-      else this.drawPlaceholder(el, entry.state === "error");
+      const pv = this.imagePreview && this.imagePreview.id === el.id ? this.imagePreview : null;
+      const crop = pv ? null : validCrop(el.crop);
+      if (entry.state !== "ready") this.drawPlaceholder(el, entry.state === "error");
+      else if (pv) ctx.drawImage(entry.img, pv.x, pv.y, pv.w, pv.h);
+      else if (crop) {
+        const iw = entry.img.width;
+        const ih = entry.img.height;
+        ctx.drawImage(entry.img, crop.x * iw, crop.y * ih, crop.w * iw, crop.h * ih, el.x, el.y, el.w, el.h);
+      } else ctx.drawImage(entry.img, el.x, el.y, el.w, el.h);
     } else if (el.type === "audio") {
       this.drawAudioCard(el);
     } else if (el.type === "file") {

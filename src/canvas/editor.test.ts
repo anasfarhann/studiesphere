@@ -863,3 +863,98 @@ describe("Editor lasso: tap to select, copy and paste, recolour", () => {
     expect(editor.scene.get("img")).toMatchObject({ x: 0, y: 0, w: 200, h: 200 });
   });
 });
+
+describe("Editor image select and crop", () => {
+  let editor: Editor;
+  const photo = { id: "p", type: "image", x: 100, y: 100, w: 200, h: 100, assetPath: "a", z: 1, updatedAt: 1 } as const;
+  beforeEach(() => {
+    localStorage.clear();
+    frames = [];
+    const canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [photo],
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+  });
+  afterEach(() => editor.destroy());
+
+  it("selectInserted switches to lasso with the photo selected and reports the tool change", () => {
+    const tools: string[] = [];
+    editor.onToolChange((t) => tools.push(t));
+    editor.setTool("pen");
+    editor.selectInserted("p");
+    expect(editor.tool).toBe("lasso");
+    expect(editor.selection.ids).toEqual(["p"]);
+    expect(tools).toEqual(["pen", "lasso"]);
+  });
+
+  it("selectInserted waits for a stroke in progress instead of cutting it", () => {
+    const c = document.querySelector("canvas:last-of-type") as HTMLCanvasElement;
+    fire(c, "pointerdown", 1, "mouse", 600, 600);
+    editor.selectInserted("p");
+    expect(editor.tool).toBe("pen");
+    fire(c, "pointerup", 1, "mouse", 600, 600);
+    expect(editor.tool).toBe("lasso");
+    expect(editor.selection.ids).toEqual(["p"]);
+  });
+
+  function crop() {
+    editor.setTool("lasso");
+    editor.selection.set(["p"]);
+    expect(editor.beginCrop()).toBe(true);
+  }
+
+  it("Done commits one undo step; undo/redo restore", () => {
+    crop();
+    expect(editor.cropDragBegin("e", 1, "mouse", 300, 150)).toBe(true);
+    editor.cropDragMove(1, 200, 150);
+    editor.cropDragEnd(1);
+    editor.crop.done();
+    expect(editor.scene.get("p")).toMatchObject({ w: 100, crop: { x: 0, y: 0, w: 0.5, h: 1 } });
+    editor.undo();
+    expect((editor.scene.get("p") as { crop?: unknown }).crop).toBeUndefined();
+    expect(editor.scene.get("p")).toMatchObject({ w: 200 });
+    editor.redo();
+    expect(editor.scene.get("p")).toMatchObject({ w: 100 });
+  });
+
+  it("Cancel, switching tools, and undo during crop all abandon it unchanged", () => {
+    crop();
+    editor.crop.cancel();
+    expect(editor.scene.get("p")).toEqual(photo);
+    crop();
+    editor.setTool("pen");
+    expect(editor.crop.active).toBe(false);
+    crop();
+    editor.undo();
+    expect(editor.crop.active).toBe(false);
+    expect(editor.scene.get("p")).toEqual(photo);
+    expect(editor.canUndo()).toBe(false);
+  });
+
+  it("with the Pencil in use a finger cannot drag a crop handle; the Pencil can, one pointer at a time", () => {
+    crop();
+    editor.router.penSeen = true;
+    expect(editor.cropDragBegin("e", 7, "touch", 300, 150)).toBe(false);
+    expect(editor.cropDragBegin("e", 8, "pen", 300, 150)).toBe(true);
+    expect(editor.cropDragBegin("w", 9, "pen", 100, 150)).toBe(false);
+    editor.cropDragEnd(8);
+  });
+
+  it("the canvas does not draw while cropping", () => {
+    crop();
+    const c = document.querySelector("canvas:last-of-type") as HTMLCanvasElement;
+    fire(c, "pointerdown", 1, "mouse", 600, 600);
+    fire(c, "pointermove", 1, "mouse", 650, 650);
+    fire(c, "pointerup", 1, "mouse", 650, 650);
+    expect(editor.scene.all().filter((e) => e.type === "stroke")).toHaveLength(0);
+  });
+
+  it("a photo removed during crop ends it", () => {
+    crop();
+    editor.scene.remove("p");
+    expect(editor.crop.active).toBe(false);
+  });
+});

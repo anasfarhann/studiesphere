@@ -58,9 +58,13 @@ describe("SelectionMenu actions per selection", () => {
     expect(names()).toEqual(["Delete", "Colour", "Copy"]);
   });
 
-  it("one image: Delete, Copy (its corner handle resizes; no Crop yet)", () => {
+  it("one image: Crop, Delete, Copy (its corner handle resizes); Crop opens crop mode and hides the menu", () => {
     select(["img"]);
-    expect(names()).toEqual(["Delete", "Copy"]);
+    expect(names()).toEqual(["Crop", "Delete", "Copy"]);
+    fireEvent.click(screen.getByRole("button", { name: "Crop" }));
+    expect(editor.crop.active).toBe(true);
+    flush();
+    expect(screen.queryByRole("toolbar", { name: "Selection actions" })).toBeNull();
   });
 
   it("one text: Edit, Aa, Delete, Copy; Edit opens the text editor", () => {
@@ -145,7 +149,7 @@ describe("Paste offer", () => {
     const images = editor.scene.all().filter((e) => e.type === "image");
     expect(images).toHaveLength(2);
     expect(images[1]).toMatchObject({ x: 550, y: 550, assetPath: "o/p/i.png" });
-    expect(names()).toEqual(["Delete", "Copy"]); // the pasted copy is selected
+    expect(names()).toEqual(["Crop", "Delete", "Copy"]); // the pasted copy is selected
   });
 
   it("shows nothing on an empty-space tap with an empty clipboard", () => {

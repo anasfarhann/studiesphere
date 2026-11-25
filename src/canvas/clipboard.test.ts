@@ -124,6 +124,28 @@ describe("Clipboard", () => {
   });
 });
 
+describe("image crop through the clipboard", () => {
+  it("a cropped photo pastes with its crop, also after a reload from storage", () => {
+    const cropped: ImageEl = { ...img, w: 50, crop: { x: 0.5, y: 0, w: 0.5, h: 1 } };
+    new Clipboard({ owner: "user-a", storage }).copy([cropped]);
+    const scene = new Scene();
+    const ids = pasteInto(
+      { scene, history: new History(), selection: new Selection(scene), newId: () => "p" },
+      new Clipboard({ owner: "user-a", storage }),
+      [0, 0],
+    );
+    expect(scene.get(ids[0])).toMatchObject({ w: 50, crop: { x: 0.5, y: 0, w: 0.5, h: 1 } });
+  });
+
+  it("a stored photo with a malformed crop is an empty clipboard", () => {
+    storage.setItem(
+      CLIPBOARD_KEY,
+      JSON.stringify({ v: 1, owner: "user-a", w: 1, h: 1, elements: [{ ...img, crop: { x: 0, y: 0, w: 0, h: 1 } }] }),
+    );
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+  });
+});
+
 describe("pasteInto", () => {
   it("adds copies with new ids, on top, centred at the point, as one undo step, and selects them", () => {
     const scene = new Scene([ink, img, txt]);

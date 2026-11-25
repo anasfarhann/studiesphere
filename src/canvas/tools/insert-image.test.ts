@@ -41,6 +41,23 @@ describe("PhotoInserter", () => {
     expect(history.canUndo()).toBe(false);
   });
 
+  it("reports the inserted id, also for an upload that only succeeds on retry", async () => {
+    const upload = vi
+      .fn()
+      .mockRejectedValueOnce(new AttachmentError("upload_failed", "offline"))
+      .mockResolvedValueOnce({ assetPath: "own/pg/u.jpg" });
+    const onInserted = vi.fn();
+    const scene = new Scene();
+    const photos = new PhotoInserter({
+      scene, history: new History(), ownerId: "o", pageId: "p", center: () => [0, 0], upload,
+      compress: async () => ({ blob, width: 100, height: 50 }), newId: () => "img-9", onInserted,
+    });
+    await photos.insert(file);
+    expect(onInserted).not.toHaveBeenCalled();
+    await photos.retry();
+    expect(onInserted).toHaveBeenCalledExactlyOnceWith("img-9");
+  });
+
   it("keeps small photos at their own size", async () => {
     const { scene, photos } = setup(vi.fn(async () => ({ assetPath: "a" })), { width: 200, height: 100 });
     await photos.insert(file);

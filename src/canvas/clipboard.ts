@@ -3,6 +3,7 @@ import type { History } from "./model/history";
 import type { Scene } from "./model/scene";
 import type { CanvasElement } from "./model/types";
 import type { Selection } from "./selection";
+import { validCrop } from "./tools/image-crop";
 
 /** Device storage key for the canvas clipboard (shared by every page and tab on this device). */
 export const CLIPBOARD_KEY = "ss.clipboard.v1";
@@ -32,7 +33,7 @@ function validElement(v: unknown): v is CanvasElement {
     case "text":
       return fin(v.x) && fin(v.y) && fin(v.w) && fin(v.fontSize) && str(v.text) && str(v.color);
     case "image":
-      return fin(v.x) && fin(v.y) && fin(v.w) && fin(v.h) && str(v.assetPath);
+      return fin(v.x) && fin(v.y) && fin(v.w) && fin(v.h) && str(v.assetPath) && (v.crop === undefined || validCrop(v.crop) !== null);
     case "audio":
       return fin(v.x) && fin(v.y) && str(v.assetPath) && fin(v.durationMs);
     case "file":

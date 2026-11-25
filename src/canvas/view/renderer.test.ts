@@ -297,6 +297,33 @@ describe("Renderer", () => {
       expect(load).toHaveBeenCalledTimes(1);
     });
 
+    it("a cropped photo draws only its source sub-rect into its rectangle (9-argument form)", async () => {
+      scene.add({ ...photo, w: 100, h: 100, crop: { x: 0.5, y: 0, w: 0.25, h: 0.5 } });
+      const r = makeWith(async () => bitmap);
+      r.resize(400, 400, 1);
+      flush(); await settle(); flush();
+      expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, 200, 0, 100, 100, 10, 20, 100, 100);
+    });
+
+    it("a photo with a malformed crop is drawn whole, as without one", async () => {
+      scene.add({ ...photo, crop: { x: 2, y: 0, w: 9, h: 0 } });
+      const r = makeWith(async () => bitmap);
+      r.resize(400, 400, 1);
+      flush(); await settle(); flush();
+      expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, 10, 20, 200, 100);
+    });
+
+    it("an image preview draws the whole source at the preview rectangle", async () => {
+      scene.add({ ...photo, w: 100, h: 100, crop: { x: 0.5, y: 0, w: 0.25, h: 0.5 } });
+      const r = makeWith(async () => bitmap);
+      r.resize(400, 400, 1);
+      flush(); await settle(); flush();
+      ctx.drawImage.mockClear();
+      r.setImagePreview({ id: "p", x: -90, y: 20, w: 400, h: 200 });
+      flush();
+      expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, -90, 20, 400, 200);
+    });
+
     it("a failed load keeps the placeholder with a broken-image mark and never retries per frame", async () => {
       scene.add(photo);
       const load = vi.fn(async () => { throw new Error("404"); });

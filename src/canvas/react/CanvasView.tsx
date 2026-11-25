@@ -20,6 +20,7 @@ import { RecordingBar } from "./RecordingBar";
 import { TextEditorOverlay } from "./TextEditorOverlay";
 import { HistoryPanel } from "./HistoryPanel";
 import type { SnapshotStore } from "../persistence/snapshot-store";
+import { CropOverlay } from "./CropOverlay";
 import { SelectionMenu } from "./SelectionMenu";
 import { Toolbar } from "./Toolbar";
 import { hasOptions, ToolOptions } from "./ToolOptions";
@@ -106,6 +107,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
         pageId: files.pageId,
         center: () => editor.viewportCenter(),
         upload: (blob, o) => files.service.uploadAttachment(blob, o),
+        onInserted: (id) => editor.selectInserted(id),
       });
       photosRef.current = photos;
       offPhoto = photos.onStatus(setPhotoState);
@@ -136,6 +138,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
     const syncHist = () => setHist({ canUndo: editor.canUndo(), canRedo: editor.canRedo() });
     const offHist = editor.onHistoryChange(syncHist);
+    const offTool = editor.onToolChange(setTool);
     const detach = attach?.(editor);
 
     const fit = () => {
@@ -190,6 +193,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
       audioRef.current?.dispose();
       audioRef.current = null;
       offHist();
+      offTool();
       detach?.();
       editor.destroy();
       if (window.__editor === editor) delete window.__editor;
@@ -295,6 +299,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
         ) : null}
         {editor ? <TextEditorOverlay editor={editor} /> : null}
         {editor ? <SelectionMenu editor={editor} /> : null}
+        {editor ? <CropOverlay editor={editor} /> : null}
         {editor && snapshots && historyOpen ? (
           <HistoryPanel store={snapshots.store} pageId={snapshots.pageId} editor={editor} onClose={() => setHistoryOpen(false)} top={barBottom + 8} />
         ) : null}
