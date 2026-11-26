@@ -94,14 +94,10 @@ function memoryAttachmentStorage(): AttachmentStorage {
 
 /**
  * `?remover=stub` (e2e): a fake background remover that reports progress over about 1.5 s, then clears the left
- * half of the photo; `?remover=fail` reports some progress, then fails. Both honour Cancel. `?remover=offline`:
- * the real remover with an unreachable model host. Without the
- * parameter the real on-device remover runs (it downloads its model on first use).
+ * half of the photo; `?remover=fail` reports some progress, then fails. Both honour Cancel. Without the
+ * parameter no remover is configured (as in production) and the button is not offered.
  */
 function stubRemover(mode: string | null): RemoveBackgroundFn | undefined {
-  // The real worker remover, with its model host unreachable: the download fails (e2e of the failure path).
-  if (mode === "offline")
-    return async (image, opts) => (await import("@/canvas/tools/remove-background-client")).createWorkerRemover({ publicPath: "http://127.0.0.1:9/" })(image, opts);
   if (mode !== "stub" && mode !== "fail") return undefined;
   return (image, { onProgress, signal }) =>
     new Promise<Blob>((resolve, reject) => {
@@ -113,7 +109,7 @@ function stubRemover(mode: string | null): RemoveBackgroundFn | undefined {
       signal.addEventListener("abort", abort);
       const timer = setInterval(() => {
         step++;
-        onProgress(step / 10, step < 4 ? "download" : "compute");
+        onProgress(step / 10);
         if (mode === "fail" && step === 4) {
           clearInterval(timer);
           reject(new Error("stub failure"));

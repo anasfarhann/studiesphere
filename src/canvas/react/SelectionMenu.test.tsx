@@ -166,6 +166,13 @@ describe("SelectionMenu image actions (with attachments)", () => {
     expect(screen.getByRole("button", { name: "Crop" }).parentElement!.className).toMatch(/\bflex-wrap\b/);
   });
 
+  it("without a configured remover the single-image menu is Crop, Preview, Delete, Copy", () => {
+    render(<SelectionMenu editor={editor} image={{ removing: false, onPreview: vi.fn() }} />);
+    act(() => editor.selection.set(["img"]));
+    flush();
+    expect(names()).toEqual(["Crop", "Preview", "Delete", "Copy"]);
+  });
+
   it("Remove background and Preview act on the selected photo", () => {
     const actions = selectImage();
     fireEvent.click(screen.getByRole("button", { name: "Remove background" }));

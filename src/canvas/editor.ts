@@ -974,8 +974,9 @@ export class Editor {
   };
 
   private onKey = (e: KeyboardEvent): void => {
-    // Keys inside a modal dialog (the photo lightbox) belong to it: no undo or delete behind it.
-    if (e.type === "keydown" && e.target instanceof Element && e.target.closest('[aria-modal="true"]')) return;
+    // While a modal dialog (the photo lightbox) is open its keys belong to it, wherever focus is (even on body):
+    // no undo or delete behind it.
+    if (e.type === "keydown" && document.querySelector('[aria-modal="true"]')) return;
     if (e.type === "keydown" && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "z") {
       if (isEditable(e.target)) return;
       e.preventDefault();

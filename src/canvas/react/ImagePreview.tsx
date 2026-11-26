@@ -16,7 +16,7 @@ export interface ImagePreviewProps {
 }
 
 /**
- * In-app lightbox for one photo: the part the page shows (its crop), as large as fits the viewport, at the full
+ * In-app lightbox for one photo: the part the page shows (its crop; a toggle shows the whole photo), as large as fits the viewport, at the full
  * resolution of the stored original. Escape, the close button or a backdrop tap close it; focus returns.
  */
 export function ImagePreview({ image, resolveUrl, onClose }: ImagePreviewProps) {
@@ -40,8 +40,12 @@ export function ImagePreview({ image, resolveUrl, onClose }: ImagePreviewProps) 
   const state = loaded?.path === path ? loaded : null;
   const [failed, setFailed] = useState<string | null>(null);
 
-  const crop = validCrop(image.crop) ?? { x: 0, y: 0, w: 1, h: 1 };
-  const aspect = image.w > 0 && image.h > 0 ? image.w / image.h : 1;
+  const [whole, setWhole] = useState(false);
+  const cropped = validCrop(image.crop);
+  const crop = (!whole && cropped) || { x: 0, y: 0, w: 1, h: 1 };
+  // The frame's shape follows what is shown: the card's, or the whole photo's (the card's shape undone by the crop).
+  const cardAspect = image.w > 0 && image.h > 0 ? image.w / image.h : 1;
+  const aspect = whole && cropped ? cardAspect * (cropped.h / cropped.w) : cardAspect;
   const broken = state?.url === null || failed === state?.url;
   return (
     <Dialog title={t("imagePreviewTitle")} onClose={onClose} wide>
@@ -76,6 +80,18 @@ export function ImagePreview({ image, resolveUrl, onClose }: ImagePreviewProps) 
           {broken ? <p className="absolute inset-0 flex items-center justify-center p-4 text-center text-sm text-ink">{t("imagePreviewUnavailable")}</p> : null}
         </div>
       </div>
+      {cropped ? (
+        <div className="mt-3 flex justify-center">
+          <button
+            type="button"
+            aria-pressed={whole}
+            onClick={() => setWhole((w) => !w)}
+            className="inline-flex h-11 min-w-11 cursor-pointer touch-manipulation items-center justify-center rounded-full px-5 text-sm font-medium text-ink underline underline-offset-2"
+          >
+            {whole ? t("imagePreviewShowCropped") : t("imagePreviewShowWhole")}
+          </button>
+        </div>
+      ) : null}
     </Dialog>
   );
 }

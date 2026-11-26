@@ -582,6 +582,20 @@ describe("Editor history and eraser", () => {
       dialog.remove();
     });
 
+    it("shortcuts do not reach the canvas while any modal dialog is open, even with focus on body", () => {
+      lassoAround();
+      const dialog = document.createElement("div");
+      dialog.setAttribute("aria-modal", "true");
+      document.body.appendChild(dialog);
+      (document.activeElement as HTMLElement | null)?.blur();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true }));
+      expect(editor.scene.get("a")).toBeDefined();
+      dialog.remove();
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace" }));
+      expect(editor.scene.get("a")).toBeUndefined();
+    });
+
     it("coalesces selection notifications to one per frame", () => {
       lassoAround();
       flushFrames();

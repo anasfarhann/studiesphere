@@ -51,8 +51,8 @@ export interface AttachmentConfig {
 }
 
 /** A stored photo's bytes, through its signed URL (a tainted <img> could not be read back). */
-async function fetchAsset(signedUrl: string): Promise<Blob> {
-  const res = await fetch(signedUrl);
+async function fetchAsset(signedUrl: string, signal: AbortSignal): Promise<Blob> {
+  const res = await fetch(signedUrl, { signal });
   if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
   return res.blob();
 }
@@ -159,17 +159,19 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
       });
       audioRef.current = audio;
       offAudio = audio.onStatus(setAudioState);
-      const bg = new BackgroundRemover({
-        scene: editor.scene,
-        history: editor.history,
-        ownerId: files.ownerId,
-        pageId: files.pageId,
-        fetchOriginal: async (path) => fetchAsset(await files.service.signedUrl(path)),
-        upload: (blob, o) => files.service.uploadAttachment(blob, o),
-        remove: files.removeBackground,
-      });
-      bgRef.current = bg;
-      offBg = bg.onStatus(setBgState);
+      if (files.removeBackground) {
+        const bg = new BackgroundRemover({
+          scene: editor.scene,
+          history: editor.history,
+          ownerId: files.ownerId,
+          pageId: files.pageId,
+          fetchOriginal: async (path, signal) => fetchAsset(await files.service.signedUrl(path), signal),
+          upload: (blob, o) => files.service.uploadAttachment(blob, o),
+          remove: files.removeBackground,
+        });
+        bgRef.current = bg;
+        offBg = bg.onStatus(setBgState);
+      }
     }
     setEditor(editor);
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
@@ -366,7 +368,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
               files
                 ? {
                     removing: bgState.kind === "working",
-                    onRemoveBackground: (id) => void bgRef.current?.start(id),
+                    onRemoveBackground: files.removeBackground ? (id) => void bgRef.current?.start(id) : undefined,
                     onPreview: (id) => {
                       const el = editor.scene.get(id);
                       if (el?.type === "image") setPreviewing(el);

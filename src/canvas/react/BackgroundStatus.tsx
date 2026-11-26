@@ -21,10 +21,7 @@ export function BackgroundStatus({ status, onCancel, onDismiss }: BackgroundStat
     >
       {status.kind === "working" ? (
         <>
-          <span className="flex min-w-0 flex-col py-1">
-            <span className="font-medium tabular-nums">{t("removeBackgroundProgress", { percent: status.percent })}</span>
-            {status.downloading ? <span className="text-xs text-ink/70">{t("removeBackgroundFirstUse")}</span> : null}
-          </span>
+          <span className="min-w-0 py-2 font-medium tabular-nums">{t("removeBackgroundProgress", { percent: status.percent })}</span>
           <button
             type="button"
             onClick={onCancel}

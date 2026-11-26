@@ -7,14 +7,11 @@ import { t } from "@/i18n/en";
 /** Photos are scaled down to at most this long side before processing (memory on iPad). */
 export const MAX_BG_SIDE = 2048;
 
-/** What the remover is doing: fetching its model (first use only, then from the browser cache) or computing. */
-export type RemovePhase = "download" | "compute";
-
 export interface RemoveOptions {
   maxSide: number;
-  /** Share done (0-1) of the removal itself, and its phase. */
-  onProgress: (fraction: number, phase: RemovePhase) => void;
-  /** Aborting stops the work (the worker is terminated) and rejects with an AbortError. */
+  /** Share done (0-1) of the removal itself. */
+  onProgress: (fraction: number) => void;
+  /** Aborting stops the work and rejects with an AbortError. */
   signal: AbortSignal;
 }
 
@@ -23,7 +20,7 @@ export type RemoveBackgroundFn = (image: Blob, opts: RemoveOptions) => Promise<B
 
 export type BackgroundStatus =
   | { kind: "idle" }
-  | { kind: "working"; id: string; percent: number; downloading: boolean }
+  | { kind: "working"; id: string; percent: number }
   | { kind: "error"; message: string };
 
 export interface BackgroundRemoverContext {
@@ -32,15 +29,11 @@ export interface BackgroundRemoverContext {
   ownerId: string;
   pageId: string;
   /** The photo's stored bytes (fetched through its signed URL, never read back from a possibly tainted <img>). */
-  fetchOriginal: (assetPath: string) => Promise<Blob>;
+  fetchOriginal: (assetPath: string, signal: AbortSignal) => Promise<Blob>;
   upload: (file: Blob, opts: UploadOptions) => Promise<{ assetPath: string }>;
-  /** Defaults to the on-device remover, loaded (with its worker) on first use. */
-  remove?: RemoveBackgroundFn;
+  /** The remover (the swappable seam: any on-device model behind this signature). */
+  remove: RemoveBackgroundFn;
 }
-
-/** The on-device remover, loaded on first use: neither it nor the library is in the page's initial chunks. */
-export const loadDefaultRemover: () => Promise<RemoveBackgroundFn> = async () =>
-  (await import("./remove-background-client")).removeBackgroundInWorker;
 
 /** Progress reported to the user: fetching the original 0-5 %, the removal 5-90 %, the upload 90-100 %. */
 const FETCH_END = 5;
@@ -58,7 +51,7 @@ function isAbort(e: unknown): boolean {
 export class BackgroundRemover {
   private _status: BackgroundStatus = { kind: "idle" };
   private listeners = new Set<(s: BackgroundStatus) => void>();
-  private run: { id: string; abort: AbortController; percent: number; downloading: boolean } | null = null;
+  private run: { id: string; abort: AbortController; percent: number } | null = null;
   private disposed = false;
 
   constructor(private ctx: BackgroundRemoverContext) {}
@@ -103,29 +96,26 @@ export class BackgroundRemover {
     const el = this.ctx.scene.get(id);
     if (!el || el.type !== "image") return;
     const sourcePath = el.assetPath;
-    const run = { id, abort: new AbortController(), percent: 0, downloading: false };
+    const run = { id, abort: new AbortController(), percent: 0 };
     this.run = run;
     const live = () => this.run === run;
-    const report = (percent: number, downloading: boolean) => {
+    const report = (percent: number) => {
       if (!live()) return;
       run.percent = Math.max(run.percent, Math.min(100, Math.round(percent)));
-      run.downloading = downloading;
-      this.setStatus({ kind: "working", id, percent: run.percent, downloading });
+      this.setStatus({ kind: "working", id, percent: run.percent });
     };
-    report(0, false);
+    report(0);
     try {
-      const original = await this.ctx.fetchOriginal(sourcePath);
+      const original = await this.ctx.fetchOriginal(sourcePath, run.abort.signal);
       if (!live()) return;
-      report(FETCH_END, false);
-      const remove = this.ctx.remove ?? (await loadDefaultRemover());
-      if (!live()) return;
-      const png = await remove(original, {
+      report(FETCH_END);
+      const png = await this.ctx.remove(original, {
         maxSide: MAX_BG_SIDE,
         signal: run.abort.signal,
-        onProgress: (f, phase) => report(FETCH_END + (REMOVE_END - FETCH_END) * Math.min(1, Math.max(0, f)), phase === "download"),
+        onProgress: (f) => report(FETCH_END + (REMOVE_END - FETCH_END) * Math.min(1, Math.max(0, f))),
       });
       if (!live()) return;
-      report(REMOVE_END, false);
+      report(REMOVE_END);
       const { assetPath } = await this.ctx.upload(png, { ownerId: this.ctx.ownerId, pageId: this.ctx.pageId, ext: "png" });
       if (!live()) return;
       this.run = null;

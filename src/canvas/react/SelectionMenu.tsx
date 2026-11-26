@@ -67,7 +67,8 @@ function readView(editor: Editor): View | null {
 
 /** Photo actions that need the page's attachments (storage); without them only Crop is offered. */
 export interface ImageActions {
-  onRemoveBackground: (id: string) => void;
+  /** Only given when a background remover is configured; without it the button is not offered. */
+  onRemoveBackground?: (id: string) => void;
   onPreview: (id: string) => void;
   /** A removal is running: Remove background is disabled until it ends. */
   removing: boolean;
@@ -145,8 +146,8 @@ function Actions({ editor, view, image }: { editor: Editor; view: View; image?: 
     <>
       <div className="flex flex-wrap justify-center gap-1">
         {/* One image: its corner handle resizes it; Crop opens the crop overlay. */}
-        {view.kind === "image" && image ? (
-          <MenuButton disabled={image.removing} onClick={() => image.onRemoveBackground(view.key)}>
+        {view.kind === "image" && image?.onRemoveBackground ? (
+          <MenuButton disabled={image.removing} onClick={() => image.onRemoveBackground?.(view.key)}>
             {t("removeBackground")}
           </MenuButton>
         ) : null}

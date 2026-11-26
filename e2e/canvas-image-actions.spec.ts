@@ -5,7 +5,7 @@ type EditorHook = { __editor?: { selection: { ids: string[] }; scene: { all(): E
 
 const image = (page: Page) => page.evaluate(() => (window as unknown as EditorHook).__editor!.scene.all().find((e) => e.type === "image")!);
 
-async function insertDemoImage(page: Page, query = "") {
+async function insertDemoImage(page: Page, query = "?remover=stub", withRemover = true) {
   await page.goto(`/dev/canvas${query}`);
   await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
   const dataUrl = await page.evaluate(() => {
@@ -21,7 +21,8 @@ async function insertDemoImage(page: Page, query = "") {
   await page.getByTestId("photo-input").setInputFiles({ name: "demo.png", mimeType: "image/png", buffer });
   await page.waitForFunction(() => (window as unknown as EditorHook).__editor!.scene.all().some((e) => e.type === "image"));
   // Inserting selects the photo: its menu shows.
-  await expect(page.getByRole("button", { name: "Remove background" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Crop" })).toBeVisible();
+  if (withRemover) await expect(page.getByRole("button", { name: "Remove background" })).toBeVisible();
 }
 
 for (const viewport of [
@@ -46,7 +47,7 @@ for (const viewport of [
     });
 
     test("Remove background (stubbed) shows progress, replaces the photo, and one undo restores it", async ({ page }) => {
-      await insertDemoImage(page, "?remover=stub");
+      await insertDemoImage(page);
       const before = await image(page);
       await page.getByRole("button", { name: "Remove background" }).click();
       const chip = page.getByTestId("background-status");
@@ -64,7 +65,7 @@ for (const viewport of [
 }
 
 test("Cancel stops the removal and leaves the photo unchanged", async ({ page }) => {
-  await insertDemoImage(page, "?remover=stub");
+  await insertDemoImage(page);
   const before = await image(page);
   await page.getByRole("button", { name: "Remove background" }).click();
   const chip = page.getByTestId("background-status");
@@ -88,28 +89,11 @@ test("a failing removal says so and leaves the photo unchanged", async ({ page }
   await expect(chip).toHaveCount(0);
 });
 
-test("the real remover runs in a worker and fails gracefully when its model cannot be downloaded", async ({ page }) => {
-  const workers: string[] = [];
-  page.on("worker", (w) => workers.push(w.url()));
-  await insertDemoImage(page, "?remover=offline");
-  const before = await image(page);
-  await page.getByRole("button", { name: "Remove background" }).click();
-  const chip = page.getByTestId("background-status");
-  await expect(chip).toContainText("Couldn't remove the background", { timeout: 60_000 });
-  expect(workers.length).toBeGreaterThan(0);
-  expect(await image(page)).toEqual(before);
-});
-
-test("the background-removal library is not loaded until it is used", async ({ page }) => {
-  const scripts: string[] = [];
-  page.on("response", async (r) => {
-    if (r.request().resourceType() !== "script") return;
-    scripts.push(await r.text().catch(() => ""));
-  });
-  await insertDemoImage(page);
-  await page.waitForLoadState("networkidle");
-  expect(scripts.length).toBeGreaterThan(0);
-  expect(scripts.some((s) => s.includes("staticimgly") || s.includes("InferenceSession"))).toBe(false);
+test("without a remover (production) the photo menu has no Remove background", async ({ page }) => {
+  await insertDemoImage(page, "", false);
+  const menu = page.getByRole("toolbar", { name: "Selection actions" });
+  await expect(menu.getByRole("button", { name: "Crop" })).toBeVisible();
+  expect(await menu.getByRole("button").allTextContents()).toEqual(["Crop", "Preview", "Delete", "Copy"]);
 });
 
 test("Preview opens the photo in an in-app lightbox; Escape and Close return focus", async ({ page }) => {

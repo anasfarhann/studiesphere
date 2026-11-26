@@ -44,6 +44,22 @@ describe("ImagePreview", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("a cropped photo can be shown whole and back; an uncropped one has no toggle", async () => {
+    const { rerender } = render(<ImagePreview image={photo} resolveUrl={async () => "blob:signed"} onClose={() => {}} />);
+    const img = (await screen.findByRole("img", { name: "Photo preview" })) as HTMLImageElement;
+    const frame = screen.getByTestId("image-preview-frame");
+    const toggle = screen.getByRole("button", { name: "Show whole photo" });
+    expect(toggle.className).toMatch(/\bh-11\b/);
+    fireEvent.click(toggle);
+    expect(img.style.width).toBe("100%");
+    expect(img.style.left).toBe("0%");
+    expect(frame.style.aspectRatio).toBe("4 / 1"); // whole: the 2:1 card is the right half of a 4:1 original
+    fireEvent.click(screen.getByRole("button", { name: "Show cropped" }));
+    expect(img.style.width).toBe("200%");
+    rerender(<ImagePreview image={{ ...photo, crop: undefined }} resolveUrl={async () => "blob:signed"} onClose={() => {}} />);
+    expect(screen.queryByRole("button", { name: /Show/ })).toBeNull();
+  });
+
   it("the close button closes it; a URL that cannot be signed shows a message", async () => {
     render(<Harness resolveUrl={() => Promise.reject(new Error("no"))} />);
     const opener = screen.getByRole("button", { name: "Preview" });
@@ -57,20 +73,18 @@ describe("ImagePreview", () => {
 });
 
 describe("BackgroundStatus", () => {
-  it("shows the percentage with Cancel, the first-use note while downloading, and failures with Dismiss", () => {
+  it("shows the percentage with Cancel, and failures with Dismiss", () => {
     const onCancel = vi.fn();
     const onDismiss = vi.fn();
-    const { rerender } = render(<BackgroundStatus status={{ kind: "working", id: "img", percent: 40, downloading: true }} onCancel={onCancel} onDismiss={onDismiss} />);
+    const { rerender } = render(<BackgroundStatus status={{ kind: "working", id: "img", percent: 40 }} onCancel={onCancel} onDismiss={onDismiss} />);
     const chip = screen.getByRole("status", { name: "Background removal status" });
     expect(chip.textContent).toContain("Removing background… 40%");
-    expect(chip.textContent).toContain("First use downloads");
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onCancel).toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Cancel" }).className).toMatch(/\bh-11\b/);
 
-    rerender(<BackgroundStatus status={{ kind: "working", id: "img", percent: 75, downloading: false }} onCancel={onCancel} onDismiss={onDismiss} />);
+    rerender(<BackgroundStatus status={{ kind: "working", id: "img", percent: 75 }} onCancel={onCancel} onDismiss={onDismiss} />);
     expect(chip.textContent).toContain("Removing background… 75%");
-    expect(chip.textContent).not.toContain("First use");
 
     rerender(<BackgroundStatus status={{ kind: "error", message: "Couldn't remove the background. The photo is unchanged." }} onCancel={onCancel} onDismiss={onDismiss} />);
     expect(screen.getByRole("status").textContent).toContain("The photo is unchanged");
