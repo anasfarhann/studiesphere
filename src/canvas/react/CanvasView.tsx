@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Editor } from "../editor";
 import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
@@ -71,6 +71,11 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [tool, setTool] = useState<ToolId>("pen");
+  const pickState = useSyncExternalStore(
+    (cb) => (editor ? editor.onEyedropperChange(cb) : () => {}),
+    () => editor?.eyedropper ?? "off",
+    () => "off" as const,
+  );
   const [cropping, setCropping] = useState(false);
   const [hist, setHist] = useState({ canUndo: false, canRedo: false });
   // Elements seed the editor once; later prop changes are not re-applied (persistence owns that, Task 12).
@@ -250,9 +255,10 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
             WebkitTouchCallout: "none",
             WebkitTapHighlightColor: "transparent",
             overscrollBehavior: "none",
+            cursor: pickState === "armed" ? "crosshair" : undefined,
           }}
         />
-        <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} renderOptions={(id) => (editor && hasOptions(id) ? <ToolOptions editor={editor} tool={id} /> : null)}
+        <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} optionsHidden={pickState === "armed"} renderOptions={(id) => (editor && hasOptions(id) ? <ToolOptions editor={editor} tool={id} /> : null)}
           canUndo={hist.canUndo && !cropping}
           canRedo={hist.canRedo && !cropping}
           onUndo={() => editorRef.current?.undo()}
@@ -269,6 +275,22 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
           style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}
         >
           {notices}
+          {pickState !== "off" ? (
+            <div
+              data-testid="eyedropper-hint"
+              role="status"
+              className="pointer-events-auto inline-flex items-center gap-2 rounded-full bg-ink py-1 pl-4 pr-1 text-sm font-medium text-card shadow-[0_8px_28px_rgba(27,26,31,0.18)]"
+            >
+              <span>{pickState === "armed" ? t("eyedropperHint") : t("eyedropperUnreadable")}</span>
+              <button
+                type="button"
+                onClick={() => editor?.cancelEyedropper()}
+                className="inline-flex h-11 min-w-11 touch-manipulation cursor-pointer items-center justify-center rounded-full px-3 text-sm font-medium text-card underline underline-offset-2"
+              >
+                {pickState === "armed" ? t("eyedropperCancel") : t("dismiss")}
+              </button>
+            </div>
+          ) : null}
           <PhotoStatus
             status={photoState}
             onRetry={() => void photosRef.current?.retry()}

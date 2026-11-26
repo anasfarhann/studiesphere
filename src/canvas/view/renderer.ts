@@ -626,6 +626,12 @@ export class Renderer {
     ctx.textBaseline = "alphabetic";
   }
 
+  /** A photo that is decoded and ready, for reading a pixel (eyedropper); null while loading or failed. Starts no load. */
+  readyImage(assetPath: string): { img: ImageBitmap | HTMLImageElement; tainted: boolean } | null {
+    const e = this.images.get(assetPath);
+    return e?.state === "ready" ? { img: e.img, tainted: isTaintedImage(e.img) } : null;
+  }
+
   /** Whether a photo inside `area` (default: the whole page) is loaded but would taint an exported canvas. */
   hasTaintedImages(area?: Rect): boolean {
     for (const el of area ? this.scene.getVisible(area) : this.scene.all()) {

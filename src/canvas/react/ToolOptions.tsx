@@ -3,7 +3,7 @@
 import { useId, useSyncExternalStore } from "react";
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
-import { addPreset, clampSize, DEFAULT_SETTINGS, MAX_PRESET_COUNT, removePreset, SIZE_RANGE, type StrokeToolId, type ToolSettings } from "../settings/tool-settings";
+import { addPreset, clampSize, MAX_PRESET_COUNT, PRESET_SLOTS, removePreset, resetPresets, savePreset, SIZE_RANGE, type StrokeToolId, type ToolSettings } from "../settings/tool-settings";
 import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
 import { ColorSwatches } from "./ColorSwatches";
 import { TextStyleControls } from "./TextStyleControls";
@@ -62,7 +62,26 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
     editor.updateSettings((cur) => removePreset(cur, presetTool, c));
     return t("colorRemoved", { hex: c });
   };
-  const isDefault = (c: string) => DEFAULT_SETTINGS[presetTool].presets.some((d) => d.toLowerCase() === c.toLowerCase());
+  // The protected slots are the first three, whatever colours they hold now.
+  const isDefault = (c: string) => presets.slice(0, PRESET_SLOTS).some((d) => d.toLowerCase() === c.toLowerCase());
+  const saveAt = (index: number, c: string): string => {
+    if (has(c)) return t("colorAlready");
+    editor.updateSettings((cur) => savePreset(cur, presetTool, index, c));
+    return t("colorSaved", { hex: c });
+  };
+  const resetAll = (): string => {
+    editor.updateSettings((cur) => resetPresets(cur, presetTool));
+    return t("colorWasReset");
+  };
+  const picking = useSyncExternalStore(
+    (cb) => editor.onEyedropperChange(cb),
+    () => editor.eyedropper === "armed",
+    () => false,
+  );
+  const toggleEyedropper = () => {
+    if (picking) editor.cancelEyedropper();
+    else editor.armEyedropper((c) => setColor(c));
+  };
 
   const endDrag = () => {
     editor.flushSettings();
@@ -144,7 +163,8 @@ export function ToolOptions({ editor, tool }: { editor: Editor; tool: OptionsToo
           onPick={(c) => setColor(c)}
           onWheelChange={(c) => setColor(c, { deferSave: true })}
           onWheelCommit={endDrag}
-          editing={{ isDefault, add: addCurrent, remove: removeAt }}
+          editing={{ isDefault, add: addCurrent, remove: removeAt, save: saveAt, reset: resetAll }}
+          eyedropper={{ active: picking, onToggle: toggleEyedropper }}
         />
       ) : null}
     </div>

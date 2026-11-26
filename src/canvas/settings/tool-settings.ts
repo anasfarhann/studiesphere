@@ -42,17 +42,23 @@ const num = (tool: keyof typeof SIZE_RANGE, v: unknown, d: number) => (typeof v 
 const col = (v: unknown, d: string) => (typeof v === "string" && HEX.test(v) ? v : d);
 const bool = (v: unknown, d: boolean) => (typeof v === "boolean" ? v : d);
 
+/** The first three presets are slots that always exist and can be replaced (Save preset) but not removed. */
+export const PRESET_SLOTS = 3;
+
 function presets(v: unknown, d: string[]): string[] {
   if (!Array.isArray(v)) return [...d];
-  // The three defaults are always present and first; others are de-duplicated case-insensitively.
-  const seen = new Set(d.map((c) => c.toLowerCase()));
-  const rest: string[] = [];
+  // Valid colours, de-duplicated case-insensitively, in order.
+  const seen = new Set<string>();
+  const valid: string[] = [];
   for (const c of v) {
     if (typeof c !== "string" || !HEX.test(c) || seen.has(c.toLowerCase())) continue;
     seen.add(c.toLowerCase());
-    rest.push(c);
+    valid.push(c);
   }
-  return [...d, ...rest].slice(0, MAX_PRESETS);
+  // Slots 0-2 always exist: a missing one is filled from the defaults not already in the list.
+  const fill = d.filter((c) => !seen.has(c.toLowerCase()));
+  while (valid.length < PRESET_SLOTS && fill.length > 0) valid.push(fill.shift()!);
+  return valid.slice(0, MAX_PRESETS);
 }
 
 export const MAX_PRESET_COUNT = MAX_PRESETS;
@@ -63,17 +69,35 @@ export function addPreset(s: ToolSettings, tool: StrokeToolId, hex: string): Too
 }
 
 /**
- * Removes a preset; the three defaults are protected. A tool whose colour was the removed one falls back to
- * the first default: for the pen presets that is both the pen and the text (text colours come from them).
+ * Removes a preset; slots 0-2 (the defaults, or what replaced them) are protected. A tool whose colour was the
+ * removed one falls back to the first slot: for the pen presets that is both the pen and the text (text colours
+ * come from them).
  */
 export function removePreset(s: ToolSettings, tool: StrokeToolId, hex: string): ToolSettings {
   const gone = hex.toLowerCase();
-  const keep = s[tool].presets.filter((c) => c.toLowerCase() !== gone || DEFAULT_SETTINGS[tool].presets.includes(c));
-  const fallback = DEFAULT_SETTINGS[tool].presets[0];
-  const swap = (c: string) => (c.toLowerCase() === gone && !keep.some((k) => k.toLowerCase() === gone) ? fallback : c);
-  const next: ToolSettings = { ...s, [tool]: { ...s[tool], presets: keep, color: swap(s[tool].color) } };
+  const list = s[tool].presets;
+  const at = list.findIndex((c) => c.toLowerCase() === gone);
+  if (at < PRESET_SLOTS) return s;
+  const fallback = list[0];
+  const swap = (c: string) => (c.toLowerCase() === gone ? fallback : c);
+  const next: ToolSettings = { ...s, [tool]: { ...s[tool], presets: list.filter((_, i) => i !== at), color: swap(s[tool].color) } };
   if (tool === "pen") next.text = { ...s.text, color: swap(s.text.color) };
   return normalizeSettings(next);
+}
+
+/** Replaces preset `index` (a default included) with `hex`. Unchanged when `hex` is invalid or already another preset. */
+export function savePreset(s: ToolSettings, tool: StrokeToolId, index: number, hex: string): ToolSettings {
+  const list = s[tool].presets;
+  if (!HEX.test(hex) || !Number.isInteger(index) || index < 0 || index >= list.length) return s;
+  if (list.some((c, i) => i !== index && c.toLowerCase() === hex.toLowerCase())) return s;
+  if (list[index] === hex) return s;
+  return normalizeSettings({ ...s, [tool]: { ...s[tool], presets: list.map((c, i) => (i === index ? hex : c)) } });
+}
+
+/** Puts the three default colours back in slots 0-2; colours added after them stay. */
+export function resetPresets(s: ToolSettings, tool: StrokeToolId): ToolSettings {
+  const extras = s[tool].presets.slice(PRESET_SLOTS);
+  return normalizeSettings({ ...s, [tool]: { ...s[tool], presets: [...DEFAULT_SETTINGS[tool].presets, ...extras] } });
 }
 
 function stroke(tool: StrokeToolId, v: unknown): ToolSettings[StrokeToolId] {

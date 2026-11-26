@@ -117,7 +117,7 @@ describe("Editor input wiring", () => {
     const seen = vi.fn();
     editor.onSettingsChange(seen);
     editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, size: 500, color: "bad", presets: ["#00aa55"] } }));
-    expect(editor.settings.pen).toMatchObject({ size: 40, color: "#1B1A1F", presets: ["#1B1A1F", "#2563EB", "#DC2626", "#00aa55"] });
+    expect(editor.settings.pen).toMatchObject({ size: 40, color: "#1B1A1F", presets: ["#00aa55", "#1B1A1F", "#2563EB"] });
     localStorage.clear();
     editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, size: 9 } }), { deferSave: true });
     expect(editor.settings.pen.size).toBe(9);
@@ -1109,5 +1109,141 @@ describe("font-load re-measure", () => {
     resolveLoad();
     await settle();
     expect(editor.scene.takeDirty().upserts).toEqual([]);
+  });
+});
+
+describe("Editor eyedropper", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+  const strokeEl = (color: string): StrokeEl => ({
+    id: "s1", z: 1, updatedAt: 1, type: "stroke", tool: "pen", color, size: 10, simulatePressure: false, points: [[0, 50, 0.5], [200, 50, 0.5]],
+  });
+  const make = (elements: StrokeEl[], loadImage?: (p: string) => Promise<HTMLImageElement>) => {
+    localStorage.clear();
+    frames = [];
+    canvas = document.createElement("canvas");
+    canvas.getContext = (() => ({ ...fakeCtx(), drawImage() {} })) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements,
+      loadImage,
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+    editor.resize(400, 400, 1);
+  };
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+  });
+
+  it("is one-shot: the next mouse tap picks the stroke's colour without drawing, then drawing resumes", () => {
+    make([strokeEl("#2563eb")]);
+    const got: string[] = [];
+    expect(editor.armEyedropper((c) => got.push(c))).toBe(true);
+    expect(editor.eyedropper).toBe("armed");
+    fire(canvas, "pointerdown", 1, "mouse", 100, 50);
+    fire(canvas, "pointerup", 1, "mouse", 100, 50);
+    expect(got).toEqual(["#2563eb"]);
+    expect(editor.eyedropper).toBe("off");
+    expect(editor.scene.all()).toHaveLength(1); // no dot was drawn, and nothing selected or erased
+    expect(editor.canUndo()).toBe(false);
+    fire(canvas, "pointerdown", 2, "mouse", 100, 300);
+    fire(canvas, "pointerup", 2, "mouse", 100, 300);
+    expect(got).toHaveLength(1);
+    expect(editor.scene.all()).toHaveLength(2);
+  });
+
+  it("an empty tap keeps it armed", () => {
+    make([strokeEl("#2563eb")]);
+    const got: string[] = [];
+    editor.armEyedropper((c) => got.push(c));
+    fire(canvas, "pointerdown", 1, "mouse", 100, 300);
+    fire(canvas, "pointerup", 1, "mouse", 100, 300);
+    expect(got).toEqual([]);
+    expect(editor.eyedropper).toBe("armed");
+    expect(editor.scene.all()).toHaveLength(1);
+  });
+
+  it("a finger tap picks when fingers draw", () => {
+    make([strokeEl("#dc2626")]);
+    const got: string[] = [];
+    editor.armEyedropper((c) => got.push(c));
+    fire(canvas, "pointerdown", 1, "touch", 100, 50);
+    fire(canvas, "pointerup", 1, "touch", 100, 50);
+    expect(got).toEqual(["#dc2626"]);
+  });
+
+  it("palm touches are ignored once the Pencil is in use; the pen still picks", () => {
+    make([strokeEl("#dc2626")]);
+    const got: string[] = [];
+    fire(canvas, "pointerdown", 9, "pen", 100, 300); // the router has now seen the Pencil
+    fire(canvas, "pointerup", 9, "pen", 100, 300);
+    editor.armEyedropper((c) => got.push(c));
+    fire(canvas, "pointerdown", 1, "touch", 100, 50);
+    fire(canvas, "pointerup", 1, "touch", 100, 50);
+    expect(got).toEqual([]);
+    expect(editor.eyedropper).toBe("armed");
+    // A palm landing while the pen is down is ignored too.
+    fire(canvas, "pointerdown", 2, "pen", 100, 50);
+    expect(got).toEqual(["#dc2626"]);
+  });
+
+  it("Escape, cancelEyedropper and a tool switch cancel it", () => {
+    make([strokeEl("#dc2626")]);
+    const seen: string[] = [];
+    editor.onEyedropperChange(() => seen.push(editor.eyedropper));
+    const got: string[] = [];
+    editor.armEyedropper((c) => got.push(c));
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    expect(editor.eyedropper).toBe("off");
+    editor.armEyedropper((c) => got.push(c));
+    editor.cancelEyedropper();
+    expect(editor.eyedropper).toBe("off");
+    editor.armEyedropper((c) => got.push(c));
+    editor.setTool("highlighter");
+    expect(editor.eyedropper).toBe("off");
+    fire(canvas, "pointerdown", 1, "mouse", 100, 50);
+    fire(canvas, "pointerup", 1, "mouse", 100, 50);
+    expect(got).toEqual([]);
+    expect(seen).toEqual(["armed", "off", "armed", "off", "armed", "off"]);
+  });
+
+  it("cannot arm in the middle of a stroke", () => {
+    make([]);
+    fire(canvas, "pointerdown", 1, "mouse", 100, 100);
+    expect(editor.armEyedropper(() => {})).toBe(false);
+    fire(canvas, "pointerup", 1, "mouse", 100, 100);
+  });
+
+  it("picks a photo's pixel; a photo whose pixels can't be read reports unreadable and picks nothing", async () => {
+    const img = { width: 100, height: 100 } as unknown as HTMLImageElement;
+    make([], async () => img);
+    editor.scene.add({ id: "p", type: "image", z: 5, updatedAt: 1, x: 0, y: 0, w: 200, h: 200, assetPath: "a/p.jpg" });
+    const pixel = { drawImage: vi.fn(), getImageData: () => ({ data: Uint8ClampedArray.from([16, 32, 48, 255]) }) };
+    const spy = vi.spyOn(document, "createElement").mockImplementation(((tag: string) => (tag === "canvas" ? { width: 0, height: 0, getContext: () => pixel } : document.createElementNS("http://www.w3.org/1999/xhtml", tag))) as typeof document.createElement);
+    try {
+      flushFrames(); // draws the photo, which starts its load
+      await Promise.resolve();
+      await Promise.resolve();
+      await new Promise((r) => setTimeout(r, 0));
+      const got: string[] = [];
+      editor.armEyedropper((c) => got.push(c));
+      fire(canvas, "pointerdown", 1, "mouse", 100, 100);
+      fire(canvas, "pointerup", 1, "mouse", 100, 100);
+      expect(got).toEqual(["#102030"]);
+      expect(pixel.drawImage).toHaveBeenCalledWith(img, 50, 50, 1, 1, 0, 0, 1, 1);
+      const { markTaintedImage } = await import("./attachments/image-loader");
+      markTaintedImage(img);
+      editor.armEyedropper((c) => got.push(c));
+      fire(canvas, "pointerdown", 2, "mouse", 100, 100);
+      fire(canvas, "pointerup", 2, "mouse", 100, 100);
+      expect(got).toHaveLength(1);
+      expect(editor.eyedropper).toBe("unreadable");
+      fire(canvas, "pointerdown", 3, "mouse", 100, 100); // the next press clears the message (and draws as usual)
+      fire(canvas, "pointerup", 3, "mouse", 100, 100);
+      expect(editor.eyedropper).toBe("off");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

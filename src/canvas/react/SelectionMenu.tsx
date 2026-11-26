@@ -80,6 +80,11 @@ function StrokeColors({ editor, value }: { editor: Editor; value: string }) {
     () => editor.settings.pen.presets,
     () => editor.settings.pen.presets,
   );
+  const picking = useSyncExternalStore(
+    (cb) => editor.onEyedropperChange(cb),
+    () => editor.eyedropper === "armed",
+    () => false,
+  );
   return (
     <div role="group" aria-label={t("recolorSelectionFor")} className="flex w-[min(17rem,calc(100vw-2rem))] flex-col items-center gap-1 pt-1">
       <ColorSwatches
@@ -88,6 +93,7 @@ function StrokeColors({ editor, value }: { editor: Editor; value: string }) {
         onPick={(c) => editor.recolorSelection(c)}
         onWheelChange={(c) => editor.recolorSelection(c, { live: true })}
         onWheelCommit={() => editor.commitRecolor()}
+        eyedropper={{ active: picking, onToggle: () => (picking ? editor.cancelEyedropper() : void editor.armEyedropper((c) => editor.recolorSelection(c))) }}
       />
     </div>
   );

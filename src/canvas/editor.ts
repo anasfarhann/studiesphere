@@ -13,6 +13,7 @@ import { EraserTool } from "./tools/eraser";
 import { HighlighterTool } from "./tools/highlighter";
 import { ImageCrop, type CropHandle, type CropState } from "./tools/image-crop";
 import { singleSelectedImage } from "./tools/image-resize";
+import { pickColorAt } from "./tools/eyedropper";
 import { LassoTool } from "./tools/lasso";
 import { PenTool } from "./tools/pen";
 import { TextEditing, TextTool, textAt, type TextStylePatch } from "./tools/text";
@@ -36,6 +37,12 @@ export interface EditorOptions {
   /** Test seam; defaults to the device clipboard (localStorage) scoped to `owner`. */
   clipboard?: Clipboard;
 }
+
+/** off; armed (waiting for a tap on the page); unreadable (the last tap hit a photo whose pixels can't be read). */
+export type EyedropperState = "off" | "armed" | "unreadable";
+
+/** A tap picks within this many screen px of a stroke's path. */
+const PICK_REACH_PX = 8;
 
 type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number; lastY: number };
 
@@ -89,6 +96,10 @@ export class Editor {
   /** The stroke step committed by the previous pointer, for undoing a double-tap's first-tap dot. */
   private lastStroke: Change | null = null;
   private dbl: { pointerId: number; textId: string } | null = null;
+  /** One-shot colour pick: armed from a colour panel, completed by the next draw-classified tap on the canvas. */
+  private pick: { apply: (hex: string) => void } | null = null;
+  private pickState: EyedropperState = "off";
+  private pickListeners = new Set<() => void>();
   private renderer: Renderer;
   private tools: Partial<Record<ToolId, Tool>>;
   private toolId: ToolId = "pen";
@@ -232,6 +243,7 @@ export class Editor {
   setTool(id: ToolId): void {
     if (!this.tools[id]) return;
     this.crop.cancel();
+    this.cancelEyedropper();
     this.pendingSelect = null;
     this.interaction++;
     this.cancelStroke();
@@ -240,6 +252,69 @@ export class Editor {
     this.setPasteAnchor(null);
     this.toolId = id;
     for (const fn of [...this.toolListeners]) fn(id);
+  }
+
+  get eyedropper(): EyedropperState {
+    return this.pickState;
+  }
+
+  /**
+   * Arms the one-shot eyedropper: the next draw-classified tap (pen, mouse, or a finger the router lets draw) takes the
+   * colour of the topmost element under it and passes it to `apply`, then the mode ends. Palm touches never pick.
+   * False while a stroke is in progress or a crop is open.
+   */
+  armEyedropper(apply: (hex: string) => void): boolean {
+    if (this.destroyed || this.drawing || this.crop.active) return false;
+    this.pick = { apply };
+    this.setPickState("armed");
+    return true;
+  }
+
+  /** Ends the eyedropper without picking. Safe when it is not armed. */
+  cancelEyedropper(): void {
+    this.pick = null;
+    this.setPickState("off");
+  }
+
+  /** Fires when the eyedropper arms, ends, or reports an unreadable photo. Returns an unsubscribe. */
+  onEyedropperChange(fn: () => void): () => void {
+    this.pickListeners.add(fn);
+    return () => {
+      this.pickListeners.delete(fn);
+    };
+  }
+
+  private setPickState(s: EyedropperState): void {
+    if (this.pickState === s) return;
+    this.pickState = s;
+    for (const fn of [...this.pickListeners]) fn();
+  }
+
+  /** Handles a canvas press while armed: true when it was a pick attempt (the pointer is then spent). */
+  private tryPick(e: PointerEvent, kind: InputKind, sx: number, sy: number, touches: number): boolean {
+    const pick = this.pick;
+    if (!pick) return false;
+    if (this.router.classify({ pointerType: kind, activeTouches: touches }).kind !== "draw") return false;
+    // The press is consumed whatever it finds: it must not draw, select or pan.
+    this.pointers.set(e.pointerId, { kind, mode: "ignore", lastX: sx, lastY: sy });
+    const [x, y] = this.camera.screenToWorld(sx, sy);
+    const r = pickColorAt({
+      scene: this.scene,
+      x,
+      y,
+      reach: PICK_REACH_PX / this.camera.zoom,
+      image: (path) => this.renderer.readyImage(path),
+    });
+    if (r.kind === "color") {
+      this.pick = null;
+      this.setPickState("off");
+      pick.apply(r.hex);
+    } else if (r.kind === "unreadable") {
+      this.pick = null;
+      this.setPickState("unreadable");
+    }
+    // Nothing there: stays armed for another try.
+    return true;
   }
 
   /** Fires after every tool switch (also those the editor makes itself). Returns an unsubscribe. */
@@ -667,6 +742,8 @@ export class Editor {
     this.crop.cancel();
     this.settingsListeners.clear();
     this.toolListeners.clear();
+    this.pickListeners.clear();
+    this.pick = null;
     if (this.selectionFrame !== null) this.caf(this.selectionFrame);
     this.selectionFrame = null;
     this.cancelStroke();
@@ -743,6 +820,10 @@ export class Editor {
       this.pointers.set(e.pointerId, { kind, mode: "ignore", lastX: sx, lastY: sy });
       return;
     }
+
+    // Eyedropper armed: a draw-classified press picks instead of drawing, selecting or ending the typed text.
+    if (this.pickState === "unreadable") this.setPickState("off");
+    if (this.tryPick(e, kind, sx, sy, touches)) return;
 
     // Pressing the canvas ends any text being typed (blur does not reliably fire when pointerdown is cancelled).
     this.text.commit();
@@ -875,6 +956,10 @@ export class Editor {
       e.preventDefault();
       if (e.shiftKey) this.redo();
       else this.undo();
+      return;
+    }
+    if (e.type === "keydown" && e.key === "Escape" && this.pick) {
+      this.cancelEyedropper();
       return;
     }
     if (e.type === "keydown" && e.key === "Escape" && this.crop.active) {

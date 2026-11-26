@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addPreset, clampSize, DEFAULT_SETTINGS, loadSettings, normalizeSettings, removePreset, saveSettings, SIZE_RANGE } from "./tool-settings";
+import { addPreset, clampSize, DEFAULT_SETTINGS, loadSettings, normalizeSettings, removePreset, resetPresets, saveSettings, savePreset, SIZE_RANGE } from "./tool-settings";
 
 const store = (v: string | null) => ({ getItem: () => v });
 
@@ -50,7 +50,8 @@ describe("tool settings", () => {
     const s = normalizeSettings(messy);
     expect(s.pen.size).toBe(40);
     expect(s.pen.color).toBe(DEFAULT_SETTINGS.pen.color);
-    expect(s.pen.presets.slice(0, 4)).toEqual([...DEFAULT_SETTINGS.pen.presets, "#00AA55"]);
+    // Slots 0-2 are the first valid, distinct colours (here no defaults were stored, so these take the slots).
+    expect(s.pen.presets.slice(0, 4)).toEqual(["#00AA55", "#000000", "#000001", "#000002"]);
     expect(s.pen.presets).toHaveLength(12);
     expect(normalizeSettings({ ...DEFAULT_SETTINGS, pen: { ...DEFAULT_SETTINGS.pen, presets: [] } }).pen.presets).toEqual(DEFAULT_SETTINGS.pen.presets);
   });
@@ -82,5 +83,42 @@ describe("tool settings", () => {
     expect(hl.pen.color).toBe("#00AA55");
     // Protected defaults are not removed, so nothing is reset.
     expect(removePreset({ ...s, pen: { ...s.pen, color: "#2563EB" } }, "pen", "#2563EB").pen.color).toBe("#2563EB");
+  });
+
+  it("keeps replaced default slots and fills missing slots 0-2 from the defaults", () => {
+    const kept = normalizeSettings({ ...DEFAULT_SETTINGS, pen: { ...DEFAULT_SETTINGS.pen, presets: ["#111111", "#2563EB", "#222222", "#333333"] } });
+    expect(kept.pen.presets).toEqual(["#111111", "#2563EB", "#222222", "#333333"]);
+    const short = normalizeSettings({ ...DEFAULT_SETTINGS, pen: { ...DEFAULT_SETTINGS.pen, presets: ["#111111"] } });
+    expect(short.pen.presets).toEqual(["#111111", "#1B1A1F", "#2563EB"]);
+    const dup = normalizeSettings({ ...DEFAULT_SETTINGS, pen: { ...DEFAULT_SETTINGS.pen, presets: ["#2563EB"] } });
+    expect(dup.pen.presets).toEqual(["#2563EB", "#1B1A1F", "#DC2626"]);
+  });
+
+  it("savePreset replaces the slot (also a default) and persists it through a reload", () => {
+    const s = savePreset(DEFAULT_SETTINGS, "pen", 1, "#00aa55");
+    expect(s.pen.presets).toEqual(["#1B1A1F", "#00aa55", "#DC2626"]);
+    expect(s.highlighter.presets).toEqual(DEFAULT_SETTINGS.highlighter.presets);
+    const store = new Map<string, string>();
+    saveSettings(s, { setItem: (k, v) => void store.set(k, v) });
+    expect(loadSettings({ getItem: (k) => store.get(k) ?? null }).pen.presets).toEqual(["#1B1A1F", "#00aa55", "#DC2626"]);
+    // Duplicates elsewhere in the list and bad input are refused; an out-of-range slot is ignored.
+    expect(savePreset(s, "pen", 0, "#00AA55")).toBe(s);
+    expect(savePreset(s, "pen", 0, "nope")).toBe(s);
+    expect(savePreset(s, "pen", 9, "#abcdef")).toBe(s);
+    expect(savePreset(s, "pen", 1, "#00aa55").pen.presets).toEqual(s.pen.presets);
+  });
+
+  it("a replaced default is protected like any slot 0-2 and no longer a default colour", () => {
+    const s = savePreset(DEFAULT_SETTINGS, "pen", 1, "#00aa55");
+    expect(removePreset(s, "pen", "#00aa55").pen.presets).toContain("#00aa55");
+    const added = addPreset(s, "pen", "#2563EB"); // the old default may be added again as an ordinary preset
+    expect(added.pen.presets).toEqual(["#1B1A1F", "#00aa55", "#DC2626", "#2563EB"]);
+    expect(removePreset(added, "pen", "#2563EB").pen.presets).not.toContain("#2563EB");
+  });
+
+  it("resetPresets restores the three defaults and keeps the added colours", () => {
+    const s = addPreset(savePreset(DEFAULT_SETTINGS, "pen", 0, "#00aa55"), "pen", "#abcdef");
+    expect(resetPresets(s, "pen").pen.presets).toEqual([...DEFAULT_SETTINGS.pen.presets, "#abcdef"]);
+    expect(resetPresets(s, "highlighter").pen.presets).toEqual(s.pen.presets);
   });
 });

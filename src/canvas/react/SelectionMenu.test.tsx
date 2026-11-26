@@ -123,6 +123,26 @@ describe("SelectionMenu actions per selection", () => {
     expect(editor.canUndo()).toBe(false);
   });
 
+  it("Colour's eyedropper recolours the selection from another element, as one undo step; the tool colour is untouched", () => {
+    select(["a", "b"]);
+    editor.scene.update("txt", { color: "#00aa55" });
+    fireEvent.click(screen.getByRole("button", { name: "Colour" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pick a colour from the page" }));
+    expect(editor.eyedropper).toBe("armed");
+    const c = (editor as unknown as { canvas: HTMLCanvasElement }).canvas;
+    act(() => {
+      c.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, pointerType: "mouse", clientX: 410, clientY: 410, button: 0, buttons: 1, bubbles: true, cancelable: true }));
+      c.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, pointerType: "mouse", clientX: 410, clientY: 410, bubbles: true }));
+    });
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#00aa55");
+    expect((editor.scene.get("b") as StrokeEl).color).toBe("#00aa55");
+    expect(editor.selection.ids).toEqual(["a", "b"]); // the pick did not change the selection
+    expect(editor.settings.pen.color).toBe("#1B1A1F");
+    editor.undo();
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#1B1A1F");
+    expect(editor.canUndo()).toBe(false);
+  });
+
   it("Copy puts the selection on the clipboard and says so", () => {
     select(["img"]);
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));

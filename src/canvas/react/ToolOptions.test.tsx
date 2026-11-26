@@ -260,5 +260,67 @@ describe("ToolOptions text styles", () => {
     editor.undo();
     expect((editor.scene.get("a") as { font?: string }).font).toBeUndefined();
   });
-});
 
+  it("Save preset replaces the selected preset (a default included), keeps the colour selected and persists", () => {
+    render(<ToolOptions editor={editor} tool="pen" />);
+    fireEvent.click(screen.getByRole("button", { name: "Colour #2563EB" })); // selects it
+    fireEvent.click(screen.getByRole("button", { name: "Colour #2563EB" })); // selected -> opens the wheel
+    fireEvent.change(screen.getByRole("textbox", { name: "Hex" }), { target: { value: "#00aa55" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+    expect(editor.settings.pen.presets).toEqual(["#1B1A1F", "#00aa55", "#DC2626"]);
+    expect(editor.settings.pen.color).toBe("#00aa55");
+    expect(screen.getByRole("button", { name: "Colour #00aa55" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("button", { name: "Colour #2563EB" })).toBeNull();
+    expect(screen.getByTestId("preset-message").textContent).toBe("Saved #00aa55 as a preset");
+    expect(JSON.parse(localStorage.getItem("ss.tools.v1") ?? "{}").pen.presets).toEqual(["#1B1A1F", "#00aa55", "#DC2626"]);
+    // A second save of the same colour, or of one that is another preset, changes nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+    expect(screen.getByTestId("preset-message").textContent).toBe("Already in presets");
+    // The replaced slot is protected from long-press removal like any of the three.
+    expect(editor.settings.highlighter.presets).toEqual(["#F4D35E", "#8BE0A4", "#F6A5C0"]);
+  });
+
+  it("Save preset replaces the preset last tapped, not the one the wheel colour came from", () => {
+    render(<ToolOptions editor={editor} tool="pen" />);
+    fireEvent.click(screen.getByRole("button", { name: "Colour #1B1A1F" })); // selected -> opens the wheel
+    fireEvent.change(screen.getByRole("textbox", { name: "Hex" }), { target: { value: "#00aa55" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+    expect(editor.settings.pen.presets).toEqual(["#00aa55", "#2563EB", "#DC2626"]);
+    fireEvent.click(screen.getByRole("button", { name: "Colour #DC2626" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Hex" }), { target: { value: "#abcdef" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+    expect(editor.settings.pen.presets).toEqual(["#00aa55", "#2563EB", "#abcdef"]);
+  });
+
+  it("Reset colours restores the three defaults", () => {
+    act(() => editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, presets: ["#111111", "#222222", "#333333", "#444444"] } })));
+    render(<ToolOptions editor={editor} tool="pen" />);
+    fireEvent.click(screen.getByRole("button", { name: "Reset colours" }));
+    expect(editor.settings.pen.presets).toEqual(["#1B1A1F", "#2563EB", "#DC2626", "#444444"]);
+    expect(screen.getByTestId("preset-message").textContent).toBe("Colours reset");
+  });
+
+  it("the eyedropper button arms and cancels a pick; a tap on the page sets the tool colour", () => {
+    editor.scene.add({ id: "s", type: "stroke", tool: "pen", z: 1, updatedAt: 1, color: "#00aa55", size: 10, simulatePressure: false, points: [[0, 50, 0.5], [200, 50, 0.5]] });
+    render(<ToolOptions editor={editor} tool="pen" />);
+    const btn = () => screen.getByRole("button", { name: "Pick a colour from the page" });
+    expect(btn().getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(btn());
+    expect(editor.eyedropper).toBe("armed");
+    expect(btn().getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(btn()); // second tap cancels
+    expect(editor.eyedropper).toBe("off");
+    expect(btn().getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(btn());
+    editor.resize(400, 400, 1);
+    act(() => {
+      // Feed the editor's own canvas: the pick is completed by a press on it.
+      const c = (editor as unknown as { canvas: HTMLCanvasElement }).canvas;
+      c.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, pointerType: "mouse", clientX: 100, clientY: 50, button: 0, buttons: 1, bubbles: true, cancelable: true }));
+      c.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, pointerType: "mouse", clientX: 100, clientY: 50, bubbles: true }));
+    });
+    expect(editor.settings.pen.color).toBe("#00aa55");
+    expect(editor.eyedropper).toBe("off");
+    expect(editor.canUndo()).toBe(false);
+  });
+});
