@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { boundsOf } from "../model/bounds";
+import { boundsOf, CARD_H, CARD_W } from "../model/bounds";
 import { History } from "../model/history";
 import { Scene } from "../model/scene";
 import type { AudioEl, CanvasElement, ImageEl, Rect, StrokeEl, TextEl } from "../model/types";
@@ -78,14 +78,30 @@ describe("scaledElement", () => {
     expect("autoW" in out).toBe(false);
   });
 
-  it("auto text boxes re-measure their width at the new size (and scale an edge cap)", () => {
+  it("auto text boxes become fixed at their scaled layout width, so they wrap exactly as before", () => {
     const auto: TextEl = { ...fixedText, autoW: true, w: 999, maxW: 300 };
     const out = scaledElement(auto, 0, 0, 2, measure) as TextEl;
     expect(out.fontSize).toBe(40);
-    expect(out.maxW).toBe(600);
-    // "hello" = 5 chars * 40 * 0.5 = 100, plus 0.3 em padding (12)
-    expect(out.w).toBe(112);
-    expect(out.lines).toBe(1);
+    // Layout width at 20: "hello" = 5 * 20 * 0.5 = 50, plus 0.3 em (6) = 56; scaled 2x.
+    expect(out).toMatchObject({ autoW: false, w: 112, lines: 1 });
+    expect("maxW" in out).toBe(false);
+  });
+
+  it("an auto box 400 wide scaled 2x keeps its line count and is about 800 wide (no rewrap at the auto cap)", () => {
+    // 2 lines: the long one is 39 chars * 20 * 0.5 = 390 (+ 6 padding = 396 -> ceil 396).
+    const text = "a".repeat(39) + "\n" + "b".repeat(10);
+    const auto: TextEl = { ...fixedText, autoW: true, w: 396, lines: 2, text };
+    const out = scaledElement(auto, 0, 0, 2, measure) as TextEl;
+    expect(out.lines).toBe(2);
+    expect(out.w).toBeCloseTo(792);
+    expect(out.autoW).toBe(false);
+  });
+
+  it("a card on the selection's edge: its centre scales, so its edge (and that corner) moves by half its size", () => {
+    // Card at the selection's top-left, scaled 2x about that corner: its centre doubles its distance.
+    const card: AudioEl = { id: "a", z: 0, updatedAt: 1, type: "audio", x: 0, y: 0, assetPath: "x", durationMs: 1 };
+    const out = scaledElement(card, 0, 0, 2);
+    expect(out).toMatchObject({ x: CARD_W / 2, y: CARD_H / 2 });
   });
 
   it("cards keep their fixed size: their centre moves with the scale", () => {
@@ -197,12 +213,57 @@ describe("LassoTool corner scaling", () => {
   });
 
   it("never shrinks below 8 screen px", () => {
-    const { scene, lasso } = setup([a, b], ["a", "b"], 2);
+    // Thick strokes, so their 0.5 size floor is not what stops the shrink.
+    const { scene, lasso } = setup([{ ...a, size: 40 }, { ...b, size: 40 }], ["a", "b"], 2);
     const r0 = union(scene, ["a", "b"]);
     drag(lasso, [r0.maxX, r0.maxY], [r0.minX - 500, r0.minY - 500]);
     const r1 = union(scene, ["a", "b"]);
     expect(Math.max(r1.maxX - r1.minX, r1.maxY - r1.minY) * 2).toBeCloseTo(MIN_SELECTION_PX);
     expect(r1.minX).toBeCloseTo(r0.minX);
+  });
+
+  it("growing stops at the first element to reach its limit, keeping proportions", () => {
+    // Pen size 4 may reach 200 (s <= 50); text 20 may reach 400 (s <= 20): the text wins.
+    const { scene, lasso } = setup([a, fixedText], ["a", "t"]);
+    const r0 = union(scene, ["a", "t"]);
+    drag(lasso, [r0.maxX, r0.maxY], [r0.maxX + 100_000, r0.maxY + 100_000]);
+    expect((scene.get("t") as TextEl).fontSize).toBeCloseTo(400);
+    expect((scene.get("a") as StrokeEl).size).toBeCloseTo(80);
+    // Fixed width 80 * 20 = 1600, under TEXT_MAX_W.
+    expect((scene.get("t") as TextEl).w).toBeCloseTo(1600);
+  });
+
+  it("a fixed text box never grows past TEXT_MAX_W; a stroke never past 200", () => {
+    const wide: TextEl = { ...fixedText, w: 1000 };
+    const one = setup([a, wide], ["a", "t"]);
+    let r0 = union(one.scene, ["a", "t"]);
+    drag(one.lasso, [r0.maxX, r0.maxY], [r0.maxX + 100_000, r0.maxY + 100_000]);
+    expect((one.scene.get("t") as TextEl).w).toBeCloseTo(2000);
+    const two = setup([a, b], ["a", "b"]);
+    r0 = union(two.scene, ["a", "b"]);
+    drag(two.lasso, [r0.maxX, r0.maxY], [r0.maxX + 100_000, r0.maxY + 100_000]);
+    expect((two.scene.get("a") as StrokeEl).size).toBeCloseTo(200);
+  });
+
+  it("shrinking stops at the first element to reach its minimum", () => {
+    // Text 20 may shrink to 6 (s >= 0.3); photo 100x50 to 8 high (s >= 0.16); pen 4 to 0.5 (s >= 0.125).
+    const { scene, lasso } = setup([a, fixedText, photo], ["a", "t", "i"]);
+    const r0 = union(scene, ["a", "t", "i"]);
+    drag(lasso, [r0.maxX, r0.maxY], [r0.minX - 1000, r0.minY - 1000]);
+    expect((scene.get("t") as TextEl).fontSize).toBeCloseTo(6);
+    expect((scene.get("i") as ImageEl).h).toBeCloseTo(15);
+    const thin = setup([pen("p", [[0, 0], [400, 0]], { size: 1 }), pen("q", [[0, 10], [400, 10]], { size: 1 })], ["p", "q"]);
+    const r1 = union(thin.scene, ["p", "q"]);
+    drag(thin.lasso, [r1.maxX, r1.maxY], [r1.minX - 1000, r1.minY - 1000]);
+    expect((thin.scene.get("p") as StrokeEl).size).toBeCloseTo(0.5);
+  });
+
+  it("an element already past a limit never blocks the other direction or forces a jump", () => {
+    const huge = pen("h", [[0, 0], [10, 10]], { size: 300 });
+    const { scene, lasso } = setup([huge, a], ["h", "a"]);
+    const r0 = union(scene, ["h", "a"]);
+    drag(lasso, [r0.maxX, r0.maxY], [r0.minX + (r0.maxX - r0.minX) * 0.5, r0.minY + (r0.maxY - r0.minY) * 0.5]);
+    expect((scene.get("h") as StrokeEl).size).toBeCloseTo(150);
   });
 
   it("a single stroke scales too", () => {

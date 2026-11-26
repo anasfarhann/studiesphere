@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
+import { overlapsAny } from "../tools/selection-scale";
 import { AUDIO_ICON_X, CARD_H } from "../model/bounds";
 
 export interface AudioCardsProps {
@@ -11,7 +12,8 @@ export interface AudioCardsProps {
   forgetUrl: (assetPath: string) => void;
 }
 
-type Spot = { id: string; assetPath: string; cx: number; cy: number; size: number };
+/** `under`: the button overlaps a corner scale handle, so presses there go to the canvas. */
+type Spot = { id: string; assetPath: string; cx: number; cy: number; size: number; under: boolean };
 
 /** Buttons are never smaller than this, however far the page is zoomed out. */
 const MIN_BUTTON = 44;
@@ -19,7 +21,7 @@ const MIN_BUTTON = 44;
 function sameSpots(a: Spot[], b: Spot[]): boolean {
   return a.length === b.length && a.every((s, i) => {
     const o = b[i];
-    return s.id === o.id && s.assetPath === o.assetPath && s.cx === o.cx && s.cy === o.cy && s.size === o.size;
+    return s.id === o.id && s.assetPath === o.assetPath && s.cx === o.cx && s.cy === o.cy && s.size === o.size && s.under === o.under;
   });
 }
 
@@ -65,10 +67,12 @@ export function AudioCards({ editor, resolveUrl, forgetUrl }: AudioCardsProps) {
       frame = null;
       const z = editor.camera.zoom;
       const next: Spot[] = [];
+      const handles = editor.scaleHandleRects();
       for (const el of editor.visibleElements()) {
         if (el.type !== "audio") continue;
         const [sx, sy] = editor.camera.worldToScreen(el.x + AUDIO_ICON_X, el.y + CARD_H / 2);
-        next.push({ id: el.id, assetPath: el.assetPath, cx: sx, cy: sy, size: Math.max(MIN_BUTTON, 40 * z) });
+        const size = Math.max(MIN_BUTTON, 40 * z);
+        next.push({ id: el.id, assetPath: el.assetPath, cx: sx, cy: sy, size, under: overlapsAny(handles, sx, sy, size) });
         // Warm the signed URL so a tap can start playback synchronously (iPad Safari needs that).
         if (!urls.current.has(el.assetPath)) {
           void resolveRef.current(el.assetPath).then(
@@ -149,7 +153,7 @@ export function AudioCards({ editor, resolveUrl, forgetUrl }: AudioCardsProps) {
               aria-label={on ? t("audioPause") : t("audioPlay")}
               aria-pressed={on}
               onClick={() => toggle(s)}
-              className="absolute z-10 flex touch-manipulation items-center justify-center rounded-full bg-ink text-white"
+              className={`absolute z-10 flex touch-manipulation items-center justify-center rounded-full bg-ink text-white ${s.under ? "pointer-events-none" : ""}`}
               style={{ left: s.cx - s.size / 2, top: s.cy - s.size / 2, width: s.size, height: s.size, touchAction: "manipulation" }}
             >
               <svg width="40%" height="40%" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">

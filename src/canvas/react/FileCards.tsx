@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
+import { overlapsAny } from "../tools/selection-scale";
 import { CARD_H, CARD_W, FILE_ICON_SIZE, FILE_ICON_X } from "../model/bounds";
 
 export interface FileCardsProps {
@@ -24,6 +25,8 @@ type Spot = {
   ty: number;
   tw: number;
   th: number;
+  /** The button overlaps a corner scale handle, so presses there go to the canvas. */
+  under: boolean;
 };
 
 /** Preview height in world units, shown above the card. */
@@ -41,7 +44,7 @@ const THUMB_RETRY_MS = 60 * 1000;
 function sameSpots(a: Spot[], b: Spot[]): boolean {
   return a.length === b.length && a.every((s, i) => {
     const o = b[i];
-    return s.id === o.id && s.assetPath === o.assetPath && s.name === o.name && s.cx === o.cx && s.cy === o.cy && s.size === o.size && s.thumbPath === o.thumbPath && s.tx === o.tx && s.ty === o.ty && s.tw === o.tw && s.th === o.th;
+    return s.id === o.id && s.assetPath === o.assetPath && s.name === o.name && s.cx === o.cx && s.cy === o.cy && s.size === o.size && s.thumbPath === o.thumbPath && s.tx === o.tx && s.ty === o.ty && s.tw === o.tw && s.th === o.th && s.under === o.under;
   });
 }
 
@@ -124,6 +127,7 @@ export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
       frame = null;
       const z = editor.camera.zoom;
       const next: Spot[] = [];
+      const handles = editor.scaleHandleRects();
       for (const el of editor.visibleElements(THUMB_H + THUMB_GAP)) {
         if (el.type !== "file") continue;
         const [sx, sy] = editor.camera.worldToScreen(el.x + FILE_ICON_X, el.y + CARD_H / 2);
@@ -135,6 +139,7 @@ export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
           cx: sx,
           cy: sy,
           size: Math.max(MIN_BUTTON, FILE_ICON_SIZE * z),
+          under: overlapsAny(handles, sx, sy, Math.max(MIN_BUTTON, FILE_ICON_SIZE * z)),
           thumbPath: el.thumbPath,
           tx: px,
           ty: py,
@@ -211,7 +216,7 @@ export function FileCards({ editor, resolveUrl, forgetUrl }: FileCardsProps) {
             data-testid="file-open"
             aria-label={t("fileOpen", { name: s.name })}
             onClick={() => open(s)}
-            className="absolute z-10 touch-manipulation rounded-lg bg-transparent"
+            className={`absolute z-10 touch-manipulation rounded-lg bg-transparent ${s.under ? "pointer-events-none" : ""}`}
             style={{ left: s.cx - s.size / 2, top: s.cy - s.size / 2, width: s.size, height: s.size, touchAction: "manipulation" }}
           />
           {notice === s.id ? (

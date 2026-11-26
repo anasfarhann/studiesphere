@@ -15,6 +15,7 @@ import { ImageCrop, type CropHandle, type CropState } from "./tools/image-crop";
 import { singleSelectedImage } from "./tools/image-resize";
 import { pickColorAt } from "./tools/eyedropper";
 import { LassoTool } from "./tools/lasso";
+import { cornerPoint, isScalable, SCALE_HANDLE_HIT_PX } from "./tools/selection-scale";
 import { PenTool } from "./tools/pen";
 import { TextEditing, TextTool, textAt, type TextStylePatch } from "./tools/text";
 import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
@@ -299,7 +300,7 @@ export class Editor {
     // up/cancel reaches the canvas and the pointer is forgotten even when it lifts off it.
     this.capture(e);
     this.pointers.set(e.pointerId, { kind, mode: "ignore", lastX: sx, lastY: sy });
-    // A pick sits between the previous stroke and the next press: that stroke is no double tap's first tap.
+    // Defensive: the pick's lift already breaks any double tap, but keep the previous stroke from ever pairing.
     this.lastStroke = null;
     const [x, y] = this.camera.screenToWorld(sx, sy);
     const r = pickColorAt({
@@ -577,6 +578,24 @@ export class Editor {
   /** Bounds of the current selection in world coordinates, or null. */
   getSelectionBounds(): Rect | null {
     return this.selection.bounds();
+  }
+
+  /**
+   * Screen rects (CSS px in the canvas box) of the corner scale handles' touch targets, or none when the selection
+   * has no scale handles. Card buttons laid over the canvas step aside where they overlap one.
+   */
+  scaleHandleRects(): Rect[] {
+    if (this.crop.active) return [];
+    const els = this.selection.elements();
+    if (!isScalable(els)) return [];
+    const b = this.selection.bounds();
+    if (!b) return [];
+    const h = SCALE_HANDLE_HIT_PX / 2;
+    return (["nw", "ne", "sw", "se"] as const).map((c) => {
+      const [wx, wy] = cornerPoint(b, c);
+      const [x, y] = this.camera.worldToScreen(wx, wy);
+      return { minX: x - h, minY: y - h, maxX: x + h, maxY: y + h };
+    });
   }
 
   /** Fires when the selection (or its on-screen position) changes. Returns an unsubscribe. */

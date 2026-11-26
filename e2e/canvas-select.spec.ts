@@ -169,3 +169,70 @@ for (const viewport of [
     });
   });
 }
+
+test.describe("a file card at the selection's corner", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("dragging the corner over the card's open button scales the selection (the button steps aside)", async ({ page }) => {
+    type Ed = {
+      scene: { all(): El[] };
+      camera: { worldToScreen(x: number, y: number): [number, number] };
+      selection: { ids: string[]; set(ids: string[]): void };
+      setTool(id: string): void;
+      getSelectionBounds(): { minX: number; minY: number; maxX: number; maxY: number };
+    };
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    await page.getByTestId("file-input").setInputFiles({ name: "notes.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n%%EOF\n") });
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor!.scene.all().some((e) => e.type === "file"));
+    const canvas = (await page.getByTestId("canvas").boundingBox())!;
+    const card = await page.evaluate(() => {
+      const ed = (window as unknown as { __editor: Ed }).__editor;
+      ed.setTool("pen");
+      const f = ed.scene.all().find((e) => e.type === "file")!;
+      const [x, y] = ed.camera.worldToScreen(f.x!, f.y!);
+      return { x, y };
+    });
+    // A stroke below and right of the card: the card holds the selection's top-left corner.
+    await page.mouse.move(canvas.x + card.x + 100, canvas.y + card.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(canvas.x + card.x + 260, canvas.y + card.y + 160, { steps: 6 });
+    await page.mouse.up();
+    const bounds = () =>
+      page.evaluate(() => {
+        const ed = (window as unknown as { __editor: Ed }).__editor;
+        const b = ed.getSelectionBounds();
+        const [x0, y0] = ed.camera.worldToScreen(b.minX, b.minY);
+        const [x1, y1] = ed.camera.worldToScreen(b.maxX, b.maxY);
+        return { n: ed.selection.ids.length, x0, y0, x1, y1 };
+      });
+    await page.evaluate(() => {
+      const ed = (window as unknown as { __editor: Ed }).__editor;
+      ed.setTool("lasso");
+      ed.selection.set(ed.scene.all().map((e) => e.id));
+    });
+    const b0 = await bounds();
+    expect(b0.n).toBe(2);
+    expect(Math.abs(b0.x0 - card.x)).toBeLessThan(1);
+    // The press lands on the open button's area and inside the top-left handle's target.
+    const px = canvas.x + b0.x0 + 14;
+    const py = canvas.y + b0.y0 + 14;
+    const open = page.getByRole("button", { name: "Open notes.pdf" });
+    const ob = (await open.boundingBox())!;
+    expect(px >= ob.x && px <= ob.x + ob.width && py >= ob.y && py <= ob.y + ob.height).toBe(true);
+    await expect(open).toHaveClass(/pointer-events-none/);
+    await page.mouse.move(px, py);
+    await page.mouse.down();
+    await page.mouse.move(px - 60, py - 30, { steps: 8 });
+    await page.mouse.up();
+    const b1 = await bounds();
+    expect(b1.n).toBe(2);
+    // Scaled up about the bottom-right corner (the stroke's), which stays put.
+    expect(Math.abs(b1.x1 - b0.x1)).toBeLessThan(1);
+    expect(Math.abs(b1.y1 - b0.y1)).toBeLessThan(1);
+    expect(b1.x1 - b1.x0).toBeGreaterThan((b0.x1 - b0.x0) * 1.1);
+    // Off the handles, the card's button works again.
+    await page.evaluate(() => (window as unknown as { __editor: Ed }).__editor.selection.set([]));
+    await expect(open).not.toHaveClass(/pointer-events-none/);
+  });
+});
