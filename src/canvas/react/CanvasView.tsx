@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Editor } from "../editor";
 import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
@@ -12,6 +12,10 @@ import { createImageLoader } from "../attachments/image-loader";
 import { PhotoInserter, type PhotoStatus as PhotoState } from "../tools/insert-image";
 import { FileInserter, type FileStatus as FileState } from "../tools/insert-file";
 import { AudioRecorder, type AudioStatus } from "../tools/record-audio";
+import { BackgroundRemover, type BackgroundStatus as BgState, type RemoveBackgroundFn } from "../tools/remove-background";
+import type { ImageEl } from "../model/types";
+import { BackgroundStatus } from "./BackgroundStatus";
+import { ImagePreview } from "./ImagePreview";
 import { AudioCards } from "./AudioCards";
 import { FileCards } from "./FileCards";
 import { FileStatus } from "./FileStatus";
@@ -42,6 +46,15 @@ export interface AttachmentConfig {
   store?: ElementStore;
   /** Durable holding place for finished recordings until their card is saved. */
   outbox?: RecordingOutbox;
+  /** Test seam (the dev canvas's stub): replaces the on-device background remover. */
+  removeBackground?: RemoveBackgroundFn;
+}
+
+/** A stored photo's bytes, through its signed URL (a tainted <img> could not be read back). */
+async function fetchAsset(signedUrl: string, signal: AbortSignal): Promise<Blob> {
+  const res = await fetch(signedUrl, { signal });
+  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+  return res.blob();
 }
 
 export interface CanvasViewProps {
@@ -71,6 +84,12 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [tool, setTool] = useState<ToolId>("pen");
+  const subscribePick = useCallback((cb: () => void) => (editor ? editor.onEyedropperChange(cb) : () => {}), [editor]);
+  const pickState = useSyncExternalStore(
+    subscribePick,
+    () => editor?.eyedropper ?? "off",
+    () => "off" as const,
+  );
   const [cropping, setCropping] = useState(false);
   const [hist, setHist] = useState({ canUndo: false, canRedo: false });
   // Elements seed the editor once; later prop changes are not re-applied (persistence owns that, Task 12).
@@ -84,6 +103,9 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
   const [fileState, setFileState] = useState<FileState>({ kind: "idle" });
   const audioRef = useRef<AudioRecorder | null>(null);
   const [audioState, setAudioState] = useState<AudioStatus>({ kind: "idle" });
+  const bgRef = useRef<BackgroundRemover | null>(null);
+  const [bgState, setBgState] = useState<BgState>({ kind: "idle" });
+  const [previewing, setPreviewing] = useState<ImageEl | null>(null);
 
   useEffect(() => {
     const box = boxRef.current;
@@ -100,6 +122,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     let offPhoto = () => {};
     let offAudio = () => {};
     let offFile = () => {};
+    let offBg = () => {};
     if (files) {
       const photos = new PhotoInserter({
         scene: editor.scene,
@@ -137,6 +160,19 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
       });
       audioRef.current = audio;
       offAudio = audio.onStatus(setAudioState);
+      if (files.removeBackground) {
+        const bg = new BackgroundRemover({
+          scene: editor.scene,
+          history: editor.history,
+          ownerId: files.ownerId,
+          pageId: files.pageId,
+          fetchOriginal: async (path, signal) => fetchAsset(await files.service.signedUrl(path), signal),
+          upload: (blob, o) => files.service.uploadAttachment(blob, o),
+          remove: files.removeBackground,
+        });
+        bgRef.current = bg;
+        offBg = bg.onStatus(setBgState);
+      }
     }
     setEditor(editor);
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
@@ -197,6 +233,9 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
       offAudio();
       audioRef.current?.dispose();
       audioRef.current = null;
+      offBg();
+      bgRef.current?.dispose();
+      bgRef.current = null;
       offHist();
       offTool();
       offCrop();
@@ -250,9 +289,10 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
             WebkitTouchCallout: "none",
             WebkitTapHighlightColor: "transparent",
             overscrollBehavior: "none",
+            cursor: pickState === "armed" ? "crosshair" : undefined,
           }}
         />
-        <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} renderOptions={(id) => (editor && hasOptions(id) ? <ToolOptions editor={editor} tool={id} /> : null)}
+        <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} optionsHidden={pickState === "armed"} renderOptions={(id) => (editor && hasOptions(id) ? <ToolOptions editor={editor} tool={id} /> : null)}
           canUndo={hist.canUndo && !cropping}
           canRedo={hist.canRedo && !cropping}
           onUndo={() => editorRef.current?.undo()}
@@ -269,6 +309,23 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
           style={{ paddingBottom: "calc(1rem + env(safe-area-inset-bottom))" }}
         >
           {notices}
+          {pickState !== "off" ? (
+            <div
+              data-testid="eyedropper-hint"
+              role="status"
+              className="pointer-events-auto inline-flex items-center gap-2 rounded-full bg-ink py-1 pl-4 pr-1 text-sm font-medium text-card shadow-[0_8px_28px_rgba(27,26,31,0.18)]"
+            >
+              <span>{pickState === "armed" ? t("eyedropperHint") : t("eyedropperUnreadable")}</span>
+              <button
+                type="button"
+                onClick={() => editor?.cancelEyedropper()}
+                className="inline-flex h-11 min-w-11 touch-manipulation cursor-pointer items-center justify-center rounded-full px-3 text-sm font-medium text-card underline underline-offset-2"
+              >
+                {pickState === "armed" ? t("eyedropperCancel") : t("dismiss")}
+              </button>
+            </div>
+          ) : null}
+          <BackgroundStatus status={bgState} onCancel={() => bgRef.current?.cancel()} onDismiss={() => bgRef.current?.dismiss()} />
           <PhotoStatus
             status={photoState}
             onRetry={() => void photosRef.current?.retry()}
@@ -304,8 +361,26 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
           />
         ) : null}
         {editor ? <TextEditorOverlay editor={editor} /> : null}
-        {editor ? <SelectionMenu editor={editor} /> : null}
+        {editor ? (
+          <SelectionMenu
+            editor={editor}
+            topInset={barBottom}
+            image={
+              files
+                ? {
+                    removing: bgState.kind === "working",
+                    onRemoveBackground: files.removeBackground ? (id) => void bgRef.current?.start(id) : undefined,
+                    onPreview: (id) => {
+                      const el = editor.scene.get(id);
+                      if (el?.type === "image") setPreviewing(el);
+                    },
+                  }
+                : undefined
+            }
+          />
+        ) : null}
         {editor ? <CropOverlay editor={editor} /> : null}
+        {previewing && files ? <ImagePreview image={previewing} resolveUrl={files.service.signedUrl.bind(files.service)} onClose={() => setPreviewing(null)} /> : null}
         {editor && snapshots && historyOpen ? (
           <HistoryPanel store={snapshots.store} pageId={snapshots.pageId} editor={editor} onClose={() => setHistoryOpen(false)} top={barBottom + 8} />
         ) : null}

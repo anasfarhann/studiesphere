@@ -209,6 +209,29 @@ describe("Renderer", () => {
     expect(ctx.fill).toHaveBeenCalledTimes(6);
   });
 
+  it("a stroke or several elements selected show four corner handles; a lone card none", () => {
+    scene.add(stroke("a", 10));
+    scene.add(stroke("b", 100));
+    const r = make();
+    r.resize(400, 400, 1);
+    r.setSelection(["a", "b"]);
+    flush();
+    const rects = ctx.fillRect.mock.calls.slice(1) as number[][]; // after the background
+    expect(rects).toHaveLength(4);
+    // Centred on the bounds' corners (strokes pad by half their width: 2).
+    const centres = rects.map(([x, y, w, h]) => [x + w / 2, y + h / 2]);
+    expect(centres).toEqual(expect.arrayContaining([[8, -2], [122, -2], [8, 22], [122, 22]]));
+    ctx.fillRect.mockClear();
+    r.setSelection(["a"]);
+    flush();
+    expect(ctx.fillRect.mock.calls.slice(1)).toHaveLength(4);
+    scene.add({ id: "c", z: 3, updatedAt: 1, type: "audio", x: 0, y: 200, assetPath: "x", durationMs: 1 });
+    ctx.fillRect.mockClear();
+    r.setSelection(["c"]);
+    flush();
+    expect(ctx.fillRect.mock.calls.slice(1)).toHaveLength(0);
+  });
+
   it("draws the snap ghost at 40% alpha in the stroke colour with a dashed hint, building its path once", () => {
     const r = make();
     r.resize(200, 200, 1);

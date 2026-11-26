@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Editor } from "../editor";
 import type { CanvasElement, StrokeEl } from "../model/types";
 import { placeMenu, SelectionMenu } from "./SelectionMenu";
@@ -123,11 +123,74 @@ describe("SelectionMenu actions per selection", () => {
     expect(editor.canUndo()).toBe(false);
   });
 
+  it("Colour's eyedropper recolours the selection from another element, as one undo step; the tool colour is untouched", () => {
+    select(["a", "b"]);
+    editor.scene.update("txt", { color: "#00aa55" });
+    fireEvent.click(screen.getByRole("button", { name: "Colour" }));
+    fireEvent.click(screen.getByRole("button", { name: "Pick a colour from the page" }));
+    expect(editor.eyedropper).toBe("armed");
+    const c = (editor as unknown as { canvas: HTMLCanvasElement }).canvas;
+    act(() => {
+      c.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, pointerType: "mouse", clientX: 410, clientY: 410, button: 0, buttons: 1, bubbles: true, cancelable: true }));
+      c.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, pointerType: "mouse", clientX: 410, clientY: 410, bubbles: true }));
+    });
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#00aa55");
+    expect((editor.scene.get("b") as StrokeEl).color).toBe("#00aa55");
+    expect(editor.selection.ids).toEqual(["a", "b"]); // the pick did not change the selection
+    expect(editor.settings.pen.color).toBe("#1B1A1F");
+    editor.undo();
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#1B1A1F");
+    expect(editor.canUndo()).toBe(false);
+  });
+
   it("Copy puts the selection on the clipboard and says so", () => {
     select(["img"]);
     fireEvent.click(screen.getByRole("button", { name: "Copy" }));
     expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
     expect(editor.clipboard.items()).toEqual([expect.objectContaining({ type: "image", x: 0, y: 0 })]);
+  });
+});
+
+describe("SelectionMenu image actions (with attachments)", () => {
+  function selectImage(removing = false) {
+    const actions = { removing, onRemoveBackground: vi.fn(), onPreview: vi.fn() };
+    render(<SelectionMenu editor={editor} image={actions} />);
+    act(() => editor.selection.set(["img"]));
+    flush();
+    return actions;
+  }
+
+  it("one image: Remove background, Crop, Preview, Delete, Copy; the row wraps rather than overflow", () => {
+    selectImage();
+    expect(names()).toEqual(["Remove background", "Crop", "Preview", "Delete", "Copy"]);
+    expect(screen.getByRole("button", { name: "Crop" }).parentElement!.className).toMatch(/\bflex-wrap\b/);
+  });
+
+  it("without a configured remover the single-image menu is Crop, Preview, Delete, Copy", () => {
+    render(<SelectionMenu editor={editor} image={{ removing: false, onPreview: vi.fn() }} />);
+    act(() => editor.selection.set(["img"]));
+    flush();
+    expect(names()).toEqual(["Crop", "Preview", "Delete", "Copy"]);
+  });
+
+  it("Remove background and Preview act on the selected photo", () => {
+    const actions = selectImage();
+    fireEvent.click(screen.getByRole("button", { name: "Remove background" }));
+    expect(actions.onRemoveBackground).toHaveBeenCalledWith("img");
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(actions.onPreview).toHaveBeenCalledWith("img");
+  });
+
+  it("Remove background is disabled while a removal runs", () => {
+    selectImage(true);
+    expect((screen.getByRole("button", { name: "Remove background" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("strokes and text get no image actions", () => {
+    render(<SelectionMenu editor={editor} image={{ removing: false, onRemoveBackground: vi.fn(), onPreview: vi.fn() }} />);
+    act(() => editor.selection.set(["a"]));
+    flush();
+    expect(names()).toEqual(["Delete", "Colour", "Copy"]);
   });
 });
 
@@ -177,6 +240,17 @@ describe("placeMenu", () => {
     expect(placeMenu({ ...base, centerX: 200, boxTop: 20, boxBottom: 100 }).top).toBe(108);
     expect(placeMenu({ ...base, centerX: 200, boxTop: 20, boxBottom: 840 }).top).toBe(8);
     expect(placeMenu({ ...base, centerX: 200, boxTop: 2000, boxBottom: 2100 }).top).toBe(844 - 56 - 8);
+  });
+  it("clears the corner scale handles' touch targets when the selection has them", () => {
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 300, boxBottom: 400, clear: 22 }).top).toBe(300 - 56 - 8 - 22);
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 20, boxBottom: 100, clear: 22 }).top).toBe(100 + 8 + 22);
+  });
+  it("keeps below the top bar: goes below the box when the bar covers the room above", () => {
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 150, boxBottom: 300, topInset: 120 }).top).toBe(308);
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 300, boxBottom: 400, topInset: 120 }).top).toBe(236);
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 20, boxBottom: 840, topInset: 120 }).top).toBe(128);
+    // A menu too tall for the room under the bar still stays inside the view.
+    expect(placeMenu({ ...base, menuH: 760, centerX: 200, boxTop: 20, boxBottom: 840, topInset: 120 }).top).toBe(844 - 760 - 8);
   });
   it("a menu wider than the view pins to the left gap", () => {
     expect(placeMenu({ ...base, menuW: 500, centerX: 200, boxTop: 300, boxBottom: 400 }).left).toBe(8);

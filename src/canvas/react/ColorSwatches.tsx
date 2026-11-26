@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { t } from "@/i18n/en";
+import { IconButton } from "@/ui/Button";
 import { ColorWheel } from "./ColorWheel";
 
 const LONG_PRESS_MS = 500;
@@ -17,17 +18,32 @@ export interface ColorSwatchesProps {
   onWheelChange: (hex: string) => void;
   /** A colour-wheel change finished (pointer up, key, hex entry). */
   onWheelCommit?: () => void;
-  /** Preset editing (long-press to remove, "Add to presets"); omitted, presets are read-only. Each returns the status message. */
-  editing?: { isDefault: (hex: string) => boolean; add: (hex: string) => string; remove: (hex: string) => string };
+  /**
+   * Preset editing (long-press to remove, "Add to presets", "Save preset", "Reset colours"); omitted, presets are
+   * read-only. Each returns the status message. `isDefault` marks the protected slots; `save` replaces preset `index`.
+   */
+  editing?: {
+    isDefault: (hex: string) => boolean;
+    add: (hex: string) => string;
+    remove: (hex: string) => string;
+    save: (index: number, hex: string) => string;
+    reset: () => string;
+  };
+  /** Shows the eyedropper button: `active` while armed, `onToggle` arms or cancels it. */
+  eyedropper?: { active: boolean; onToggle: () => void };
 }
 
 /**
  * Preset swatches; tapping the selected swatch opens the colour wheel. Shared by the tool options
  * and the selection menu's Colour.
  */
-export function ColorSwatches({ presets, value, onPick, onWheelChange, onWheelCommit, editing }: ColorSwatchesProps) {
+export function ColorSwatches({ presets, value, onPick, onWheelChange, onWheelCommit, editing, eyedropper }: ColorSwatchesProps) {
   const [wheelOpen, setWheelOpen] = useState(false);
   const [message, setMessage] = useState("");
+  // The preset last tapped, by colour: "Save preset" replaces it, wherever it is now, with the wheel colour. Kept
+  // as a colour (not an index) so removing another preset never retargets Save; gone from the presets, no Save.
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const anchorIndex = anchor === null ? -1 : presets.findIndex((p) => p.toLowerCase() === anchor.toLowerCase());
   const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   const longPressed = useRef(false);
 
@@ -90,6 +106,7 @@ export function ColorSwatches({ presets, value, onPick, onWheelChange, onWheelCo
                   longPressed.current = false;
                   return;
                 }
+                setAnchor(c);
                 if (selected) setWheelOpen((o) => !o);
                 else onPick(c);
               }}
@@ -99,25 +116,53 @@ export function ColorSwatches({ presets, value, onPick, onWheelChange, onWheelCo
             </button>
           );
         })}
+        {eyedropper ? (
+          <IconButton icon="dropper" label={t("eyedropper")} title={t("eyedropper")} active={eyedropper.active} tone="panel" onClick={eyedropper.onToggle} className="touch-manipulation" />
+        ) : null}
       </div>
       {wheelOpen && value ? (
         <div role="group" aria-label={t("colorWheelFor")} className="flex flex-col items-center gap-1">
           <ColorWheel value={value} onChange={onWheelChange} onCommit={onWheelCommit} />
           {editing ? (
-            <button
-              type="button"
-              onClick={() => setMessage(editing.add(value))}
-              className="inline-flex h-11 touch-manipulation cursor-pointer items-center justify-center rounded-full bg-ink px-5 text-sm font-medium text-card"
-            >
-              {t("colorAdd")}
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMessage(editing.add(value))}
+                className="inline-flex h-11 touch-manipulation cursor-pointer items-center justify-center rounded-full bg-ink px-5 text-sm font-medium text-card"
+              >
+                {t("colorAdd")}
+              </button>
+              {anchorIndex >= 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const msg = editing.save(anchorIndex, value);
+                    // The slot now holds the wheel colour, unless that is already a preset (the save is refused).
+                    if (!presets.some((p) => p.toLowerCase() === value.toLowerCase())) setAnchor(value);
+                    setMessage(msg);
+                  }}
+                  className="inline-flex h-11 touch-manipulation cursor-pointer items-center justify-center rounded-full border border-ink px-5 text-sm font-medium text-ink"
+                >
+                  {t("colorSave")}
+                </button>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}
       {editing ? (
-        <p data-testid="preset-message" role="status" aria-live="polite" className="min-h-5 text-center text-xs text-muted">
-          {message}
-        </p>
+        <>
+          <p data-testid="preset-message" role="status" aria-live="polite" className="min-h-5 text-center text-xs text-muted">
+            {message}
+          </p>
+          <button
+            type="button"
+            onClick={() => setMessage(editing.reset())}
+            className="inline-flex h-11 touch-manipulation cursor-pointer items-center justify-center self-center rounded-full px-4 text-xs font-medium text-muted underline underline-offset-2"
+          >
+            {t("colorReset")}
+          </button>
+        </>
       ) : null}
     </>
   );

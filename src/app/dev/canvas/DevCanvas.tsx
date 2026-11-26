@@ -4,6 +4,7 @@ import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { AttachmentService, type AttachmentStorage } from "@/canvas/attachments/upload";
 import type { PreviewSink } from "@/canvas/preview/preview-scheduler";
 import type { CanvasElement } from "@/canvas/model/types";
+import type { RemoveBackgroundFn } from "@/canvas/tools/remove-background";
 import { MemoryElementStore, MemoryOfflineQueue } from "@/canvas/persistence/memory-store";
 import type { ElementStore, Tombstone } from "@/canvas/persistence/store";
 import { MemorySnapshotStore } from "@/canvas/persistence/memory-snapshot-store";
@@ -91,6 +92,44 @@ function memoryAttachmentStorage(): AttachmentStorage {
   };
 }
 
+/**
+ * `?remover=stub` (e2e): a fake background remover that reports progress over about 1.5 s, then clears the left
+ * half of the photo; `?remover=fail` reports some progress, then fails. Both honour Cancel. Without the
+ * parameter no remover is configured (as in production) and the button is not offered.
+ */
+function stubRemover(mode: string | null): RemoveBackgroundFn | undefined {
+  if (mode !== "stub" && mode !== "fail") return undefined;
+  return (image, { onProgress, signal }) =>
+    new Promise<Blob>((resolve, reject) => {
+      let step = 0;
+      const abort = () => {
+        clearInterval(timer);
+        reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
+      };
+      signal.addEventListener("abort", abort);
+      const timer = setInterval(() => {
+        step++;
+        onProgress(step / 10);
+        if (mode === "fail" && step === 4) {
+          clearInterval(timer);
+          reject(new Error("stub failure"));
+        }
+        if (step < 10) return;
+        clearInterval(timer);
+        signal.removeEventListener("abort", abort);
+        void createImageBitmap(image).then((bmp) => {
+          const c = document.createElement("canvas");
+          c.width = bmp.width;
+          c.height = bmp.height;
+          const ctx = c.getContext("2d")!;
+          ctx.drawImage(bmp, 0, 0);
+          ctx.clearRect(0, 0, bmp.width / 2, bmp.height);
+          c.toBlob((b) => (b ? resolve(b) : reject(new Error("encode failed"))), "image/png");
+        }, reject);
+      }, 150);
+    });
+}
+
 /** Dev canvas: same load/autosave path as a real page, but no network; kept per browser tab session. */
 export function DevCanvas() {
   const [store] = useState(() => new SessionElementStore());
@@ -100,6 +139,7 @@ export function DevCanvas() {
     service: new AttachmentService(memoryAttachmentStorage()),
     ownerId: "dev-owner",
     pageId: DEV_PAGE,
+    removeBackground: stubRemover(typeof window === "undefined" ? null : new URLSearchParams(window.location.search).get("remover")),
   }));
   // Previews go to the in-memory bucket; the last one is exposed for e2e (dev only).
   const [preview] = useState<PreviewSink>(() => ({

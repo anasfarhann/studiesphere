@@ -60,7 +60,7 @@ describe("image corner resize", () => {
     expect((scene.get("i") as ImageEl).w).toBeGreaterThanOrEqual(24);
   });
 
-  it("without a single selected image the corner moves the selection instead", () => {
+  it("without a single selected image the corner scales the whole selection instead", () => {
     const scene = new Scene([img, { ...img, id: "j", x: 0, y: 0 }]);
     const selection = new Selection(scene);
     selection.set(["i", "j"]);
@@ -68,7 +68,13 @@ describe("image corner resize", () => {
     lasso.down([300, 200, 0.5], info);
     lasso.move([[350, 250, 0.5]], info);
     lasso.up();
-    expect(scene.get("i")).toMatchObject({ w: 200, x: 150 });
+    // Both photos scale about the selection's top-left (0, 0), keeping their aspect ratio.
+    const i = scene.get("i") as ImageEl;
+    const j = scene.get("j") as ImageEl;
+    expect(i.w).toBeGreaterThan(200);
+    expect(i.w / i.h).toBeCloseTo(2);
+    expect(j).toMatchObject({ x: 0, y: 0 });
+    expect(j.w).toBeCloseTo(i.w);
   });
 });
 

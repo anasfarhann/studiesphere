@@ -1,15 +1,16 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Editor } from "../editor";
-import type { CanvasElement, FileEl } from "../model/types";
+import type { CanvasElement, FileEl, Rect } from "../model/types";
 import { t } from "@/i18n/en";
 import { FileCards } from "./FileCards";
 
 const file = (id: string, thumbPath?: string): FileEl => ({ id, z: 0, updatedAt: 1, type: "file", x: 0, y: 200, assetPath: `p/${id}.pdf`, fileName: `${id}.pdf`, mime: "application/pdf", bytes: 1, thumbPath });
 
 let fire: () => void = () => {};
-function fakeEditor(els: CanvasElement[], visible: (pad?: number) => CanvasElement[] = () => els) {
+function fakeEditor(els: CanvasElement[], visible: (pad?: number) => CanvasElement[] = () => els, handles: Rect[] = []) {
   return {
+    scaleHandleRects: () => handles,
     camera: { zoom: 1, worldToScreen: (x: number, y: number) => [x, y] },
     visibleElements: visible,
     onSelectionChange: (fn: () => void) => (fire = fn, () => {}),
@@ -19,6 +20,18 @@ function fakeEditor(els: CanvasElement[], visible: (pad?: number) => CanvasEleme
 const flush = async () => act(async () => { await Promise.resolve(); });
 
 afterEach(cleanup);
+
+describe("FileCards under scale handles", () => {
+  it("an open button under a corner scale handle lets presses through to the canvas", async () => {
+    // Button centre (30, 232), at least 44 px: a handle target at the card's top-left corner overlaps it.
+    const els = [file("a"), { ...file("b"), x: 600 }];
+    render(<FileCards editor={fakeEditor(els, () => els, [{ minX: -22, minY: 178, maxX: 22, maxY: 222 }])} resolveUrl={async (p) => `https://x/${p}`} forgetUrl={() => {}} />);
+    await flush();
+    const [a, b] = screen.getAllByTestId("file-open");
+    expect(a.className).toContain("pointer-events-none");
+    expect(b.className).not.toContain("pointer-events-none");
+  });
+});
 
 describe("FileCards thumbnail", () => {
   it("renders an img from the signed URL when thumbPath is set", async () => {

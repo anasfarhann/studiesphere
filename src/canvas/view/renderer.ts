@@ -11,6 +11,7 @@ import { approxMeasure, approxMeasureFor, type Measure } from "../model/wrap-tex
 import { isTaintedImage } from "../attachments/image-loader";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
+import { cornerPoint, isScalable } from "../tools/selection-scale";
 import { textHandleCenter } from "../tools/text-resize";
 import { validCrop } from "../tools/image-crop";
 import { outlineToPath, strokeOutline, type PathFactory } from "./stroke-path";
@@ -626,6 +627,12 @@ export class Renderer {
     ctx.textBaseline = "alphabetic";
   }
 
+  /** A photo that is decoded and ready, for reading a pixel (eyedropper); null while loading or failed. Starts no load. */
+  readyImage(assetPath: string): { img: ImageBitmap | HTMLImageElement; tainted: boolean } | null {
+    const e = this.images.get(assetPath);
+    return e?.state === "ready" ? { img: e.img, tainted: isTaintedImage(e.img) } : null;
+  }
+
   /** Whether a photo inside `area` (default: the whole page) is loaded but would taint an exported canvas. */
   hasTaintedImages(area?: Rect): boolean {
     for (const el of area ? this.scene.getVisible(area) : this.scene.all()) {
@@ -688,18 +695,22 @@ export class Renderer {
   }
 
   /**
-   * Grip for a single selected photo (bottom-right corner) or text box (right edge, vertically centred).
-   * The touch target is larger than what is drawn.
+   * Grip for a single selected photo (bottom-right corner) or text box (right edge, vertically centred), or the
+   * four corner scale grips of a stroke or multi-element selection. The touch targets are larger than what is drawn.
    */
-  private drawResizeHandle(b: { minX: number; minY: number; maxX: number; maxY: number }): void {
-    if (this.selection.length !== 1) return;
-    const type = this.scene.get(this.selection[0])?.type;
-    if (type !== "image" && type !== "text") return;
-    const [cx, cy] = type === "image" ? [b.maxX, b.maxY] : textHandleCenter(b);
+  private drawResizeHandle(b: Rect): void {
     const { ctx, camera } = this;
     const s = HANDLE_DRAW_PX / camera.zoom;
+    const grip = ([cx, cy]: [number, number]) => ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
     ctx.fillStyle = "#2563eb";
-    ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
+    const els = this.selection.flatMap((id) => this.scene.get(id) ?? []);
+    if (isScalable(els)) {
+      for (const c of ["nw", "ne", "sw", "se"] as const) grip(cornerPoint(b, c));
+      return;
+    }
+    const type = els.length === 1 ? els[0].type : null;
+    if (type === "image") grip([b.maxX, b.maxY]);
+    else if (type === "text") grip(textHandleCenter(b));
   }
 
   private drawGhost(): void {

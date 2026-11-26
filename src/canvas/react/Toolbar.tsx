@@ -28,6 +28,8 @@ export interface ToolbarProps {
   left?: ReactNode;
   /** Right of the bar, after undo/redo/history: the save status pill. */
   status?: ReactNode;
+  /** Hides the open options popover (kept mounted) while the page itself must be visible, e.g. during an eyedropper pick. */
+  optionsHidden?: boolean;
   /** The bar element, so the host can measure it (panels sit below it). */
   barRef?: Ref<HTMLDivElement>;
 }
@@ -52,7 +54,7 @@ const Divider = () => <span aria-hidden="true" className="mx-1.5 h-7 w-px shrink
  * The canvas top bar, floating over the drawing: title pill, tool pill, undo/redo/history and
  * save status. The bar itself ignores pointer events so strokes can start between the pills.
  */
-export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory, left, status, barRef }: ToolbarProps) {
+export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo, onRedo, onPhoto, onFile, onRecord, recordDisabled, onHistory, left, status, optionsHidden, barRef }: ToolbarProps) {
   const fileRef = useRef<HTMLInputElement>(null);
   const anyFileRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -64,7 +66,7 @@ export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo,
   }, []);
   const showOptions = open && !!renderOptions && hasOptions(tool);
   useEffect(() => {
-    if (!showOptions) return;
+    if (!showOptions || optionsHidden) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && close(true);
     const onDown = (e: PointerEvent) => {
       const n = e.target as Node;
@@ -76,7 +78,7 @@ export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo,
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onDown);
     };
-  }, [showOptions, close]);
+  }, [showOptions, optionsHidden, close]);
   // The popover hangs below the bar, whose height varies (it wraps on phones): cap it at the viewport bottom
   // from its measured top, scrolling inside. The top doesn't depend on the popover's height, so one pass is enough.
   useLayoutEffect(() => {
@@ -178,6 +180,7 @@ export function Toolbar({ tool, onTool, renderOptions, canUndo, canRedo, onUndo,
               id="tool-options"
               role="group"
               aria-label={t("toolOptions", { tool: t(TOOLS.find((x) => x.id === tool)?.label ?? "toolPen") })}
+              style={optionsHidden ? { display: "none" } : undefined}
               className={`absolute top-full left-1/2 z-30 mt-2 flex max-h-[calc(100dvh-var(--tool-options-top,140px)-12px)] w-[min(332px,calc(100vw-24px))] overflow-y-auto overscroll-contain -translate-x-1/2 flex-col items-center gap-1 rounded-[28px] bg-card p-1.5 ${SHADOW}`}
             >
               {renderOptions?.(tool)}

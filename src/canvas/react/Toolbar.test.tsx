@@ -33,6 +33,16 @@ describe("Toolbar (canvas top bar)", () => {
     expect(within(toolbar).getAllByRole("button").every((b) => b.className.includes("touch-manipulation"))).toBe(true);
   });
 
+  it("optionsHidden keeps the options mounted but out of sight, and outside taps do not close them", () => {
+    const { rerender } = render(<Toolbar {...base} renderOptions={(id) => <span>opts for {id}</span>} />);
+    fireEvent.click(screen.getByRole("button", { name: "Pen" }));
+    rerender(<Toolbar {...base} optionsHidden renderOptions={(id) => <span>opts for {id}</span>} />);
+    expect(screen.getByText("opts for pen").closest("#tool-options")?.getAttribute("style")).toContain("display: none");
+    fireEvent.pointerDown(document.body);
+    rerender(<Toolbar {...base} renderOptions={(id) => <span>opts for {id}</span>} />);
+    expect(screen.getByText("opts for pen")).toBeTruthy();
+  });
+
   it("tapping the active tool toggles its options; Escape closes and returns focus; outside tap closes", () => {
     const onTool = vi.fn();
     render(<Toolbar {...base} onTool={onTool} renderOptions={(id) => <span>opts for {id}</span>} />);

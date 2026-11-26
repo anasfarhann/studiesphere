@@ -118,6 +118,8 @@ describe("text box right-edge resize", () => {
     lasso.down([b.maxX, (b.minY + b.maxY) / 2, 0.5], info);
     lasso.move([[b.maxX + 50, (b.minY + b.maxY) / 2, 0.5]], info);
     lasso.up();
-    expect(get(scene).w).toBe(200);
+    // Not a width-only resize: the edge is inside the selection's top-right corner target, which scales it all.
+    expect(get(scene).fontSize).not.toBe(20);
+    expect((scene.get("u") as TextEl).fontSize).toBe(get(scene).fontSize);
   });
 });
