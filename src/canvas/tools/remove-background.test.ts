@@ -20,7 +20,7 @@ function deferred<T>() {
 function setup(remove: RemoveBackgroundFn, upload = vi.fn(async () => ({ assetPath: "o/p/new.png" }))) {
   const scene = new Scene([{ ...photo }]);
   const history = new History();
-  const fetchOriginal = vi.fn(async (_path: string, _signal: AbortSignal) => new Blob(["jpeg"], { type: "image/jpeg" }));
+  const fetchOriginal = vi.fn<(path: string, signal: AbortSignal) => Promise<Blob>>(async () => new Blob(["jpeg"], { type: "image/jpeg" }));
   const r = new BackgroundRemover({ scene, history, ownerId: "o", pageId: "p", fetchOriginal, upload, remove });
   const statuses: BackgroundStatus[] = [];
   r.onStatus((s) => statuses.push(s));
