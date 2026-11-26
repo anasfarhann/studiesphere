@@ -85,8 +85,8 @@ async function expectMenuInsideViewport(page: import("@playwright/test").Page, t
   expect(mb!.x + mb!.width).toBeLessThanOrEqual(width);
   expect(mb!.y + mb!.height).toBeLessThanOrEqual(height);
   const items = page.getByRole("menuitem");
-  await expect(items).toHaveCount(5);
-  for (let i = 0; i < 5; i++) expect((await items.nth(i).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  await expect(items).toHaveCount(6);
+  for (let i = 0; i < 6; i++) expect((await items.nth(i).boundingBox())!.height).toBeGreaterThanOrEqual(44);
   expect(await noOverflow(page)).toBe(true);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);

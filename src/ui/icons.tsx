@@ -1,7 +1,7 @@
 export type IconName =
   | "logo" | "home" | "book" | "calendar" | "cards" | "trophy" | "settings" | "search" | "plus"
   | "folder" | "chevronLeft" | "chevronRight" | "bell" | "pen" | "highlighter" | "eraser" | "lasso" | "text"
-  | "hand" | "photo" | "mic" | "paperclip" | "undo" | "redo" | "history" | "trash" | "play" | "pause" | "close" | "dots";
+  | "hand" | "photo" | "mic" | "paperclip" | "undo" | "redo" | "history" | "trash" | "play" | "pause" | "close" | "dots" | "share";
 
 const P: Record<IconName, React.ReactNode> = {
   logo: (<><circle cx="12" cy="12" r="8" /><path d="M4.5 9.5c5 2 10 2 15 0M4.5 14.5c5-2 10-2 15 0" /></>),
@@ -33,6 +33,7 @@ const P: Record<IconName, React.ReactNode> = {
   play: <path d="M8 5v14l11-7z" />,
   pause: <path d="M8 5v14M16 5v14" />,
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  share: <path d="M12 15V4M8 7.5 12 3.5l4 4M6 11H5.5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1H18" />,
   dots: (<><circle cx="6" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18" cy="12" r="1.2" /></>),
 };
 

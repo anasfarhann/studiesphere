@@ -6,6 +6,10 @@ const m = vi.hoisted(() => ({
   move: vi.fn(),
   dup: vi.fn(),
   del: vi.fn(),
+  pdfShare: vi.fn(),
+  pdfClear: vi.fn(),
+  pdfBusy: false,
+  pdfError: null as string | null,
 }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
@@ -13,6 +17,9 @@ vi.mock("next/link", () => ({
       {children}
     </a>
   ),
+}));
+vi.mock("@/features/share/useSharePdf", () => ({
+  useSharePdf: () => ({ busy: m.pdfBusy, error: m.pdfError, share: m.pdfShare, clearError: m.pdfClear }),
 }));
 vi.mock("./actions", () => ({
   renamePageAction: (...a: unknown[]) => m.rename(...a),
@@ -31,6 +38,9 @@ const folders = [
 
 beforeEach(() => {
   vi.clearAllMocks();
+  m.pdfBusy = false;
+  m.pdfError = null;
+  m.pdfShare.mockResolvedValue(true);
   for (const k of ["rename", "move", "dup", "del"] as const) m[k].mockResolvedValue(null);
 });
 afterEach(cleanup);
@@ -41,7 +51,7 @@ const open = () => {
 };
 
 describe("PageActionsMenu", () => {
-  it("is closed until the trigger is pressed, then lists the actions (no Share as PDF yet)", () => {
+  it("is closed until the trigger is pressed, then lists the actions", () => {
     render(<PageActionsMenu page={page} folders={folders} />);
     expect(trigger().getAttribute("aria-haspopup")).toBe("menu");
     expect(trigger().getAttribute("aria-expanded")).toBe("false");
@@ -49,7 +59,7 @@ describe("PageActionsMenu", () => {
     open();
     expect(trigger().getAttribute("aria-expanded")).toBe("true");
     const items = screen.getAllByRole("menuitem").map((i) => i.textContent);
-    expect(items).toEqual(["Open", "Duplicate", "Rename", "Move to folder", "Delete"]);
+    expect(items).toEqual(["Open", "Duplicate", "Rename", "Move to folder", "Share as PDF", "Delete"]);
     expect(screen.getByRole("menuitem", { name: "Open" }).getAttribute("href")).toBe("/app/p/p1");
     for (const i of screen.getAllByRole("menuitem")) expect(i.className).toMatch(/\bh-11\b|min-h-11/);
     expect(trigger().className).toMatch(/size-11/);
@@ -170,5 +180,32 @@ describe("PageActionsMenu", () => {
     });
     expect((await screen.findByRole("alert")).textContent).toContain("Something went wrong");
     expect(screen.getByRole("dialog")).toBeTruthy();
+  });
+
+  it("Share as PDF runs the share and closes the menu on success", async () => {
+    render(<PageActionsMenu page={page} folders={folders} />);
+    open();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Share as PDF" }));
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+    expect(m.pdfShare).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the menu open and shows the friendly error when sharing fails", async () => {
+    m.pdfShare.mockResolvedValue(false);
+    m.pdfError = "Couldn't make the PDF. Please try again.";
+    render(<PageActionsMenu page={page} folders={folders} />);
+    open();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Share as PDF" }));
+    await waitFor(() => expect(m.pdfShare).toHaveBeenCalled());
+    expect(screen.getByRole("menu")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toBe("Couldn't make the PDF. Please try again.");
+  });
+
+  it("shows a busy label while the PDF is being made", () => {
+    m.pdfBusy = true;
+    render(<PageActionsMenu page={page} folders={folders} />);
+    open();
+    const item = screen.getByRole("menuitem", { name: "Making PDF…" });
+    expect(item.getAttribute("aria-disabled")).toBe("true");
   });
 });

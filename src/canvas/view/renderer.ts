@@ -85,6 +85,8 @@ export class Renderer {
   private images = new Map<string, ImageEntry>();
   /** Settles when the load in flight for an assetPath finishes (either way); see preloadImages. */
   private loads = new Map<string, Promise<void>>();
+  /** Set only during drawSnapshot: a plain background (no dot grid), e.g. white for PDFs. */
+  private snapshotBackground: string | null = null;
   private frameNo = 0;
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private destroyed = false;
@@ -313,8 +315,9 @@ export class Renderer {
    * through another camera, at w x h px and dpr 1, with this renderer's drawing code and its caches (stroke paths,
    * wrapped text, decoded photos). Synchronous; returns false once destroyed. Used for page previews.
    */
-  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number): boolean {
+  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: { background?: string }): boolean {
     if (this.destroyed) return false;
+    this.snapshotBackground = opts?.background ?? null;
     const saved = { ctx: this.ctx, camera: this.camera, cssW: this.cssW, cssH: this.cssH, dpr: this.dpr };
     this.ctx = ctx;
     this.camera = camera;
@@ -324,6 +327,7 @@ export class Renderer {
     try {
       this.drawScene(w, h, false);
     } finally {
+      this.snapshotBackground = null;
       this.ctx = saved.ctx;
       this.camera = saved.camera;
       this.cssW = saved.cssW;
@@ -373,12 +377,12 @@ export class Renderer {
   private drawScene(pxW: number, pxH: number, live: boolean): void {
     const { ctx, camera, dpr } = this;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = GROUND_COLOR;
+    ctx.fillStyle = this.snapshotBackground ?? GROUND_COLOR;
     ctx.fillRect(0, 0, pxW, pxH);
 
     const k = dpr * camera.zoom;
     ctx.setTransform(k, 0, 0, k, -camera.x * k, -camera.y * k);
-    this.drawDotGrid();
+    if (this.snapshotBackground === null) this.drawDotGrid();
 
     for (const el of this.scene.getVisible(camera.viewRect(this.cssW, this.cssH))) {
       if (!live || el.id !== this.hidden) this.drawElement(el, live);

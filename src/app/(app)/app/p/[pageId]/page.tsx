@@ -15,7 +15,7 @@ export default async function CanvasPage({ params }: { params: Promise<{ pageId:
         pageId={page.id}
         ownerId={user.id}
         header={
-<CanvasTitlePill backHref={`/app/s/${folder.id}`} title={page.title} folder={folder.name} />
+<CanvasTitlePill backHref={`/app/s/${folder.id}`} title={page.title} folder={folder.name} pageId={page.id} />
         }
       />
     </main>

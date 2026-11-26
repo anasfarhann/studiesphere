@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useActionState, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "@/i18n/en";
 import { IconButton, PillButton } from "@/ui/Button";
+import { useSharePdf } from "@/features/share/useSharePdf";
 import { Dialog } from "@/ui/Dialog";
 import { deletePageAction, duplicatePageAction, movePageAction, renamePageAction } from "./actions";
 import type { FormState } from "./form-error";
@@ -12,7 +13,7 @@ type PageRef = { id: string; title: string; folderId: string };
 type FolderRef = { id: string; name: string };
 
 const itemClass =
-  "flex h-11 w-full cursor-pointer items-center rounded-2xl px-3.5 text-left text-[15px] font-medium text-ink no-underline hover:bg-panel focus-visible:bg-panel focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-50 aria-disabled:opacity-50";
+  "flex h-11 w-full shrink-0 cursor-pointer items-center rounded-2xl px-3.5 text-left text-[15px] font-medium text-ink no-underline hover:bg-panel focus-visible:bg-panel focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-50 aria-disabled:opacity-50";
 const inputClass =
   "h-[52px] w-full rounded-2xl border-0 bg-ground px-[18px] text-[15px] text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-ink";
 
@@ -96,9 +97,8 @@ function DeletePageForm({ page, onDone, onCancel }: { page: PageRef; onDone: () 
 }
 
 /**
- * The page's actions menu: a round button that opens a popover (Open, Duplicate, Rename, Move to folder, Delete).
+ * The page's actions menu: a round button that opens a popover (Open, Duplicate, Rename, Move to folder, Share as PDF, Delete).
  * Escape or a press outside closes it and focus returns to the button; arrow keys move between items.
- * Share as PDF is added with the PDF feature.
  */
 export function PageActionsMenu({
   page,
@@ -117,6 +117,8 @@ export function PageActionsMenu({
   const [error, setError] = useState<FormState>(null);
   const [busy, setBusy] = useState(false);
   const [flipped, setFlipped] = useState(false);
+  const pdf = useSharePdf(page);
+  const clearPdfError = pdf.clearError;
   const root = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -127,6 +129,7 @@ export function PageActionsMenu({
     setMenuOpen(false);
     setFlipped(false);
     setError(null);
+    pdf.clearError();
     if (restoreFocus) triggerRef.current?.focus();
   };
 
@@ -135,18 +138,28 @@ export function PageActionsMenu({
     const el = menuRef.current;
     if (!menuOpen || !el) return;
     el.style.transform = "";
+    el.style.maxHeight = "";
+    el.style.overflowY = "";
     const r = el.getBoundingClientRect();
     const margin = 8;
     const goesUp = direction === "up" !== flipped;
-    const overflows = goesUp ? r.top < margin : r.bottom > innerHeight - margin;
-    if (!flipped && overflows) {
-      // Flip only when the other side actually has room; otherwise stay put (the page can scroll).
+    const overflow = (rect: DOMRect) => (goesUp ? margin - rect.top : rect.bottom - (innerHeight - margin));
+    if (!flipped && overflow(r) > 0) {
+      // Flip when the other side has more room (the page can still scroll when it has room for the whole menu on
+      // neither side, so the menu then keeps its own side and scrolls inside itself, below).
       const t = triggerRef.current!.getBoundingClientRect();
-      const room = goesUp ? innerHeight - t.bottom : t.top;
-      if (room >= r.height + 2 * margin) {
+      const roomHere = goesUp ? t.top : innerHeight - t.bottom;
+      const roomThere = goesUp ? innerHeight - t.bottom : t.top;
+      if (roomThere >= r.height + 2 * margin || roomThere > roomHere) {
         setFlipped(true);
         return;
       }
+    }
+    // Still not inside the viewport on this side: cap the height and scroll the menu itself.
+    const over = overflow(r);
+    if (over > 0) {
+      el.style.maxHeight = `${Math.max(132, r.height - over)}px`;
+      el.style.overflowY = "auto";
     }
     const dx = r.left < margin ? margin - r.left : r.right > innerWidth - margin ? innerWidth - margin - r.right : 0;
     if (dx) el.style.transform = `translateX(${dx}px)`;
@@ -160,6 +173,7 @@ export function PageActionsMenu({
         setMenuOpen(false);
         setFlipped(false);
         setError(null);
+        clearPdfError();
         triggerRef.current?.focus();
       }
     };
@@ -168,6 +182,7 @@ export function PageActionsMenu({
         setMenuOpen(false);
         setFlipped(false);
         setError(null);
+        clearPdfError();
       }
     };
     document.addEventListener("keydown", onKey);
@@ -176,7 +191,7 @@ export function PageActionsMenu({
       document.removeEventListener("keydown", onKey);
       document.removeEventListener("pointerdown", onPress);
     };
-  }, [menuOpen]);
+  }, [menuOpen, clearPdfError]);
 
   const onMenuKey = (e: React.KeyboardEvent) => {
     const list = items();
@@ -215,6 +230,10 @@ export function PageActionsMenu({
     }
   };
 
+  const sharePdf = async () => {
+    if (await pdf.share()) closeMenu(true);
+  };
+
   const closeDialog = () => setDialog(null);
 
   return (
@@ -248,10 +267,13 @@ export function PageActionsMenu({
           <button type="button" role="menuitem" onClick={() => openDialog("move")} className={itemClass}>
             {t("pageMove")}
           </button>
+          <button type="button" role="menuitem" aria-disabled={pdf.busy} onClick={sharePdf} className={itemClass}>
+            {pdf.busy ? t("sharePdfBusy") : t("pageShare")}
+          </button>
           <button type="button" role="menuitem" onClick={() => openDialog("delete")} className={itemClass}>
             {t("pageDelete")}
           </button>
-          <ErrorText state={error} />
+          <ErrorText state={error ?? (pdf.error ? { error: pdf.error } : null)} />
         </div>
       )}
       {dialog === "rename" && (

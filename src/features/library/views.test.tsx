@@ -69,7 +69,7 @@ describe("FolderView", () => {
     const btn = screen.getByRole("button", { name: "Actions for Organelles" });
     expect(btn.closest("a")).toBeNull();
     fireEvent.click(btn);
-    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Open", "Duplicate", "Rename", "Move to folder", "Delete"]);
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Open", "Duplicate", "Rename", "Move to folder", "Share as PDF", "Delete"]);
   });
 
   it("shows the Recording badge only for pages with audio", () => {

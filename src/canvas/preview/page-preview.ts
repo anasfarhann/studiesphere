@@ -59,7 +59,7 @@ export function frameRect(f: PreviewFrame): Rect {
 export interface PreviewTarget {
   elements(): CanvasElement[];
   /** Draws the scene onto `ctx` through `camera` at w x h px; false when the renderer is gone. */
-  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number): boolean;
+  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: { background?: string }): boolean;
   /** Waits (bounded) until the photos inside `frame` are decoded, so the preview shows them rather than grey boxes. */
   preloadImages?(frame: Rect): Promise<void>;
   /** A pointer is down or text is being typed: not a moment to draw a preview. */

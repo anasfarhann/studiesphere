@@ -632,9 +632,9 @@ export class Editor {
   }
 
   /** Draws the scene onto another context through `camera` (page previews); false once destroyed. */
-  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number): boolean {
+  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: { background?: string }): boolean {
     if (this.destroyed) return false;
-    return this.renderer.drawSnapshot(ctx, camera, w, h);
+    return this.renderer.drawSnapshot(ctx, camera, w, h, opts);
   }
 
   /** Resolves once the photos inside `area` (default: all) are decoded, or after `timeoutMs`. Never rejects. */
