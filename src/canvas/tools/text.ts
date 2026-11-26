@@ -60,6 +60,8 @@ export interface TextEditingContext {
    * Absent, or not finite: AUTO_TEXT_MAX_W.
    */
   maxAutoWidth?: (x: number, y: number) => number;
+  /** A box's measured w/lines were just stored (commit of a new or edited box). */
+  onMeasured?: (id: string) => void;
 }
 
 /** Id of the topmost text element under a world point, or null. */
@@ -193,6 +195,7 @@ export class TextEditing {
         });
         const after = scene.get(id);
         if (after) history.push({ before: [], after: [after] });
+        this.ctx.onMeasured?.(id);
       }
     } else {
       const before = scene.get(s.id);
@@ -215,6 +218,7 @@ export class TextEditing {
             scene.update(before.id, patch);
             const after = scene.get(before.id);
             if (after) history.push({ before: [before], after: [after] });
+            this.ctx.onMeasured?.(before.id);
           }
         }
       }

@@ -395,6 +395,16 @@ export class Renderer {
   /** Wrapped lines per text element, valid while its updatedAt is unchanged (dropped when a face loads). */
   private textCache = new Map<string, { updatedAt: number; lines: string[] }>();
 
+  /** Whether `font` (a CSS font shorthand) is ready to measure. True where the Font Loading API is missing. */
+  fontLoaded(font: string): boolean {
+    if (typeof document === "undefined" || !document.fonts || typeof document.fonts.check !== "function") return true;
+    try {
+      return document.fonts.check(font);
+    } catch {
+      return true;
+    }
+  }
+
   /** Runs `fn` whenever a font face the canvas asked for finishes loading. Returns an unsubscribe. */
   onFontReady(fn: () => void): () => void {
     this.fontListeners.add(fn);

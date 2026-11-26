@@ -55,6 +55,8 @@ export interface LassoToolContext {
   zoom: () => number;
   /** Real text measure for a resized text box's line count (see TextResizeContext). */
   measureText?: (style: TextStyleFields) => Measure;
+  /** A resized text box's measured lines were just stored. */
+  onTextMeasured?: (id: string) => void;
   /** A tap on empty space, or a lasso that selected nothing (at its bounds centre): where a paste could go. */
   onEmpty?: (at: [number, number]) => void;
 }

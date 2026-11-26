@@ -17,6 +17,8 @@ export interface TextResizeContext {
   zoom: () => number;
   /** Real text measure (the canvas's), for the wrapped line count stored on the box. Default: the approximation. */
   measureText?: (style: TextStyleFields) => Measure;
+  /** A resized box's measured lines were just stored. */
+  onTextMeasured?: (id: string) => void;
 }
 
 /** The selected text box when it is the only selected element. */
@@ -82,5 +84,6 @@ export class TextResize {
     if (!a || !this.changed) return;
     const after = this.ctx.scene.get(a.before.id);
     if (after) this.ctx.history.push({ before: [a.before], after: [after] });
+    this.ctx.onTextMeasured?.(a.before.id);
   }
 }

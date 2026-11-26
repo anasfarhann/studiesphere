@@ -7,7 +7,7 @@ import { History } from "./model/history";
 import { Scene } from "./model/scene";
 import type { Change } from "./model/history";
 import type { CanvasElement, StrokeEl, TextEl } from "./model/types";
-import type { TextStyleFields } from "./model/text-style";
+import { cssFont, type TextStyleFields } from "./model/text-style";
 import type { Measure } from "./model/wrap-text";
 import { EraserTool } from "./tools/eraser";
 import { HighlighterTool } from "./tools/highlighter";
@@ -137,6 +137,7 @@ export class Editor {
       history: this.history,
       style: () => this.current.text,
       measure: (style) => this.renderer.measureFor(style),
+      onMeasured: (id) => this.noteMeasured(id),
       maxAutoWidth: (x, y) => {
         if (this.viewW <= 0) return Infinity;
         const [sx] = this.camera.worldToScreen(x, y);
@@ -197,6 +198,7 @@ export class Editor {
         setLasso: (pts) => this.renderer.setLasso(pts),
         zoom: () => this.camera.zoom,
         measureText: (style) => this.renderer.measureFor(style),
+        onTextMeasured: (id) => this.noteMeasured(id),
         onEmpty: (at) => {
           if (this.clipboard.isEmpty) return;
           this.pasteAnchor = at;
@@ -420,6 +422,7 @@ export class Editor {
       this.commitTextStyle();
     }
     this.scene.update(id, { ...next, ...resized } satisfies Partial<TextEl>);
+    this.noteMeasured(id);
     if (!opts?.live) {
       const after = this.scene.get(id);
       if (after) this.history.push({ before: [before], after: [after] });
@@ -439,18 +442,38 @@ export class Editor {
   }
 
   /**
-   * Re-measures every auto and fixed text box with the real font and silently (no undo step) updates the ones whose
-   * stored width or line count is stale. Legacy boxes, the box being edited and one mid-restyle are left alone.
-   * Returns how many boxes changed.
+   * Ids of text boxes this session stored a measured w/lines for while their face was still loading (so measured in
+   * the fallback). Only these are ever re-measured: boxes merely viewed are never written, or a stale tab could
+   * clobber another device's edit under last-write-wins.
+   */
+  private measuredEarly = new Set<string>();
+
+  /** Called after this session stores a box's measured w/lines (commit, resize, restyle). */
+  private noteMeasured(id: string): void {
+    const el = this.scene.get(id);
+    if (!el || el.type !== "text" || el.autoW === undefined) return;
+    if (!this.renderer.fontLoaded(cssFont(el, el.fontSize))) this.measuredEarly.add(id);
+  }
+
+  /**
+   * Once a face has loaded: re-measures the boxes this session measured before it did ({@link noteMeasured}) and
+   * silently (no undo step) updates those off by more than 2 units or a line. Returns how many changed.
    */
   remeasureTexts(): number {
-    if (this.destroyed) return 0;
-    const skip = new Set([this.text.hiddenId, this.textStyleBefore?.id]);
+    if (this.destroyed || this.measuredEarly.size === 0) return 0;
     const patches: Array<[string, Partial<TextEl>]> = [];
-    for (const el of this.scene.all()) {
-      if (el.type !== "text" || el.autoW === undefined || skip.has(el.id)) continue;
+    for (const id of [...this.measuredEarly]) {
+      const el = this.scene.get(id);
+      if (!el || el.type !== "text" || el.autoW === undefined) {
+        this.measuredEarly.delete(id);
+        continue;
+      }
+      // Still loading (another face finished first), being edited, or mid-restyle: its own commit measures again.
+      if (!this.renderer.fontLoaded(cssFont(el, el.fontSize))) continue;
+      this.measuredEarly.delete(id);
+      if (id === this.text.hiddenId || id === this.textStyleBefore?.id) continue;
       const m = this.text.measureBox(el);
-      if (Math.abs(m.w - el.w) > 0.5 || m.lines !== el.lines) patches.push([el.id, m]);
+      if (Math.abs(m.w - el.w) > 2 || m.lines !== el.lines) patches.push([id, m]);
     }
     if (patches.length > 0) this.scene.batch(() => { for (const [id, p] of patches) this.scene.update(id, p); });
     return patches.length;
