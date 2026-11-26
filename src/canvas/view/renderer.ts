@@ -4,10 +4,12 @@ import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, F
 import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
 import { formatDuration } from "../model/format-duration";
 import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
-import { cssFont, whenFontReady } from "../model/text-style";
-import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
+import { textLines } from "../model/text-layout";
+import { cssFont, whenFontReady, type TextStyleFields } from "../model/text-style";
+import { approxMeasure, approxMeasureFor, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
+import { textHandleCenter } from "../tools/text-resize";
 import { validCrop } from "../tools/image-crop";
 import { outlineToPath, strokeOutline, type PathFactory } from "./stroke-path";
 
@@ -170,6 +172,22 @@ export class Renderer {
   setImagePreview(p: { id: string; x: number; y: number; w: number; h: number } | null): void {
     this.imagePreview = p;
     this.requestFrame();
+  }
+
+  /**
+   * Measures text in `style` with this canvas (the same measureText the boxes are drawn with), so a box's stored
+   * width matches its drawing. Falls back to the approximation where the context cannot measure.
+   */
+  measureFor(style: TextStyleFields): Measure {
+    const { ctx } = this;
+    if (typeof ctx.measureText !== "function") return approxMeasureFor(style);
+    return (str, fontSize) => {
+      const prev = ctx.font;
+      ctx.font = cssFont(style, fontSize);
+      const w = ctx.measureText(str).width;
+      ctx.font = prev;
+      return w;
+    };
   }
 
   /** The lasso path being drawn (world coordinates), or null. */
@@ -386,7 +404,8 @@ export class Renderer {
       this.awaitFont(font);
       ctx.textBaseline = "alphabetic";
       const measure: Measure = typeof ctx.measureText === "function" ? (str) => ctx.measureText(str).width : approxMeasure;
-      const lines = wrapText(measure, el.text, el.w, el.fontSize);
+      // A legacy or resized box wraps at its stored w; an auto box at its measured width (see textLines).
+      const lines = textLines(measure, el);
       lines.forEach((line, i) => {
         const baseline = el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1);
         ctx.fillText(line, el.x, baseline);
@@ -528,12 +547,18 @@ export class Renderer {
     ctx.setLineDash([4 / camera.zoom, 3 / camera.zoom]);
     ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
     ctx.restore();
-    this.drawResizeHandle(maxX, maxY);
+    this.drawResizeHandle({ minX, minY, maxX, maxY });
   }
 
-  /** Corner grip for a single selected photo (the touch target is larger than what is drawn). */
-  private drawResizeHandle(cx: number, cy: number): void {
-    if (this.selection.length !== 1 || this.scene.get(this.selection[0])?.type !== "image") return;
+  /**
+   * Grip for a single selected photo (bottom-right corner) or text box (right edge, vertically centred).
+   * The touch target is larger than what is drawn.
+   */
+  private drawResizeHandle(b: { minX: number; minY: number; maxX: number; maxY: number }): void {
+    if (this.selection.length !== 1) return;
+    const type = this.scene.get(this.selection[0])?.type;
+    if (type !== "image" && type !== "text") return;
+    const [cx, cy] = type === "image" ? [b.maxX, b.maxY] : textHandleCenter(b);
     const { ctx, camera } = this;
     const s = HANDLE_DRAW_PX / camera.zoom;
     ctx.fillStyle = "#2563eb";

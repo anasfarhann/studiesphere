@@ -274,6 +274,56 @@ describe("Renderer", () => {
     });
   });
 
+  describe("text width", () => {
+    const text = "aaaa bbbb cccc dddd";
+    const base = { id: "t", z: 1, updatedAt: 1, type: "text", x: 5, y: 7, w: 100, text, fontSize: 16, color: "#000" } as const;
+    const drawn = () => (ctx.fillText as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    const withMeasure = () => Object.assign(ctx, { measureText: (s: string) => ({ width: s.length * 8 }) });
+
+    it("a legacy box (no autoW) wraps at its stored w, at exactly the old positions", () => {
+      withMeasure();
+      scene.add(base);
+      const r = make();
+      r.resize(400, 400, 1);
+      flush();
+      expect(drawn()).toEqual([
+        ["aaaa bbbb", 5, 7 + 16 * 1.4],
+        ["cccc dddd", 5, 7 + 16 * 1.4 * 2],
+      ]);
+    });
+
+    it("an auto box is as wide as its text: no wrap below the maximum, whatever the stored w", () => {
+      withMeasure();
+      scene.add({ ...base, autoW: true });
+      const r = make();
+      r.resize(400, 400, 1);
+      flush();
+      expect(drawn()).toEqual([[text, 5, 7 + 16 * 1.4]]);
+    });
+
+    it("measures with the box's own font", () => {
+      withMeasure();
+      const r = make();
+      const fonts: string[] = [];
+      let cur = "";
+      Object.defineProperty(ctx, "font", { get: () => cur, set: (v: string) => { cur = v; fonts.push(v); }, configurable: true });
+      expect(r.measureFor({ font: "serif", bold: true })("abc", 20)).toBe(24);
+      expect(fonts).toContain("bold 20px Lora, serif");
+    });
+
+    it("a single selected text box shows a handle on its right edge", () => {
+      scene.add({ ...base, autoW: false });
+      const r = make();
+      r.resize(400, 400, 1);
+      r.setSelection(["t"]);
+      flush();
+      const rects = ctx.fillRect.mock.calls.slice(1); // after the background
+      expect(rects).toHaveLength(1);
+      const [x, , w] = rects[0] as number[];
+      expect(x + w / 2).toBeCloseTo(105);
+    });
+  });
+
   describe("images", () => {
     const photo = { id: "p", z: 1, updatedAt: 1, type: "image", x: 10, y: 20, w: 200, h: 100, assetPath: "o/p/a.jpg" } as const;
     const settle = () => new Promise((r) => setTimeout(r, 0));

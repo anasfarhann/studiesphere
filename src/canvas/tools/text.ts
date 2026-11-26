@@ -1,20 +1,24 @@
 import { boundsOf } from "../model/bounds";
+import { autoTextWidth, minTextWidth } from "../model/text-layout";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
 import type { TextStyleFields } from "../model/text-style";
 import type { TextEl } from "../model/types";
+import { approxMeasureFor, type Measure } from "../model/wrap-text";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
 
 export const TEXT_FONT_SIZE = 18;
 export const TEXT_COLOR = "#1B1A1F";
-export const TEXT_WIDTH = 320;
 
 /** What the text box being edited looks like; `id` is null for a box not yet created. */
 export type TextSession = TextStyleFields & {
   id: string | null;
   x: number;
   y: number;
+  /** Wrap width of a fixed box; for an auto box, its width when the session opened (the overlay re-measures). */
   w: number;
+  /** true for an auto-width box (every new box); false for a fixed-width or legacy one. */
+  autoW: boolean;
   fontSize: number;
   color: string;
   text: string;
@@ -47,6 +51,8 @@ export interface TextEditingContext {
   style?: () => TextStyleFields & { size?: number; color?: string };
   newId?: () => string;
   now?: () => number;
+  /** Measures text in a box's font; the app passes the canvas's real measureText. Default: the approximation. */
+  measure?: (style: TextStyleFields) => Measure;
 }
 
 /** Id of the topmost text element under a world point, or null. */
@@ -70,10 +76,17 @@ export class TextEditing {
   private listeners = new Set<() => void>();
   private newId: () => string;
   private now: () => number;
+  private measureFor: (style: TextStyleFields) => Measure;
 
   constructor(private ctx: TextEditingContext) {
     this.newId = ctx.newId ?? (() => crypto.randomUUID());
     this.now = ctx.now ?? (() => Date.now());
+    this.measureFor = ctx.measure ?? approxMeasureFor;
+  }
+
+  /** Width an auto box with `text` in `style` gets. */
+  autoWidth(style: TextStyleFields & { fontSize: number }, text: string): number {
+    return autoTextWidth(this.measureFor(style), text, style.fontSize);
   }
 
   get session(): TextSession | null {
@@ -115,8 +128,9 @@ export class TextEditing {
   beginAt(x: number, y: number): void {
     this.commit();
     const style = this.ctx.style?.() ?? {};
+    const fontSize = style.size ?? TEXT_FONT_SIZE;
     this.open({
-      id: null, x, y, w: TEXT_WIDTH, fontSize: style.size ?? TEXT_FONT_SIZE, color: style.color ?? TEXT_COLOR, text: "",
+      id: null, x, y, w: minTextWidth(fontSize), autoW: true, fontSize, color: style.color ?? TEXT_COLOR, text: "",
       ...styleOf(style),
     });
   }
@@ -132,7 +146,7 @@ export class TextEditing {
     const el = this.ctx.scene.get(id);
     if (!el || el.type !== "text") return false;
     this.commit();
-    this.open({ id, x: el.x, y: el.y, w: el.w, fontSize: el.fontSize, color: el.color, text: el.text, ...styleOf(el) });
+    this.open({ id, x: el.x, y: el.y, w: el.w, autoW: el.autoW === true, fontSize: el.fontSize, color: el.color, text: el.text, ...styleOf(el) });
     return true;
   }
 
@@ -147,9 +161,10 @@ export class TextEditing {
     if (s.id === null) {
       if (!blank) {
         const id = this.newId();
+        const w = s.autoW ? this.autoWidth(s, value) : s.w;
         scene.add({
           id, z: scene.nextZ(), updatedAt: this.now(), type: "text",
-          x: s.x, y: s.y, w: s.w, text: value, fontSize: s.fontSize, color: s.color, ...styleOf(s),
+          x: s.x, y: s.y, w, ...(s.autoW ? { autoW: true } : {}), text: value, fontSize: s.fontSize, color: s.color, ...styleOf(s),
         });
         const after = scene.get(id);
         if (after) history.push({ before: [], after: [after] });
@@ -160,10 +175,15 @@ export class TextEditing {
         if (blank) {
           scene.remove(before.id);
           history.push({ before: [before], after: [] });
-        } else if (value !== before.text) {
-          scene.update(before.id, { text: value } satisfies Partial<TextEl>);
-          const after = scene.get(before.id);
-          if (after) history.push({ before: [before], after: [after] });
+        } else {
+          // An auto box follows its text; a fixed or legacy one keeps its width and rewraps.
+          const patch: Partial<TextEl> = { text: value };
+          if (before.autoW) patch.w = this.autoWidth(before, value);
+          if (value !== before.text || (patch.w !== undefined && patch.w !== before.w)) {
+            scene.update(before.id, patch);
+            const after = scene.get(before.id);
+            if (after) history.push({ before: [before], after: [after] });
+          }
         }
       }
     }

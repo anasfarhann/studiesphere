@@ -1,5 +1,6 @@
 import { strokeWidth } from "./stroke-style";
 import type { CanvasElement, Rect } from "./types";
+import { AUTO_TEXT_MAX_W } from "./text-layout";
 import { approxMeasureFor, wrapText } from "./wrap-text";
 
 /** Fixed card size (world units) for audio and file elements. */
@@ -34,7 +35,10 @@ export function boundsOf(el: CanvasElement): Rect {
     }
     case "text": {
       // No canvas context here: approximate widths (a touch wide, so boxes err on the tall side).
-      const lines = wrapText(approxMeasureFor(el), el.text, el.w, el.fontSize).length;
+      // An auto box's `w` was measured for real when it was committed: below the maximum it does not wrap, so
+      // only its explicit lines count (an approximate re-wrap would add phantom lines).
+      const lines =
+        el.autoW && el.w < AUTO_TEXT_MAX_W ? el.text.split("\n").length : wrapText(approxMeasureFor(el), el.text, el.w, el.fontSize).length;
       return { minX: el.x, minY: el.y, maxX: el.x + el.w, maxY: el.y + el.fontSize * TEXT_LINE_HEIGHT * lines };
     }
     case "image":

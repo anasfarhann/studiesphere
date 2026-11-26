@@ -15,7 +15,13 @@ export type TextEl = Base & {
   type: "text";
   x: number;
   y: number;
+  /** Wrap width. For an auto-width box it is kept in sync with the measured text on every commit. */
   w: number;
+  /**
+   * true: the box is as wide as its longest line (up to AUTO_TEXT_MAX_W, then wraps). false or absent: it wraps
+   * at `w` (absent on boxes made before auto width; false once resized by hand).
+   */
+  autoW?: boolean;
   text: string;
   fontSize: number;
   color: string;

@@ -629,6 +629,21 @@ describe("Editor history and eraser", () => {
       expect(editor.canUndo()).toBe(false);
     });
 
+    it("restyling an auto-width box recomputes its width; a fixed box keeps w", () => {
+      editor.scene.add({ id: "auto", z: 1, updatedAt: 1, type: "text", x: 0, y: 0, w: 60, text: "hello", fontSize: 18, color: "#000", autoW: true });
+      editor.scene.add({ id: "fix", z: 2, updatedAt: 1, type: "text", x: 0, y: 200, w: 60, text: "hello", fontSize: 18, color: "#000", autoW: false });
+      editor.selection.set(["auto"]);
+      editor.restyleText({ fontSize: 40 });
+      const a = editor.scene.get("auto") as { w: number; autoW?: boolean };
+      expect(a.w).toBeGreaterThan(100);
+      expect(a.autoW).toBe(true);
+      editor.undo();
+      expect((editor.scene.get("auto") as { w: number }).w).toBe(60);
+      editor.selection.set(["fix"]);
+      editor.restyleText({ fontSize: 40, bold: true });
+      expect(editor.scene.get("fix")).toMatchObject({ w: 60, autoW: false, fontSize: 40 });
+    });
+
     it("with several elements selected, or none, restyle does nothing", () => {
       addText("a", 0);
       addText("b", 200);

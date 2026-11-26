@@ -7,6 +7,8 @@ import { History } from "./model/history";
 import { Scene } from "./model/scene";
 import type { Change } from "./model/history";
 import type { CanvasElement, StrokeEl, TextEl } from "./model/types";
+import type { TextStyleFields } from "./model/text-style";
+import type { Measure } from "./model/wrap-text";
 import { EraserTool } from "./tools/eraser";
 import { HighlighterTool } from "./tools/highlighter";
 import { ImageCrop, type CropHandle, type CropState } from "./tools/image-crop";
@@ -132,6 +134,7 @@ export class Editor {
       scene: this.scene,
       history: this.history,
       style: () => this.current.text,
+      measure: (style) => this.renderer.measureFor(style),
     });
     this.text.onChange(() => {
       if (!this.text.session) this.commitTextStyle();
@@ -395,6 +398,8 @@ export class Editor {
     if (next.fontSize !== undefined) next.fontSize = clampSize("text", next.fontSize);
     const changed = (Object.keys(next) as (keyof TextStylePatch)[]).some((k) => (before[k] ?? false) !== (next[k] ?? false));
     if (!changed) return true;
+    // An auto-width box re-measures in its new style; a fixed one keeps w and rewraps.
+    const resized: Partial<TextEl> = current.autoW ? { w: this.text.autoWidth({ ...current, ...next }, current.text) } : {};
     if (opts?.live) {
       if (this.textStyleBefore === null || this.textStyleBefore.id !== id) {
         this.commitTextStyle();
@@ -403,7 +408,7 @@ export class Editor {
     } else {
       this.commitTextStyle();
     }
-    this.scene.update(id, next satisfies Partial<TextEl>);
+    this.scene.update(id, { ...next, ...resized } satisfies Partial<TextEl>);
     if (!opts?.live) {
       const after = this.scene.get(id);
       if (after) this.history.push({ before: [before], after: [after] });
@@ -420,6 +425,11 @@ export class Editor {
     if (!before) return;
     const after = this.scene.get(before.id);
     if (after) this.history.push({ before: [before], after: [after] });
+  }
+
+  /** Measures text in `style` exactly as the canvas draws it (world units). */
+  measureText(style: TextStyleFields): Measure {
+    return this.renderer.measureFor(style);
   }
 
   /** Opens the single selected text box in the text editor. */
