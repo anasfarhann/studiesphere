@@ -183,7 +183,9 @@ export class Renderer {
     if (typeof ctx.measureText !== "function") return approxMeasureFor(style);
     return (str, fontSize) => {
       const prev = ctx.font;
-      ctx.font = cssFont(style, fontSize);
+      const font = cssFont(style, fontSize);
+      this.awaitFont(font);
+      ctx.font = font;
       const w = ctx.measureText(str).width;
       ctx.font = prev;
       return w;
@@ -204,6 +206,8 @@ export class Renderer {
       this.pending = null;
     }
     this.cache.clear();
+    this.textCache.clear();
+    this.fontListeners.clear();
     this.releaseImages(() => true);
     window.removeEventListener("online", this.onWake);
     document.removeEventListener("visibilitychange", this.onWake);
@@ -365,6 +369,7 @@ export class Renderer {
     if (!this.maybeRemoved) return;
     this.maybeRemoved = false;
     for (const id of this.cache.keys()) if (!this.scene.get(id)) this.cache.delete(id);
+    for (const id of this.textCache.keys()) if (!this.scene.get(id)) this.textCache.delete(id);
     if (this.images.size > 0) {
       const used = new Set<string>();
       for (const el of this.scene.all()) if (el.type === "image") used.add(el.assetPath);
@@ -386,11 +391,27 @@ export class Renderer {
 
   /** Fonts already asked for: a face still loading is drawn in its fallback, then redrawn once it arrives. */
   private fontsAsked = new Set<string>();
+  private fontListeners = new Set<() => void>();
+  /** Wrapped lines per text element, valid while its updatedAt is unchanged (dropped when a face loads). */
+  private textCache = new Map<string, { updatedAt: number; lines: string[] }>();
+
+  /** Runs `fn` whenever a font face the canvas asked for finishes loading. Returns an unsubscribe. */
+  onFontReady(fn: () => void): () => void {
+    this.fontListeners.add(fn);
+    return () => {
+      this.fontListeners.delete(fn);
+    };
+  }
 
   private awaitFont(font: string): void {
     if (this.fontsAsked.has(font)) return;
     this.fontsAsked.add(font);
-    whenFontReady(font, () => this.requestFrame());
+    whenFontReady(font, () => {
+      if (this.destroyed) return;
+      this.textCache.clear();
+      for (const fn of [...this.fontListeners]) fn();
+      this.requestFrame();
+    });
   }
 
   private drawElement(el: CanvasElement): void {
@@ -405,7 +426,9 @@ export class Renderer {
       ctx.textBaseline = "alphabetic";
       const measure: Measure = typeof ctx.measureText === "function" ? (str) => ctx.measureText(str).width : approxMeasure;
       // A legacy or resized box wraps at its stored w; an auto box at its measured width (see textLines).
-      const lines = textLines(measure, el);
+      const hit = this.textCache.get(el.id);
+      const lines = hit && hit.updatedAt === el.updatedAt ? hit.lines : textLines(measure, el);
+      if (lines !== hit?.lines) this.textCache.set(el.id, { updatedAt: el.updatedAt, lines });
       lines.forEach((line, i) => {
         const baseline = el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1);
         ctx.fillText(line, el.x, baseline);

@@ -1,8 +1,10 @@
 import { boundsOf } from "../model/bounds";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
-import { clampTextWidth } from "../model/text-layout";
+import { clampTextWidth, measureTextBox } from "../model/text-layout";
+import type { TextStyleFields } from "../model/text-style";
 import type { Rect, TextEl } from "../model/types";
+import { approxMeasureFor, type Measure } from "../model/wrap-text";
 import type { Selection } from "../selection";
 
 /** Touch target of the right-edge handle in screen pixels (drawn as the photo handle, HANDLE_DRAW_PX). */
@@ -13,6 +15,8 @@ export interface TextResizeContext {
   history: History;
   selection: Selection;
   zoom: () => number;
+  /** Real text measure (the canvas's), for the wrapped line count stored on the box. Default: the approximation. */
+  measureText?: (style: TextStyleFields) => Measure;
 }
 
 /** The selected text box when it is the only selected element. */
@@ -64,7 +68,9 @@ export class TextResize {
     const w = clampTextWidth(x + a.offX - before.x, before.fontSize);
     const cur = this.ctx.scene.get(before.id);
     if (!cur || cur.type !== "text" || (cur.w === w && cur.autoW === false)) return;
-    this.ctx.scene.update(before.id, { w, autoW: false } satisfies Partial<TextEl>);
+    const measure = (this.ctx.measureText ?? approxMeasureFor)(before);
+    const { lines } = measureTextBox(measure, { ...before, w, autoW: false });
+    this.ctx.scene.update(before.id, { w, autoW: false, lines, maxW: undefined } satisfies Partial<TextEl>);
     this.changed = true;
     this.ctx.selection.prune();
   }

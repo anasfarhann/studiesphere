@@ -179,6 +179,35 @@ describe("TextEditing auto width", () => {
     expect(box(scene)).toMatchObject({ text: "hi", w: w0 });
   });
 
+  it("commit stores the really measured line count", () => {
+    const scene = new Scene();
+    const editing = new TextEditing({
+      scene, history: new History(), newId: () => "m", now: () => 1, measure: () => (s: string) => s.length * 10,
+    });
+    editing.beginAt(0, 0);
+    editing.commit("one\ntwo\n" + "x".repeat(80));
+    // 80 chars * 10 = 800 > 560: the long line wraps into two.
+    expect(box(scene, "m")).toMatchObject({ w: 560, lines: 4 });
+  });
+
+  it("near the screen edge the box wraps at the editor's cap, and keeps it as maxW", () => {
+    const scene = new Scene();
+    const editing = new TextEditing({
+      scene, history: new History(), newId: () => "c", now: () => 1, measure: () => (s: string) => s.length * 10,
+      maxAutoWidth: () => 200,
+    });
+    editing.beginAt(0, 0);
+    expect(editing.session?.maxW).toBe(200);
+    editing.commit("x".repeat(50));
+    expect(box(scene, "c")).toMatchObject({ w: 200, maxW: 200, lines: 3, autoW: true });
+    // Re-opened with room to spare: the cap is lifted.
+    const wide = new TextEditing({ scene, history: new History(), measure: () => (s: string) => s.length * 10, maxAutoWidth: () => 2000 });
+    wide.beginEdit("c");
+    wide.commit("x".repeat(60));
+    expect(box(scene, "c").maxW).toBeUndefined();
+    expect(box(scene, "c").w).toBe(560);
+  });
+
   it("editing a fixed-width or legacy box keeps its width", () => {
     const { scene, editing } = make();
     scene.add({ id: "f", z: 0, updatedAt: 1, type: "text", x: 0, y: 0, w: 90, text: "x", fontSize: 20, color: "#000", autoW: false });
@@ -190,6 +219,8 @@ describe("TextEditing auto width", () => {
     editing.commit("hi");
     expect(box(scene, "old").w).toBe(320);
     expect("autoW" in box(scene, "old")).toBe(false);
+    expect("lines" in box(scene, "old")).toBe(false);
+    expect(box(scene, "f").lines).toBeGreaterThan(1);
   });
 });
 

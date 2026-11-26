@@ -1,5 +1,5 @@
 import { boundsOf } from "../model/bounds";
-import { autoTextWidth, minTextWidth } from "../model/text-layout";
+import { AUTO_TEXT_MAX_W, autoTextWidth, measureTextBox, minTextWidth } from "../model/text-layout";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
 import type { TextStyleFields } from "../model/text-style";
@@ -19,6 +19,8 @@ export type TextSession = TextStyleFields & {
   w: number;
   /** true for an auto-width box (every new box); false for a fixed-width or legacy one. */
   autoW: boolean;
+  /** Auto boxes: how wide the editor lets the box grow at this spot (it wraps there); absent means AUTO_TEXT_MAX_W. */
+  maxW?: number;
   fontSize: number;
   color: string;
   text: string;
@@ -53,6 +55,11 @@ export interface TextEditingContext {
   now?: () => number;
   /** Measures text in a box's font; the app passes the canvas's real measureText. Default: the approximation. */
   measure?: (style: TextStyleFields) => Measure;
+  /**
+   * The widest (world units) an auto box at world (x, y) may grow before it wraps, so its editor stays on screen.
+   * Absent, or not finite: AUTO_TEXT_MAX_W.
+   */
+  maxAutoWidth?: (x: number, y: number) => number;
 }
 
 /** Id of the topmost text element under a world point, or null. */
@@ -84,9 +91,20 @@ export class TextEditing {
     this.measureFor = ctx.measure ?? approxMeasureFor;
   }
 
-  /** Width an auto box with `text` in `style` gets. */
-  autoWidth(style: TextStyleFields & { fontSize: number }, text: string): number {
-    return autoTextWidth(this.measureFor(style), text, style.fontSize);
+  /** Width an auto box with `text` in `style` gets (at most `maxW`, when given). */
+  autoWidth(style: TextStyleFields & { fontSize: number; maxW?: number }, text: string): number {
+    return autoTextWidth(this.measureFor(style), text, style.fontSize, style.maxW);
+  }
+
+  /** Measured width and line count of a box (see measureTextBox). */
+  measureBox(el: TextStyleFields & { w: number; text: string; fontSize: number; autoW?: boolean; maxW?: number }): { w: number; lines: number } {
+    return measureTextBox(this.measureFor(el), el);
+  }
+
+  /** The editor's cap for an auto box opened at (x, y); undefined when there is room for the full maximum. */
+  private capAt(x: number, y: number): number | undefined {
+    const cap = this.ctx.maxAutoWidth?.(x, y);
+    return cap !== undefined && Number.isFinite(cap) && cap < AUTO_TEXT_MAX_W ? cap : undefined;
   }
 
   get session(): TextSession | null {
@@ -129,9 +147,10 @@ export class TextEditing {
     this.commit();
     const style = this.ctx.style?.() ?? {};
     const fontSize = style.size ?? TEXT_FONT_SIZE;
+    const maxW = this.capAt(x, y);
     this.open({
-      id: null, x, y, w: minTextWidth(fontSize), autoW: true, fontSize, color: style.color ?? TEXT_COLOR, text: "",
-      ...styleOf(style),
+      id: null, x, y, w: minTextWidth(fontSize), autoW: true, ...(maxW !== undefined ? { maxW } : {}), fontSize,
+      color: style.color ?? TEXT_COLOR, text: "", ...styleOf(style),
     });
   }
 
@@ -146,7 +165,12 @@ export class TextEditing {
     const el = this.ctx.scene.get(id);
     if (!el || el.type !== "text") return false;
     this.commit();
-    this.open({ id, x: el.x, y: el.y, w: el.w, autoW: el.autoW === true, fontSize: el.fontSize, color: el.color, text: el.text, ...styleOf(el) });
+    const auto = el.autoW === true;
+    const maxW = auto ? this.capAt(el.x, el.y) : undefined;
+    this.open({
+      id, x: el.x, y: el.y, w: el.w, autoW: auto, ...(maxW !== undefined ? { maxW } : {}), fontSize: el.fontSize, color: el.color,
+      text: el.text, ...styleOf(el),
+    });
     return true;
   }
 
@@ -161,10 +185,11 @@ export class TextEditing {
     if (s.id === null) {
       if (!blank) {
         const id = this.newId();
-        const w = s.autoW ? this.autoWidth(s, value) : s.w;
+        const { w, lines } = this.measureBox({ ...s, text: value });
         scene.add({
           id, z: scene.nextZ(), updatedAt: this.now(), type: "text",
-          x: s.x, y: s.y, w, ...(s.autoW ? { autoW: true } : {}), text: value, fontSize: s.fontSize, color: s.color, ...styleOf(s),
+          x: s.x, y: s.y, w, ...(s.autoW ? { autoW: true } : {}), ...(s.autoW && s.maxW !== undefined ? { maxW: s.maxW } : {}), lines,
+          text: value, fontSize: s.fontSize, color: s.color, ...styleOf(s),
         });
         const after = scene.get(id);
         if (after) history.push({ before: [], after: [after] });
@@ -176,10 +201,17 @@ export class TextEditing {
           scene.remove(before.id);
           history.push({ before: [before], after: [] });
         } else {
-          // An auto box follows its text; a fixed or legacy one keeps its width and rewraps.
-          const patch: Partial<TextEl> = { text: value };
-          if (before.autoW) patch.w = this.autoWidth(before, value);
-          if (value !== before.text || (patch.w !== undefined && patch.w !== before.w)) {
+          // An auto box follows its text (wrapping where this editor did); a fixed one keeps its width and rewraps.
+          // Both store their measured line count. A legacy box only gets its new text, as before.
+          if (value !== before.text) {
+            const patch: Partial<TextEl> = { text: value };
+            if (before.autoW !== undefined) {
+              const next = { ...before, text: value, maxW: before.autoW ? s.maxW : before.maxW };
+              const m = this.measureBox(next);
+              patch.w = m.w;
+              patch.lines = m.lines;
+              if (before.autoW) patch.maxW = s.maxW;
+            }
             scene.update(before.id, patch);
             const after = scene.get(before.id);
             if (after) history.push({ before: [before], after: [after] });

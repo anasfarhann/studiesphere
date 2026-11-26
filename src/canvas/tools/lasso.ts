@@ -5,6 +5,8 @@ import type { Change } from "../model/history";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
 import { elementAt, type Selection } from "../selection";
+import type { TextStyleFields } from "../model/text-style";
+import type { Measure } from "../model/wrap-text";
 import { ImageResize } from "./image-resize";
 import { TextResize } from "./text-resize";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
@@ -51,6 +53,8 @@ export interface LassoToolContext {
   setLasso: (points: [number, number][] | null) => void;
   /** Camera zoom, for the resize handles' screen-sized touch targets and the tap slop. */
   zoom: () => number;
+  /** Real text measure for a resized text box's line count (see TextResizeContext). */
+  measureText?: (style: TextStyleFields) => Measure;
   /** A tap on empty space, or a lasso that selected nothing (at its bounds centre): where a paste could go. */
   onEmpty?: (at: [number, number]) => void;
 }

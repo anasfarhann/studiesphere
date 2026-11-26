@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { boundsOf } from "../model/bounds";
+import { boundsOf, TEXT_LINE_HEIGHT } from "../model/bounds";
+import { wrapText } from "../model/wrap-text";
 import { History } from "../model/history";
 import { Scene } from "../model/scene";
 import type { TextEl } from "../model/types";
@@ -38,6 +39,27 @@ describe("text box right-edge resize", () => {
     history.undo(scene);
     expect(get(scene)).toMatchObject({ w: 200, autoW: true });
     expect(history.canUndo()).toBe(false);
+  });
+
+  it("after a resize the bounds height is the really measured line count x line height", () => {
+    const measure = (s: string, f: number) => s.length * f * 0.45; // "real" glyphs narrower than the approximation
+    const scene = new Scene([box]);
+    const history = new History();
+    const selection = new Selection(scene);
+    selection.set(["t"]);
+    const lasso = new LassoTool({ scene, history, selection, setLasso: () => {}, zoom: () => 1, measureText: () => measure });
+    const b0 = boundsOf(box);
+    const y = (b0.minY + b0.maxY) / 2;
+    lasso.down([b0.maxX, y, 0.5], info);
+    lasso.move([[b0.maxX - 60, y, 0.5]], info);
+    lasso.up();
+    const after = get(scene);
+    const lines = wrapText(measure, after.text, after.w, after.fontSize).length;
+    expect(after.lines).toBe(lines);
+    const h = boundsOf(after).maxY - boundsOf(after).minY;
+    expect(Math.abs(h - lines * after.fontSize * TEXT_LINE_HEIGHT)).toBeLessThanOrEqual(1);
+    history.undo(scene);
+    expect("lines" in get(scene)).toBe(false);
   });
 
   it("a legacy box resized and undone gets its exact old fields back", () => {

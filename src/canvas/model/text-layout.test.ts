@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { boundsOf, TEXT_LINE_HEIGHT } from "./bounds";
-import { AUTO_TEXT_MAX_W, autoTextWidth, layoutWidth, minTextWidth, textLines } from "./text-layout";
+import { AUTO_TEXT_MAX_W, autoTextWidth, layoutWidth, measureTextBox, minTextWidth, textLines } from "./text-layout";
+import { wrapText } from "./wrap-text";
 import type { TextEl } from "./types";
 import { approxMeasure, approxMeasureFor } from "./wrap-text";
 
@@ -62,5 +63,31 @@ describe("text layout", () => {
     const h = (e: TextEl) => boundsOf(e).maxY - boundsOf(e).minY;
     expect(h(narrow)).toBeGreaterThan(h(wide));
     expect(boundsOf(narrow).maxX - boundsOf(narrow).minX).toBe(80);
+  });
+});
+
+describe("measured line count", () => {
+  it("measureTextBox gives the drawn width and wrapped line count", () => {
+    const fixedBox = el({ autoW: false, w: 100, text: "aaaa bbbb cccc dddd" });
+    expect(measureTextBox(fixed, fixedBox)).toEqual({ w: 100, lines: wrapText(fixed, fixedBox.text, 100, 20).length });
+    const auto = el({ autoW: true, text: "ab\ncd" });
+    expect(measureTextBox(fixed, auto)).toEqual({ w: autoTextWidth(fixed, "ab\ncd", 20), lines: 2 });
+  });
+
+  it("bounds use a stored line count when present", () => {
+    const box = el({ autoW: false, w: 100, text: "aaaa bbbb cccc dddd", lines: 3 });
+    expect(boundsOf(box).maxY - boundsOf(box).minY).toBeCloseTo(3 * 20 * TEXT_LINE_HEIGHT);
+  });
+
+  it("a legacy box without lines is approximated exactly as before", () => {
+    const box = el({ w: 100, text: "word ".repeat(40) });
+    expect(boundsOf(box).maxY - boundsOf(box).minY).toBe(20 * TEXT_LINE_HEIGHT * wrapText(approxMeasure, box.text, 100, 20).length);
+  });
+
+  it("an auto box's maxW narrows where it wraps (never below two em)", () => {
+    expect(autoTextWidth(fixed, "word ".repeat(200), 20, 300)).toBe(300);
+    expect(autoTextWidth(fixed, "word ".repeat(200), 20, 10)).toBe(40);
+    expect(autoTextWidth(fixed, "word ".repeat(200), 20, 900)).toBe(AUTO_TEXT_MAX_W);
+    expect(layoutWidth(fixed, el({ autoW: true, maxW: 300, text: "word ".repeat(200) }))).toBe(300);
   });
 });

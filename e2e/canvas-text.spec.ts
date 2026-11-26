@@ -184,3 +184,32 @@ for (const viewport of [
     });
   });
 }
+
+test.describe("auto-width text near the screen edge at 390", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("a long sentence wraps inside the screen while typing and after commit", async ({ page }) => {
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    const canvas = (await page.getByTestId("canvas").boundingBox())!;
+    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await page.mouse.click(canvas.x + 120, canvas.y + 300);
+    const ta = page.getByTestId("text-editor");
+    await expect(ta).toBeFocused();
+    await page.keyboard.type("Photosynthesis converts light energy into chemical energy stored in glucose molecules");
+    const tb = (await ta.boundingBox())!;
+    expect(tb.x + tb.width).toBeLessThanOrEqual(390);
+    expect(tb.height).toBeGreaterThan(40); // it wrapped
+    await page.keyboard.press("Escape");
+    const right = await page.evaluate(() => {
+      const ed = (window as unknown as SizeHook).__editor;
+      const el = ed.scene.all().find((e) => e.type === "text") as { x?: number; y?: number; w?: number };
+      return ed.camera.worldToScreen(el.x! + el.w!, el.y!)[0];
+    });
+    expect(canvas.x + right).toBeLessThanOrEqual(390);
+    // The canvas draws the same wrap: the box's height is its measured line count.
+    const el = await page.evaluate(() => (window as unknown as SizeHook).__editor.scene.all().find((e) => e.type === "text") as unknown as { lines: number; fontSize: number });
+    expect(el.lines).toBeGreaterThan(1);
+    expect(Math.abs(el.lines * el.fontSize * 1.4 - tb.height)).toBeLessThanOrEqual(2);
+  });
+});

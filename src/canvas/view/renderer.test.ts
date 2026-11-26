@@ -301,6 +301,22 @@ describe("Renderer", () => {
       expect(drawn()).toEqual([[text, 5, 7 + 16 * 1.4]]);
     });
 
+    it("caches a box's wrapped lines until it changes", () => {
+      let calls = 0;
+      Object.assign(ctx, { measureText: (str: string) => { calls++; return { width: str.length * 8 }; } });
+      scene.add({ ...base, autoW: true });
+      const r = make();
+      r.resize(400, 400, 1);
+      flush();
+      const first = calls;
+      expect(first).toBeGreaterThan(0);
+      r.requestFrame(); flush();
+      expect(calls).toBe(first);
+      scene.update("t", { text: "changed" });
+      flush();
+      expect(calls).toBeGreaterThan(first);
+    });
+
     it("measures with the box's own font", () => {
       withMeasure();
       const r = make();

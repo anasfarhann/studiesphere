@@ -642,6 +642,20 @@ describe("Editor history and eraser", () => {
       editor.selection.set(["fix"]);
       editor.restyleText({ fontSize: 40, bold: true });
       expect(editor.scene.get("fix")).toMatchObject({ w: 60, autoW: false, fontSize: 40 });
+      // "hello" in bold 40px (approx 0.55em x 1.06 per char) is ~117 wide: it wraps in 60.
+      expect((editor.scene.get("fix") as { lines?: number }).lines).toBeGreaterThan(1);
+    });
+
+    it("re-measuring once fonts load updates stale boxes silently (no undo step); legacy boxes untouched", () => {
+      editor.scene.add({ id: "auto", z: 1, updatedAt: 1, type: "text", x: 0, y: 0, w: 999, text: "hello", fontSize: 18, color: "#000", autoW: true });
+      editor.scene.add({ id: "fix", z: 2, updatedAt: 1, type: "text", x: 0, y: 200, w: 40, text: "hello there", fontSize: 18, color: "#000", autoW: false, lines: 1 });
+      editor.scene.add({ id: "old", z: 3, updatedAt: 1, type: "text", x: 0, y: 400, w: 40, text: "hello there", fontSize: 18, color: "#000" });
+      expect(editor.remeasureTexts()).toBe(2);
+      expect((editor.scene.get("auto") as { w: number }).w).toBeLessThan(100);
+      expect((editor.scene.get("fix") as { lines: number }).lines).toBeGreaterThan(1);
+      expect(editor.scene.get("old")).toEqual({ id: "old", z: 3, updatedAt: 1, type: "text", x: 0, y: 400, w: 40, text: "hello there", fontSize: 18, color: "#000" });
+      expect(editor.canUndo()).toBe(false);
+      expect(editor.remeasureTexts()).toBe(0);
     });
 
     it("with several elements selected, or none, restyle does nothing", () => {

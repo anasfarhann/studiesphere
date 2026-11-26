@@ -8,9 +8,12 @@ import { autoTextWidth } from "../model/text-layout";
 import { cssFont, fontFamily, whenFontReady } from "../model/text-style";
 import type { TextSession } from "../tools/text";
 
-/** Screen width of the box being edited: a fixed box keeps its w; an auto box fits `text` as the canvas will draw it. */
+/**
+ * Screen width of the box being edited: a fixed box keeps its w; an auto box fits `text` as the canvas will draw it,
+ * wrapping at the session's cap (which keeps it short of the screen's right edge; the commit stores the same cap).
+ */
 function screenWidth(editor: Editor, s: TextSession, text: string): number {
-  const w = s.autoW ? autoTextWidth(editor.measureText(s), text, s.fontSize) : s.w;
+  const w = s.autoW ? autoTextWidth(editor.measureText(s), text, s.fontSize, s.maxW) : s.w;
   return w * editor.camera.zoom;
 }
 

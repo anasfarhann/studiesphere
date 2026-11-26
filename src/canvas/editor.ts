@@ -41,6 +41,8 @@ type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number;
 
 /** A two-finger tap: both fingers down and up within this long, barely moving. */
 const TAP_MAX_MS = 250;
+/** An auto text box being typed stops this many screen px short of the canvas's right edge (and wraps there). */
+export const TEXT_EDGE_MARGIN_PX = 12;
 const TAP_MAX_MOVE = 10;
 type Tap = { t0: number; ids: [number, number]; up: number; moved: number; zoom0: number };
 
@@ -135,7 +137,14 @@ export class Editor {
       history: this.history,
       style: () => this.current.text,
       measure: (style) => this.renderer.measureFor(style),
+      maxAutoWidth: (x, y) => {
+        if (this.viewW <= 0) return Infinity;
+        const [sx] = this.camera.worldToScreen(x, y);
+        return (this.viewW - TEXT_EDGE_MARGIN_PX - sx) / this.camera.zoom;
+      },
     });
+    // A face that finishes loading changes text metrics: re-measure boxes measured with its fallback.
+    this.renderer.onFontReady(() => this.remeasureTexts());
     this.text.onChange(() => {
       if (!this.text.session) this.commitTextStyle();
       this.renderer.setHidden(this.text.hiddenId);
@@ -187,6 +196,7 @@ export class Editor {
         selection: this.selection,
         setLasso: (pts) => this.renderer.setLasso(pts),
         zoom: () => this.camera.zoom,
+        measureText: (style) => this.renderer.measureFor(style),
         onEmpty: (at) => {
           if (this.clipboard.isEmpty) return;
           this.pasteAnchor = at;
@@ -399,7 +409,8 @@ export class Editor {
     const changed = (Object.keys(next) as (keyof TextStylePatch)[]).some((k) => (before[k] ?? false) !== (next[k] ?? false));
     if (!changed) return true;
     // An auto-width box re-measures in its new style; a fixed one keeps w and rewraps.
-    const resized: Partial<TextEl> = current.autoW ? { w: this.text.autoWidth({ ...current, ...next }, current.text) } : {};
+    // Both (not legacy boxes) store their re-measured line count.
+    const resized: Partial<TextEl> = current.autoW !== undefined ? this.text.measureBox({ ...current, ...next }) : {};
     if (opts?.live) {
       if (this.textStyleBefore === null || this.textStyleBefore.id !== id) {
         this.commitTextStyle();
@@ -425,6 +436,24 @@ export class Editor {
     if (!before) return;
     const after = this.scene.get(before.id);
     if (after) this.history.push({ before: [before], after: [after] });
+  }
+
+  /**
+   * Re-measures every auto and fixed text box with the real font and silently (no undo step) updates the ones whose
+   * stored width or line count is stale. Legacy boxes, the box being edited and one mid-restyle are left alone.
+   * Returns how many boxes changed.
+   */
+  remeasureTexts(): number {
+    if (this.destroyed) return 0;
+    const skip = new Set([this.text.hiddenId, this.textStyleBefore?.id]);
+    const patches: Array<[string, Partial<TextEl>]> = [];
+    for (const el of this.scene.all()) {
+      if (el.type !== "text" || el.autoW === undefined || skip.has(el.id)) continue;
+      const m = this.text.measureBox(el);
+      if (Math.abs(m.w - el.w) > 0.5 || m.lines !== el.lines) patches.push([el.id, m]);
+    }
+    if (patches.length > 0) this.scene.batch(() => { for (const [id, p] of patches) this.scene.update(id, p); });
+    return patches.length;
   }
 
   /** Measures text in `style` exactly as the canvas draws it (world units). */
