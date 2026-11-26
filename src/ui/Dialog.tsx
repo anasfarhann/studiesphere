@@ -4,8 +4,11 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
 import { t } from "@/i18n/en";
 import { IconButton } from "./Button";
 
-/** Modal dialog: traps Tab, closes on Escape or backdrop tap, returns focus to the opener. */
-export function Dialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
+/**
+ * Modal dialog: traps Tab, closes on Escape or backdrop tap, returns focus to the opener. `wide`: nearly the whole
+ * viewport (a photo lightbox) instead of a narrow card.
+ */
+export function Dialog({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
   const headingId = useId();
   const ref = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -49,7 +52,7 @@ export function Dialog({ title, onClose, children }: { title: string; onClose: (
         role="dialog"
         aria-modal="true"
         aria-labelledby={headingId}
-        className="flex w-full max-w-md flex-col gap-4 rounded-[28px] bg-card p-6 shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
+        className={`flex w-full flex-col gap-4 rounded-[28px] bg-card shadow-[0_8px_28px_rgba(27,26,31,0.12)] ${wide ? "max-h-full max-w-6xl p-4" : "max-w-md p-6"}`}
       >
         <div className="flex items-center justify-between gap-3">
           <h2 id={headingId} className="text-xl font-medium">

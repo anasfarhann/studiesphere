@@ -12,6 +12,10 @@ import { createImageLoader } from "../attachments/image-loader";
 import { PhotoInserter, type PhotoStatus as PhotoState } from "../tools/insert-image";
 import { FileInserter, type FileStatus as FileState } from "../tools/insert-file";
 import { AudioRecorder, type AudioStatus } from "../tools/record-audio";
+import { BackgroundRemover, type BackgroundStatus as BgState, type RemoveBackgroundFn } from "../tools/remove-background";
+import type { ImageEl } from "../model/types";
+import { BackgroundStatus } from "./BackgroundStatus";
+import { ImagePreview } from "./ImagePreview";
 import { AudioCards } from "./AudioCards";
 import { FileCards } from "./FileCards";
 import { FileStatus } from "./FileStatus";
@@ -42,6 +46,15 @@ export interface AttachmentConfig {
   store?: ElementStore;
   /** Durable holding place for finished recordings until their card is saved. */
   outbox?: RecordingOutbox;
+  /** Test seam (the dev canvas's stub): replaces the on-device background remover. */
+  removeBackground?: RemoveBackgroundFn;
+}
+
+/** A stored photo's bytes, through its signed URL (a tainted <img> could not be read back). */
+async function fetchAsset(signedUrl: string): Promise<Blob> {
+  const res = await fetch(signedUrl);
+  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+  return res.blob();
 }
 
 export interface CanvasViewProps {
@@ -89,6 +102,9 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
   const [fileState, setFileState] = useState<FileState>({ kind: "idle" });
   const audioRef = useRef<AudioRecorder | null>(null);
   const [audioState, setAudioState] = useState<AudioStatus>({ kind: "idle" });
+  const bgRef = useRef<BackgroundRemover | null>(null);
+  const [bgState, setBgState] = useState<BgState>({ kind: "idle" });
+  const [previewing, setPreviewing] = useState<ImageEl | null>(null);
 
   useEffect(() => {
     const box = boxRef.current;
@@ -105,6 +121,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     let offPhoto = () => {};
     let offAudio = () => {};
     let offFile = () => {};
+    let offBg = () => {};
     if (files) {
       const photos = new PhotoInserter({
         scene: editor.scene,
@@ -142,6 +159,17 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
       });
       audioRef.current = audio;
       offAudio = audio.onStatus(setAudioState);
+      const bg = new BackgroundRemover({
+        scene: editor.scene,
+        history: editor.history,
+        ownerId: files.ownerId,
+        pageId: files.pageId,
+        fetchOriginal: async (path) => fetchAsset(await files.service.signedUrl(path)),
+        upload: (blob, o) => files.service.uploadAttachment(blob, o),
+        remove: files.removeBackground,
+      });
+      bgRef.current = bg;
+      offBg = bg.onStatus(setBgState);
     }
     setEditor(editor);
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
@@ -202,6 +230,9 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
       offAudio();
       audioRef.current?.dispose();
       audioRef.current = null;
+      offBg();
+      bgRef.current?.dispose();
+      bgRef.current = null;
       offHist();
       offTool();
       offCrop();
@@ -291,6 +322,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
               </button>
             </div>
           ) : null}
+          <BackgroundStatus status={bgState} onCancel={() => bgRef.current?.cancel()} onDismiss={() => bgRef.current?.dismiss()} />
           <PhotoStatus
             status={photoState}
             onRetry={() => void photosRef.current?.retry()}
@@ -326,8 +358,26 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
           />
         ) : null}
         {editor ? <TextEditorOverlay editor={editor} /> : null}
-        {editor ? <SelectionMenu editor={editor} /> : null}
+        {editor ? (
+          <SelectionMenu
+            editor={editor}
+            topInset={barBottom}
+            image={
+              files
+                ? {
+                    removing: bgState.kind === "working",
+                    onRemoveBackground: (id) => void bgRef.current?.start(id),
+                    onPreview: (id) => {
+                      const el = editor.scene.get(id);
+                      if (el?.type === "image") setPreviewing(el);
+                    },
+                  }
+                : undefined
+            }
+          />
+        ) : null}
         {editor ? <CropOverlay editor={editor} /> : null}
+        {previewing && files ? <ImagePreview image={previewing} resolveUrl={files.service.signedUrl.bind(files.service)} onClose={() => setPreviewing(null)} /> : null}
         {editor && snapshots && historyOpen ? (
           <HistoryPanel store={snapshots.store} pageId={snapshots.pageId} editor={editor} onClose={() => setHistoryOpen(false)} top={barBottom + 8} />
         ) : null}

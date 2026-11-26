@@ -19,18 +19,20 @@ type View =
 
 /**
  * Where the menu goes (CSS px in the canvas box): centred above the selection, below it when there is
- * no room above, and always inside the view.
+ * no room above, and always inside the view. `topInset`: the top bar's height, which the menu keeps below.
  */
-export function placeMenu(o: Anchor & { menuW: number; menuH: number; viewW: number; viewH: number }): { left: number; top: number } {
+export function placeMenu(o: Anchor & { menuW: number; menuH: number; viewW: number; viewH: number; topInset?: number }): { left: number; top: number } {
   const left = Math.max(GAP, Math.min(o.centerX - o.menuW / 2, o.viewW - o.menuW - GAP));
   const clear = o.clear ?? 0;
+  const minTop = (o.topInset ?? 0) + GAP;
   let top = o.boxTop - o.menuH - GAP - clear;
-  if (top < GAP) {
+  if (top < minTop) {
     // No room above: below the box, or (a box filling the view) at the top of the view.
     const below = o.boxBottom + GAP + clear;
-    top = below + o.menuH + GAP <= o.viewH ? below : GAP;
+    top = below + o.menuH + GAP <= o.viewH ? below : minTop;
   }
-  top = Math.max(GAP, Math.min(top, o.viewH - o.menuH - GAP));
+  // Staying inside the view wins over keeping clear of the top bar (a tall menu on a short screen).
+  top = Math.max(GAP, Math.min(Math.max(top, minTop), o.viewH - o.menuH - GAP));
   return { left, top };
 }
 
@@ -63,14 +65,23 @@ function readView(editor: Editor): View | null {
   return { mode: "paste", key: `paste:${at[0]},${at[1]}`, centerX: x, boxTop: y, boxBottom: y };
 }
 
-function MenuButton({ onClick, expanded, tone = "plain", label, children }: { onClick: () => void; expanded?: boolean; tone?: "plain" | "danger"; label?: string; children: ReactNode }) {
+/** Photo actions that need the page's attachments (storage); without them only Crop is offered. */
+export interface ImageActions {
+  onRemoveBackground: (id: string) => void;
+  onPreview: (id: string) => void;
+  /** A removal is running: Remove background is disabled until it ends. */
+  removing: boolean;
+}
+
+function MenuButton({ onClick, expanded, tone = "plain", label, disabled, children }: { onClick: () => void; expanded?: boolean; tone?: "plain" | "danger"; label?: string; disabled?: boolean; children: ReactNode }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-expanded={expanded}
       aria-label={label}
-      className={`inline-flex h-11 min-w-11 shrink-0 touch-manipulation cursor-pointer items-center justify-center whitespace-nowrap rounded-full px-4 text-sm font-medium text-ink aria-expanded:bg-ink aria-expanded:text-card ${tone === "danger" ? "bg-pink" : "bg-card"}`}
+      disabled={disabled}
+      className={`inline-flex h-11 min-w-11 shrink-0 touch-manipulation cursor-pointer items-center justify-center whitespace-nowrap rounded-full px-4 text-sm font-medium text-ink aria-expanded:bg-ink aria-expanded:text-card disabled:cursor-default disabled:opacity-50 ${tone === "danger" ? "bg-pink" : "bg-card"}`}
     >
       {children}
     </button>
@@ -103,7 +114,7 @@ function StrokeColors({ editor, value }: { editor: Editor; value: string }) {
   );
 }
 
-function Actions({ editor, view }: { editor: Editor; view: View }) {
+function Actions({ editor, view, image }: { editor: Editor; view: View; image?: ImageActions }) {
   const [colorOpen, setColorOpen] = useState(false);
   const [textOpen, setTextOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -132,9 +143,15 @@ function Actions({ editor, view }: { editor: Editor; view: View }) {
   );
   return (
     <>
-      <div className="flex gap-1">
+      <div className="flex flex-wrap justify-center gap-1">
         {/* One image: its corner handle resizes it; Crop opens the crop overlay. */}
+        {view.kind === "image" && image ? (
+          <MenuButton disabled={image.removing} onClick={() => image.onRemoveBackground(view.key)}>
+            {t("removeBackground")}
+          </MenuButton>
+        ) : null}
         {view.kind === "image" ? <MenuButton onClick={() => editor.beginCrop()}>{t("cropImage")}</MenuButton> : null}
+        {view.kind === "image" && image ? <MenuButton onClick={() => image.onPreview(view.key)}>{t("previewImage")}</MenuButton> : null}
         {view.kind === "text" ? <MenuButton onClick={() => editor.editSelectedText()}>{t("editText")}</MenuButton> : null}
         {view.kind === "text" ? (
           <MenuButton expanded={textOpen} label={t("textOptions")} onClick={() => setTextOpen((o) => !o)}>
@@ -159,11 +176,12 @@ function Actions({ editor, view }: { editor: Editor; view: View }) {
   );
 }
 
-function place(el: HTMLElement | null, view: View | null): void {
+function place(el: HTMLElement | null, view: View | null, topInset: number): void {
   if (!el || !view) return;
   const box = el.parentElement;
   const { left, top } = placeMenu({
     ...view,
+    topInset,
     menuW: el.offsetWidth,
     menuH: el.offsetHeight,
     viewW: box?.clientWidth ?? window.innerWidth,
@@ -177,7 +195,7 @@ function place(el: HTMLElement | null, view: View | null): void {
  * Floating actions for the current selection (or a Paste offer after a tap on empty space). Follows
  * pan/zoom through the editor's selection events and stays inside the canvas box.
  */
-export function SelectionMenu({ editor }: { editor: Editor }) {
+export function SelectionMenu({ editor, image, topInset = 0 }: { editor: Editor; image?: ImageActions; topInset?: number }) {
   const [view, setView] = useState<View | null>(null);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -193,15 +211,17 @@ export function SelectionMenu({ editor }: { editor: Editor }) {
   const viewRef = useRef<View | null>(null);
   // Placed after every render, before paint, and again whenever the menu's size changes (colour panel,
   // "Copied"): its size depends on its actions.
+  const insetRef = useRef(topInset);
   useLayoutEffect(() => {
     viewRef.current = view;
-    place(ref.current, view);
+    insetRef.current = topInset;
+    place(ref.current, view, topInset);
   });
   const hasView = view !== null;
   useEffect(() => {
     const el = ref.current;
     if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => place(el, viewRef.current));
+    const ro = new ResizeObserver(() => place(el, viewRef.current, insetRef.current));
     ro.observe(el);
     return () => ro.disconnect();
   }, [hasView]);
@@ -216,7 +236,7 @@ export function SelectionMenu({ editor }: { editor: Editor }) {
       style={{ left: GAP, top: GAP }}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <Actions key={view.key} editor={editor} view={view} />
+      <Actions key={view.key} editor={editor} view={view} image={image} />
     </div>
   );
 }

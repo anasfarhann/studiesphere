@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Editor } from "../editor";
 import type { CanvasElement, StrokeEl } from "../model/types";
 import { placeMenu, SelectionMenu } from "./SelectionMenu";
@@ -151,6 +151,42 @@ describe("SelectionMenu actions per selection", () => {
   });
 });
 
+describe("SelectionMenu image actions (with attachments)", () => {
+  function selectImage(removing = false) {
+    const actions = { removing, onRemoveBackground: vi.fn(), onPreview: vi.fn() };
+    render(<SelectionMenu editor={editor} image={actions} />);
+    act(() => editor.selection.set(["img"]));
+    flush();
+    return actions;
+  }
+
+  it("one image: Remove background, Crop, Preview, Delete, Copy; the row wraps rather than overflow", () => {
+    selectImage();
+    expect(names()).toEqual(["Remove background", "Crop", "Preview", "Delete", "Copy"]);
+    expect(screen.getByRole("button", { name: "Crop" }).parentElement!.className).toMatch(/\bflex-wrap\b/);
+  });
+
+  it("Remove background and Preview act on the selected photo", () => {
+    const actions = selectImage();
+    fireEvent.click(screen.getByRole("button", { name: "Remove background" }));
+    expect(actions.onRemoveBackground).toHaveBeenCalledWith("img");
+    fireEvent.click(screen.getByRole("button", { name: "Preview" }));
+    expect(actions.onPreview).toHaveBeenCalledWith("img");
+  });
+
+  it("Remove background is disabled while a removal runs", () => {
+    selectImage(true);
+    expect((screen.getByRole("button", { name: "Remove background" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("strokes and text get no image actions", () => {
+    render(<SelectionMenu editor={editor} image={{ removing: false, onRemoveBackground: vi.fn(), onPreview: vi.fn() }} />);
+    act(() => editor.selection.set(["a"]));
+    flush();
+    expect(names()).toEqual(["Delete", "Colour", "Copy"]);
+  });
+});
+
 describe("Paste offer", () => {
   it("shows Paste after a tap on empty space when the clipboard has something, and pastes there", () => {
     render(<SelectionMenu editor={editor} />);
@@ -201,6 +237,13 @@ describe("placeMenu", () => {
   it("clears the corner scale handles' touch targets when the selection has them", () => {
     expect(placeMenu({ ...base, centerX: 200, boxTop: 300, boxBottom: 400, clear: 22 }).top).toBe(300 - 56 - 8 - 22);
     expect(placeMenu({ ...base, centerX: 200, boxTop: 20, boxBottom: 100, clear: 22 }).top).toBe(100 + 8 + 22);
+  });
+  it("keeps below the top bar: goes below the box when the bar covers the room above", () => {
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 150, boxBottom: 300, topInset: 120 }).top).toBe(308);
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 300, boxBottom: 400, topInset: 120 }).top).toBe(236);
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 20, boxBottom: 840, topInset: 120 }).top).toBe(128);
+    // A menu too tall for the room under the bar still stays inside the view.
+    expect(placeMenu({ ...base, menuH: 760, centerX: 200, boxTop: 20, boxBottom: 840, topInset: 120 }).top).toBe(844 - 760 - 8);
   });
   it("a menu wider than the view pins to the left gap", () => {
     expect(placeMenu({ ...base, menuW: 500, centerX: 200, boxTop: 300, boxBottom: 400 }).left).toBe(8);

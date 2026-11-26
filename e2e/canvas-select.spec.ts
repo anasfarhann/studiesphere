@@ -62,7 +62,7 @@ for (const viewport of [
       await page.mouse.up();
 
       const menu = page.getByRole("toolbar", { name: "Selection actions" });
-      await expect(menu.getByRole("button")).toHaveText(["Crop", "Delete", "Copy"]);
+      await expect(menu.getByRole("button")).toHaveText(["Remove background", "Crop", "Preview", "Delete", "Copy"]);
       for (const b of await menu.getByRole("button").all()) expect((await b.boundingBox())!.height).toBeGreaterThanOrEqual(44);
       await expectInViewport(page, "Selection actions");
 
@@ -84,7 +84,7 @@ for (const viewport of [
       expect(images[0].id).not.toBe(images[1].id);
       expect(images[1].assetPath).toBe(images[0].assetPath);
       // The pasted copy is selected.
-      await expect(menu.getByRole("button")).toHaveText(["Crop", "Delete", "Copy"]);
+      await expect(menu.getByRole("button")).toHaveText(["Remove background", "Crop", "Preview", "Delete", "Copy"]);
     });
 
     test("tap a stroke → Colour with the wheel open stays on screen and recolours", async ({ page }) => {

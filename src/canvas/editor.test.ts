@@ -568,6 +568,20 @@ describe("Editor history and eraser", () => {
       expect(editor.scene.get("a")).toBeDefined();
     });
 
+    it("keys pressed inside a modal dialog (the photo lightbox) neither delete nor undo behind it", () => {
+      lassoAround();
+      const dialog = document.createElement("div");
+      dialog.setAttribute("aria-modal", "true");
+      const button = document.createElement("button");
+      dialog.appendChild(button);
+      document.body.appendChild(dialog);
+      button.dispatchEvent(new KeyboardEvent("keydown", { key: "Backspace", bubbles: true }));
+      button.dispatchEvent(new KeyboardEvent("keydown", { key: "z", metaKey: true, bubbles: true }));
+      expect(editor.scene.get("a")).toBeDefined();
+      expect(editor.selection.ids).not.toEqual([]);
+      dialog.remove();
+    });
+
     it("coalesces selection notifications to one per frame", () => {
       lassoAround();
       flushFrames();
