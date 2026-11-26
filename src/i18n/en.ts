@@ -83,6 +83,7 @@ export const en = {
   sharePdfBusy: "Making PDF…",
   sharePdfFailed: "Couldn't make the PDF. Please try again.",
   sharePdfEmpty: "This page is empty, so there's nothing to share yet.",
+  sharePdfReady: "PDF ready. Tap to share",
   sharePdfPage: "Share page as PDF",
   pageDelete: "Delete",
   pageDeleteTitle: "Delete page",

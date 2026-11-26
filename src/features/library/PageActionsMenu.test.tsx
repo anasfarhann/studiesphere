@@ -9,6 +9,8 @@ const m = vi.hoisted(() => ({
   pdfShare: vi.fn(),
   pdfClear: vi.fn(),
   pdfBusy: false,
+  pdfReady: false,
+  pdfShareReady: vi.fn(),
   pdfError: null as string | null,
 }));
 vi.mock("next/link", () => ({
@@ -19,7 +21,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 vi.mock("@/features/share/useSharePdf", () => ({
-  useSharePdf: () => ({ busy: m.pdfBusy, error: m.pdfError, share: m.pdfShare, clearError: m.pdfClear }),
+  useSharePdf: () => ({ busy: m.pdfBusy, error: m.pdfError, ready: m.pdfReady, shareReady: m.pdfShareReady, share: m.pdfShare, clearError: m.pdfClear }),
 }));
 vi.mock("./actions", () => ({
   renamePageAction: (...a: unknown[]) => m.rename(...a),
@@ -39,6 +41,8 @@ const folders = [
 beforeEach(() => {
   vi.clearAllMocks();
   m.pdfBusy = false;
+  m.pdfReady = false;
+  m.pdfShareReady.mockResolvedValue(true);
   m.pdfError = null;
   m.pdfShare.mockResolvedValue(true);
   for (const k of ["rename", "move", "dup", "del"] as const) m[k].mockResolvedValue(null);
@@ -207,5 +211,15 @@ describe("PageActionsMenu", () => {
     open();
     const item = screen.getByRole("menuitem", { name: "Making PDF…" });
     expect(item.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("after the build outlived the tap, the item becomes a Share button that shares the built PDF", async () => {
+    m.pdfReady = true;
+    render(<PageActionsMenu page={page} folders={folders} />);
+    open();
+    fireEvent.click(screen.getByRole("menuitem", { name: "PDF ready. Tap to share" }));
+    expect(m.pdfShareReady).toHaveBeenCalledTimes(1);
+    expect(m.pdfShare).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 });

@@ -7,6 +7,7 @@ import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
 import { textLines } from "../model/text-layout";
 import { cssFont, whenFontReady, type TextStyleFields } from "../model/text-style";
 import { approxMeasure, approxMeasureFor, type Measure } from "../model/wrap-text";
+import { isTaintedImage } from "../attachments/image-loader";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
 import { textHandleCenter } from "../tools/text-resize";
@@ -60,6 +61,13 @@ const MAX_DOTS_PER_AXIS = 140;
 /** Below this zoom the dots would be a few pixels apart: skip them. */
 const DOT_MIN_ZOOM = 0.35;
 
+export interface SnapshotOptions {
+  /** A plain background colour (and no dot grid), e.g. white for PDFs. */
+  background?: string;
+  /** Draw photos that would taint the canvas (see isTaintedImage) as labelled boxes instead. */
+  skipTainted?: boolean;
+}
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
   private cssW = 0;
@@ -87,6 +95,8 @@ export class Renderer {
   private loads = new Map<string, Promise<void>>();
   /** Set only during drawSnapshot: a plain background (no dot grid), e.g. white for PDFs. */
   private snapshotBackground: string | null = null;
+  /** Set only during drawSnapshot: photos loaded without CORS are drawn as labelled boxes (they would taint the export). */
+  private snapshotSkipTainted = false;
   private frameNo = 0;
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private destroyed = false;
@@ -315,9 +325,10 @@ export class Renderer {
    * through another camera, at w x h px and dpr 1, with this renderer's drawing code and its caches (stroke paths,
    * wrapped text, decoded photos). Synchronous; returns false once destroyed. Used for page previews.
    */
-  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: { background?: string }): boolean {
+  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: SnapshotOptions): boolean {
     if (this.destroyed) return false;
     this.snapshotBackground = opts?.background ?? null;
+    this.snapshotSkipTainted = opts?.skipTainted === true;
     const saved = { ctx: this.ctx, camera: this.camera, cssW: this.cssW, cssH: this.cssH, dpr: this.dpr };
     this.ctx = ctx;
     this.camera = camera;
@@ -328,6 +339,7 @@ export class Renderer {
       this.drawScene(w, h, false);
     } finally {
       this.snapshotBackground = null;
+      this.snapshotSkipTainted = false;
       this.ctx = saved.ctx;
       this.camera = saved.camera;
       this.cssW = saved.cssW;
@@ -514,6 +526,7 @@ export class Renderer {
       const pv = live && this.imagePreview && this.imagePreview.id === el.id ? this.imagePreview : null;
       const crop = pv ? null : validCrop(el.crop);
       if (entry.state !== "ready") this.drawPlaceholder(el, entry.state === "error");
+      else if (this.snapshotSkipTainted && isTaintedImage(entry.img)) this.drawPhotoBox(el);
       else if (pv) ctx.drawImage(entry.img, pv.x, pv.y, pv.w, pv.h);
       else if (crop) {
         const iw = entry.img.width;
@@ -595,6 +608,31 @@ export class Renderer {
     ctx.textBaseline = "middle";
     ctx.fillText(formatDuration(el.durationMs), b.minX + AUDIO_ICON_X + AUDIO_ICON_R + 14, cy);
     ctx.textBaseline = "alphabetic";
+  }
+
+  /** A grey box labelled "Photo": stands in for a photo that cannot be exported. */
+  private drawPhotoBox(el: CanvasElement): void {
+    this.drawPlaceholder(el, false);
+    const { ctx } = this;
+    const b = boundsOf(el);
+    const size = Math.max(8, Math.min(16, (b.maxX - b.minX) / 6, (b.maxY - b.minY) / 3));
+    ctx.fillStyle = "#6b7280";
+    ctx.font = `${size}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("Photo", (b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2);
+    ctx.textAlign = "start";
+    ctx.textBaseline = "alphabetic";
+  }
+
+  /** Whether a photo inside `area` (default: the whole page) is loaded but would taint an exported canvas. */
+  hasTaintedImages(area?: Rect): boolean {
+    for (const el of area ? this.scene.getVisible(area) : this.scene.all()) {
+      if (el.type !== "image") continue;
+      const e = this.images.get(el.assetPath);
+      if (e?.state === "ready" && isTaintedImage(e.img)) return true;
+    }
+    return false;
   }
 
   private drawPlaceholder(el: CanvasElement, broken: boolean): void {

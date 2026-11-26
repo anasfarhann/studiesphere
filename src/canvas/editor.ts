@@ -21,7 +21,7 @@ import { Selection } from "./selection";
 import { clampSize, loadSettings, normalizeSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
 import type { Rect } from "./model/types";
 import { Camera } from "./view/camera";
-import { Renderer, type ImageLoader, type RendererOptions } from "./view/renderer";
+import { Renderer, type ImageLoader, type RendererOptions, type SnapshotOptions } from "./view/renderer";
 
 export interface EditorOptions {
   elements: CanvasElement[];
@@ -632,9 +632,14 @@ export class Editor {
   }
 
   /** Draws the scene onto another context through `camera` (page previews); false once destroyed. */
-  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: { background?: string }): boolean {
+  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: SnapshotOptions): boolean {
     if (this.destroyed) return false;
     return this.renderer.drawSnapshot(ctx, camera, w, h, opts);
+  }
+
+  /** A photo inside `area` would taint an exported canvas (see isTaintedImage). */
+  hasTaintedImages(area?: Rect): boolean {
+    return !this.destroyed && this.renderer.hasTaintedImages(area);
   }
 
   /** Resolves once the photos inside `area` (default: all) are decoded, or after `timeoutMs`. Never rejects. */

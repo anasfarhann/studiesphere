@@ -1,6 +1,7 @@
 import { boundsOf } from "../model/bounds";
 import type { CanvasElement, Rect } from "../model/types";
 import { Camera } from "../view/camera";
+import type { SnapshotOptions } from "../view/renderer";
 
 /** Card previews (see the plan's Global Constraints): at most 480 px wide, JPEG at quality 0.7. */
 export const PREVIEW_MAX_W = 480;
@@ -59,7 +60,9 @@ export function frameRect(f: PreviewFrame): Rect {
 export interface PreviewTarget {
   elements(): CanvasElement[];
   /** Draws the scene onto `ctx` through `camera` at w x h px; false when the renderer is gone. */
-  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: { background?: string }): boolean;
+  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: SnapshotOptions): boolean;
+  /** A photo inside `area` is loaded but would taint the canvas (reading it back throws): no preview then. */
+  hasTaintedImages?(area: Rect): boolean;
   /** Waits (bounded) until the photos inside `frame` are decoded, so the preview shows them rather than grey boxes. */
   preloadImages?(frame: Rect): Promise<void>;
   /** A pointer is down or text is being typed: not a moment to draw a preview. */
@@ -78,6 +81,8 @@ export function previewRect(target: PreviewTarget): Rect | null {
 export function capturePreview(target: PreviewTarget, createCanvas: () => HTMLCanvasElement = newCanvas): HTMLCanvasElement | null {
   const frame = previewFrame(target.elements().map(boundsOf));
   if (!frame) return null;
+  // A photo loaded without CORS would make toBlob throw: skip the preview (the card keeps its placeholder).
+  if (target.hasTaintedImages?.(frameRect(frame))) return null;
   const canvas = createCanvas();
   canvas.width = frame.width;
   canvas.height = frame.height;

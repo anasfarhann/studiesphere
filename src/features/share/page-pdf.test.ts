@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CanvasElement, Rect } from "@/canvas/model/types";
-import { buildPagePdf, deliverPdf, MAX_PDF_PAGES, pdfFileName, planPages, PdfError, RASTER_MAX_SIDE, sharePagePdf } from "./page-pdf";
+import { buildPagePdf, deliverPdf, MAX_PDF_PAGES, PHOTO_DEADLINE_MS, pdfFileName, planPages, PdfError, RASTER_MAX_SIDE, sharePagePdf } from "./page-pdf";
 
 const A4_W = 595.28;
 const A4_H = 841.89;
@@ -84,8 +84,11 @@ describe("buildPagePdf", () => {
     expect(pages).toBeGreaterThanOrEqual(1);
     expect(js.calls.addPage).toHaveBeenCalledTimes(pages - 1);
     expect(draw).toHaveBeenCalled();
-    for (const call of draw.mock.calls as unknown as unknown[][]) expect(call[4]).toEqual({ background: "#ffffff" });
-    expect(preload).toHaveBeenCalledTimes(pages);
+    const opts = (draw.mock.calls as unknown as unknown[][]).map((c) => c[4]);
+    expect(opts).toContainEqual({ background: "#ffffff", skipTainted: true });
+    for (const o of opts) expect(o).toMatchObject({ skipTainted: true });
+    // Once for the whole page up front, then once per PDF page.
+    expect(preload).toHaveBeenCalledTimes(pages + 1);
     expect(js.calls.addImage.mock.calls[0][1]).toBe("JPEG");
   });
 
@@ -106,6 +109,42 @@ describe("buildPagePdf", () => {
     );
     expect(sizes.length).toBeGreaterThan(0);
     for (const n of sizes) expect(n).toBeLessThanOrEqual(RASTER_MAX_SIDE);
+  });
+
+  it("draws a tainted photo as a box instead of throwing (the canvas stays readable)", async () => {
+    const js = fakeJsPdf();
+    const tainted = new Set<unknown>();
+    const draw = vi.fn((ctx: unknown, _c: unknown, _w: number, _h: number, o?: { skipTainted?: boolean }) => {
+      if (!o?.skipTainted) tainted.add(ctx);
+      return true;
+    });
+    const make = () => {
+      const c = fakeCanvas();
+      const ctx = {};
+      c.getContext = (() => ctx) as never;
+      c.toDataURL.mockImplementation(() => {
+        if (tainted.has(ctx)) throw new DOMException("tainted", "SecurityError");
+        return "data:image/jpeg;base64,AAAA";
+      });
+      return c;
+    };
+    const blob = await buildPagePdf({ elements: () => [stroke("a", 0, 0)], drawSnapshot: draw as never, hasTaintedImages: () => true }, { loadJsPdf: js.load, createCanvas: make });
+    expect(blob.type).toBe("application/pdf");
+    expect(js.calls.addImage).toHaveBeenCalled();
+  });
+
+  it("stops waiting for photos at the overall deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const js = fakeJsPdf();
+      const never = () => new Promise<void>(() => {});
+      const els = [stroke("a", 0, 0), stroke("b", 0, 3000)];
+      const p = buildPagePdf({ elements: () => els, drawSnapshot: () => true, preloadImages: never }, { loadJsPdf: js.load, createCanvas: fakeCanvas });
+      await vi.advanceTimersByTimeAsync(PHOTO_DEADLINE_MS + 1);
+      await expect(p).resolves.toBeInstanceOf(Blob);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects an empty page with a PdfError", async () => {
@@ -144,6 +183,27 @@ describe("deliverPdf", () => {
     expect(await deliverPdf(blob, "x", { nav: noShare, download })).toBe("downloaded");
   });
 
+  it("asks for a fresh tap when the gesture is gone (userActivation inactive), without calling share", async () => {
+    const share = vi.fn(async () => {});
+    const nav = { canShare: () => true, share, userActivation: { isActive: false } } as unknown as Navigator;
+    const download = vi.fn();
+    expect(await deliverPdf(blob, "t", { nav, download })).toBe("needs-tap");
+    expect(share).not.toHaveBeenCalled();
+    expect(download).not.toHaveBeenCalled();
+    // From a tap the same navigator shares.
+    expect(await deliverPdf(blob, "t", { nav, download, fromTap: true })).toBe("shared");
+  });
+
+  it("asks for a fresh tap when share is refused with NotAllowedError; from a tap it downloads instead", async () => {
+    const denied = Object.assign(new Error("x"), { name: "NotAllowedError" });
+    const nav = { canShare: () => true, share: vi.fn(async () => { throw denied; }) } as unknown as Navigator;
+    const download = vi.fn();
+    expect(await deliverPdf(blob, "t", { nav, download })).toBe("needs-tap");
+    expect(download).not.toHaveBeenCalled();
+    expect(await deliverPdf(blob, "t", { nav, download, fromTap: true })).toBe("downloaded");
+    expect(download).toHaveBeenCalledTimes(1);
+  });
+
   it("treats a dismissed share sheet as cancelled, and falls back to download on other share errors", async () => {
     const download = vi.fn();
     const abort = Object.assign(new Error("x"), { name: "AbortError" });
@@ -162,7 +222,8 @@ describe("sharePagePdf", () => {
     const deliver = vi.fn(async () => "downloaded" as const);
     const target = { elements: () => [stroke("a", 0, 0)], drawSnapshot: () => true, destroy };
     const res = await sharePagePdf({ title: "T", target: async () => target, build: { loadJsPdf: js.load, createCanvas: fakeCanvas }, deliver });
-    expect(res).toBe("downloaded");
+    expect(res.result).toBe("downloaded");
+    expect(res.blob).toBeInstanceOf(Blob);
     expect(deliver).toHaveBeenCalledWith(expect.any(Blob), "T");
     expect(destroy).toHaveBeenCalled();
   });

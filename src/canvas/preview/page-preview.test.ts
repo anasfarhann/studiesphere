@@ -85,6 +85,19 @@ describe("capturePreview", () => {
     expect(draw).not.toHaveBeenCalled();
   });
 
+  it("returns null without drawing when a photo in the frame would taint the canvas", () => {
+    const draw = vi.fn(() => true);
+    const seen: unknown[] = [];
+    const target: PreviewTarget = {
+      elements: () => [stroke(0)],
+      drawSnapshot: draw,
+      hasTaintedImages: (area) => (seen.push(area), true),
+    };
+    expect(capturePreview(target, () => fakeCanvas().canvas)).toBeNull();
+    expect(draw).not.toHaveBeenCalled();
+    expect(seen).toHaveLength(1);
+  });
+
   it("draws the scene through the target with a camera on the frame", () => {
     const els: CanvasElement[] = [stroke(0), stroke(400)];
     const f = fakeCanvas();

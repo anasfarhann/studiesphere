@@ -18,7 +18,9 @@ import { MemoryRecordingOutbox, type OutboxEntry, type RecordingOutbox } from ".
 import type { SnapshotStore } from "../persistence/snapshot-store";
 import { SnapshotScheduler } from "../persistence/snapshots";
 import { recoverRecordings } from "../tools/recover-recordings";
+import type { PreviewTarget } from "../preview/page-preview";
 import { PagePreviews, type PreviewSink } from "../preview/preview-scheduler";
+import { LivePageTargetProvider } from "./live-page-target";
 import { CanvasView, type AttachmentConfig } from "./CanvasView";
 import { OversizeRecordings } from "./OversizeRecordings";
 import { SaveStatus } from "./SaveStatus";
@@ -60,6 +62,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
   const [attempt, setAttempt] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>("saved");
   const [parked, setParked] = useState(0);
+  const [liveTarget, setLiveTarget] = useState<PreviewTarget | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +102,14 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
         offState();
         offParked();
       };
+      const target: PreviewTarget = {
+        elements: () => editor.scene.all(),
+        drawSnapshot: (ctx, camera, w, h, o) => editor.drawSnapshot(ctx, camera, w, h, o),
+        preloadImages: (area) => editor.preloadImages(area),
+        hasTaintedImages: (area) => editor.hasTaintedImages(area),
+        isInteracting: () => editor.isInteracting(),
+      };
+      setLiveTarget(target);
       let mounted = true;
       let scheduler: SnapshotScheduler | null = null;
       let timer: ReturnType<typeof setInterval> | null = null;
@@ -119,12 +130,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
       const onPageHidePreview = () => previews?.flush();
       if (preview) {
         previews = new PagePreviews({
-          target: {
-            elements: () => editor.scene.all(),
-            drawSnapshot: (ctx, camera, w, h) => editor.drawSnapshot(ctx, camera, w, h),
-            preloadImages: (area) => editor.preloadImages(area),
-            isInteracting: () => editor.isInteracting(),
-          },
+          target,
           sink: preview,
           onChange: (fn) => editor.scene.onChange(fn),
         });
@@ -151,6 +157,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
       }
       return () => {
         mounted = false;
+        setLiveTarget((cur) => (cur === target ? null : cur));
         if (timer) clearInterval(timer);
         document.removeEventListener("visibilitychange", onHide);
         window.removeEventListener("pagehide", onHide);
@@ -204,6 +211,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
     );
   }
   return (
+    <LivePageTargetProvider value={liveTarget}>
     <div className="relative flex min-h-0 flex-1 flex-col">
       <CanvasView
         elements={load.elements}
@@ -231,5 +239,6 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
         }
       />
     </div>
+    </LivePageTargetProvider>
   );
 }

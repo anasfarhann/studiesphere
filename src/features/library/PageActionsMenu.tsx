@@ -230,8 +230,12 @@ export function PageActionsMenu({
     }
   };
 
-  const sharePdf = async () => {
-    if (await pdf.share()) closeMenu(true);
+  // "PDF ready": the build outlived the tap (iOS), so this tap shares it; the call must stay synchronous.
+  const sharePdf = () => {
+    const run = pdf.ready ? pdf.shareReady() : pdf.share();
+    void run.then((ok) => {
+      if (ok) closeMenu(true);
+    });
   };
 
   const closeDialog = () => setDialog(null);
@@ -268,7 +272,7 @@ export function PageActionsMenu({
             {t("pageMove")}
           </button>
           <button type="button" role="menuitem" aria-disabled={pdf.busy} onClick={sharePdf} className={itemClass}>
-            {pdf.busy ? t("sharePdfBusy") : t("pageShare")}
+            {pdf.busy ? t("sharePdfBusy") : pdf.ready ? t("sharePdfReady") : t("pageShare")}
           </button>
           <button type="button" role="menuitem" onClick={() => openDialog("delete")} className={itemClass}>
             {t("pageDelete")}

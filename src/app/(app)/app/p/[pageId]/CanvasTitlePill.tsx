@@ -13,7 +13,7 @@ export interface CanvasTitlePillProps {
 /** Left pill of the canvas top bar: back to the folder, then the page title over its folder ("Page · Folder"), then Share as PDF. */
 export function CanvasTitlePill({ backHref, title, folder, pageId }: CanvasTitlePillProps) {
   return (
-    <div className="flex max-w-full min-w-0 items-center gap-2.5 rounded-full bg-card py-1 pr-1 pl-1 shadow-[0_8px_28px_rgba(27,26,31,0.08)] sm:max-w-sm">
+    <div className="relative flex max-w-full min-w-0 items-center gap-2.5 rounded-full bg-card py-1 pr-1 pl-1 shadow-[0_8px_28px_rgba(27,26,31,0.08)] sm:max-w-sm">
       <Link
         href={backHref}
         aria-label={t("backTo", { name: folder })}

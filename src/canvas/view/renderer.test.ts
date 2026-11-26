@@ -1,3 +1,4 @@
+import { markTaintedImage } from "../attachments/image-loader";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Scene } from "../model/scene";
 import type { CanvasElement, StrokeEl } from "../model/types";
@@ -623,6 +624,25 @@ describe("Renderer", () => {
       const other = fakeCtx();
       r.drawSnapshot(other as unknown as CanvasRenderingContext2D, new Camera(), 300, 300);
       expect(other.drawImage).toHaveBeenCalledWith(bitmap, 10, 20, 200, 100);
+      r.destroy();
+    });
+
+    it("a tainted photo reports itself, and skipTainted draws a labelled box instead of the photo", async () => {
+      scene.add(photo);
+      const img = { width: 400, height: 200 } as unknown as ImageBitmap;
+      markTaintedImage(img);
+      const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: async () => img });
+      expect(r.hasTaintedImages()).toBe(false); // not loaded yet
+      await r.preloadImages(1_000);
+      expect(r.hasTaintedImages()).toBe(true);
+      expect(r.hasTaintedImages({ minX: 4_000, minY: 4_000, maxX: 5_000, maxY: 5_000 })).toBe(false);
+      const plain = fakeCtx();
+      r.drawSnapshot(plain as unknown as CanvasRenderingContext2D, new Camera(), 300, 300);
+      expect(plain.drawImage).toHaveBeenCalled();
+      const safe = fakeCtx();
+      expect(r.drawSnapshot(safe as unknown as CanvasRenderingContext2D, new Camera(), 300, 300, { skipTainted: true })).toBe(true);
+      expect(safe.drawImage).not.toHaveBeenCalled();
+      expect(safe.fillText).toHaveBeenCalledWith("Photo", 110, 70);
       r.destroy();
     });
 
