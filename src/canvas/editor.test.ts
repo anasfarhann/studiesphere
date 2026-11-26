@@ -1286,6 +1286,32 @@ describe("Editor eyedropper", () => {
     expect(seen).toEqual(["armed", "off", "armed", "off", "armed", "off"]);
   });
 
+  it("a pick armed from the selection menu cancels when the selection changes (new selection, delete, undo)", () => {
+    make([strokeEl("#dc2626")]);
+    editor.scene.add({ id: "p1", type: "image", z: 5, updatedAt: 1, x: 0, y: 200, w: 50, h: 50, assetPath: "a/p.jpg" });
+    editor.scene.add({ id: "p2", type: "image", z: 6, updatedAt: 1, x: 100, y: 200, w: 50, h: 50, assetPath: "a/q.jpg" });
+    editor.selection.set(["p1"]);
+    editor.armEyedropper(() => {});
+    expect(editor.eyedropper).toBe("armed");
+    editor.selection.set(["p2"]); // a new selection
+    expect(editor.eyedropper).toBe("off");
+    editor.armEyedropper(() => {});
+    editor.selection.set(["p2"]); // the same selection keeps it armed
+    expect(editor.eyedropper).toBe("armed");
+    editor.scene.remove("p2"); // deleted elsewhere: the selection empties
+    expect(editor.selection.ids).toEqual([]);
+    expect(editor.eyedropper).toBe("off");
+  });
+
+  it("beginCrop cancels an armed pick", () => {
+    make([]);
+    editor.scene.add({ id: "p1", type: "image", z: 5, updatedAt: 1, x: 0, y: 200, w: 50, h: 50, assetPath: "a/p.jpg" });
+    editor.selection.set(["p1"]);
+    editor.armEyedropper(() => {});
+    expect(editor.beginCrop()).toBe(true);
+    expect(editor.eyedropper).toBe("off");
+  });
+
   it("cannot arm in the middle of a stroke", () => {
     make([]);
     fire(canvas, "pointerdown", 1, "mouse", 100, 100);

@@ -170,6 +170,8 @@ export class Editor {
       if (key !== this.selectionKey) {
         this.selectionKey = key;
         this.interaction++;
+        // A pick armed from the selection menu is for that selection's colour: it ends when the selection changes.
+        this.cancelEyedropper();
         this.commitRecolor();
         this.commitTextStyle();
         if (this.selection.ids.length > 0) this.pasteAnchor = null;
@@ -369,7 +371,9 @@ export class Editor {
   beginCrop(): boolean {
     if (this.drawing) return false;
     const el = singleSelectedImage(this.scene, this.selection);
-    return el ? this.crop.begin(el.id) : false;
+    if (!el) return false;
+    this.cancelEyedropper();
+    return this.crop.begin(el.id);
   }
 
   cropState(): CropState | null {

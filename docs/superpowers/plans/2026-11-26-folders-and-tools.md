@@ -177,3 +177,7 @@ Commit `feat(canvas): resize lasso selections`.
 Commit `feat(canvas): remove background, crop and preview buttons`.
 
 **Release:** Part 1 = Tasks 1–4, merged and deployed, then the data wipe. Part 2 = Tasks 5–7.
+
+---
+
+**Note (2026-11-26):** The owner chose to release without background removal. The AGPL-licensed IMG.LY package was removed. The `RemoveBackgroundFn` seam is kept, and the Remove background button stays hidden until a free Apache-licensed model is added.

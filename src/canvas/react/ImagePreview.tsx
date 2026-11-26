@@ -8,6 +8,8 @@ import { validCrop } from "../tools/image-crop";
 
 /** Room kept for the dialog's padding, heading and the viewport margin (CSS). */
 const CHROME = "9rem";
+/** The "Show whole photo" row (12px gap + 44px button) plus slack, reserved only while that row is shown. */
+const TOGGLE_ROW = "4.5rem";
 
 export interface ImagePreviewProps {
   image: ImageEl;
@@ -49,14 +51,14 @@ export function ImagePreview({ image, resolveUrl, onClose }: ImagePreviewProps) 
   const broken = state?.url === null || failed === state?.url;
   return (
     <Dialog title={t("imagePreviewTitle")} onClose={onClose} wide>
-      <div className="flex min-h-0 justify-center">
+      <div className="flex shrink-0 justify-center">
         <div
           data-testid="image-preview-frame"
-          className="relative overflow-hidden rounded-2xl bg-white"
+          className="relative shrink-0 overflow-hidden rounded-2xl bg-white"
           // A faint checkerboard shows through transparent parts (a removed background).
           style={{
             aspectRatio: `${aspect}`,
-            width: `min(100%, calc((100dvh - ${CHROME}) * ${aspect}))`,
+            width: `min(100%, calc((100dvh - ${CHROME}${cropped ? ` - ${TOGGLE_ROW}` : ""}) * ${aspect}))`,
             backgroundImage: "repeating-conic-gradient(rgba(27,26,31,0.06) 0 25%, transparent 0 50%)",
             backgroundSize: "20px 20px",
           }}

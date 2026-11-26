@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Editor } from "../editor";
 import type { ToolId } from "../tools/tool";
 import type { CanvasElement } from "../model/types";
@@ -84,8 +84,9 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [tool, setTool] = useState<ToolId>("pen");
+  const subscribePick = useCallback((cb: () => void) => (editor ? editor.onEyedropperChange(cb) : () => {}), [editor]);
   const pickState = useSyncExternalStore(
-    (cb) => (editor ? editor.onEyedropperChange(cb) : () => {}),
+    subscribePick,
     () => editor?.eyedropper ?? "off",
     () => "off" as const,
   );

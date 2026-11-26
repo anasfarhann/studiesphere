@@ -39,3 +39,51 @@ for (const path of ["/dev/dashboard", "/dev/folder"]) {
     expect(ib).toEqual(pb);
   });
 }
+
+type PEl = { id: string; type: string; w: number; h: number; crop?: { x: number; y: number; w: number; h: number } };
+type SceneHook = { __editor?: { scene: { all(): PEl[]; update(id: string, patch: Partial<PEl>): void } } };
+
+for (const viewport of [
+  { width: 1280, height: 800 },
+  { width: 834, height: 1112 },
+]) {
+  test(`${viewport.width}x${viewport.height}: the photo preview keeps its aspect, cropped and whole`, async ({ page }) => {
+    await page.setViewportSize(viewport);
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as SceneHook).__editor !== undefined);
+    const dataUrl = await page.evaluate(() => {
+      const c = document.createElement("canvas");
+      c.width = 200;
+      c.height = 300;
+      const ctx = c.getContext("2d")!;
+      ctx.fillStyle = "#2563eb";
+      ctx.fillRect(0, 0, 200, 300);
+      return c.toDataURL("image/png");
+    });
+    await page.getByTestId("photo-input").setInputFiles({ name: "tall.png", mimeType: "image/png", buffer: Buffer.from(dataUrl.split(",")[1], "base64") });
+    await page.waitForFunction(() => (window as unknown as SceneHook).__editor!.scene.all().some((e) => e.type === "image"));
+    const crop = { x: 0.1, y: 0.1, w: 0.8, h: 0.8 };
+    const card = await page.evaluate((c) => {
+      const ed = (window as unknown as SceneHook).__editor!;
+      const el = ed.scene.all().find((e) => e.type === "image")!;
+      ed.scene.update(el.id, { crop: c });
+      return { w: el.w, h: el.h };
+    }, crop);
+    await page.getByRole("button", { name: "Preview" }).click();
+    const dialog = page.getByRole("dialog", { name: "Photo preview" });
+    const frame = dialog.getByTestId("image-preview-frame");
+    await expect(frame.getByRole("img")).toBeVisible();
+    const ratio = async () => {
+      const b = (await frame.boundingBox())!;
+      return b.width / b.height;
+    };
+    const cardAspect = card.w / card.h;
+    expect(Math.abs((await ratio()) / cardAspect - 1)).toBeLessThan(0.01);
+    await dialog.getByRole("button", { name: "Show whole photo" }).click();
+    const whole = cardAspect * (crop.h / crop.w);
+    await expect.poll(async () => Math.abs((await ratio()) / whole - 1)).toBeLessThan(0.01);
+    // The whole dialog still fits the viewport.
+    const box = (await dialog.boundingBox())!;
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  });
+}
