@@ -37,15 +37,3 @@ export async function getPagesWithAudio(pageIds: string[]): Promise<Set<string>>
   if (error) throw new Error(error.message);
   return pagesWithAudio(data);
 }
-
-/** Page count per notebook id: one query. */
-export async function getPageCounts(notebookIds: string[]): Promise<Map<string, number>> {
-  const counts = new Map<string, number>();
-  if (notebookIds.length === 0) return counts;
-  const { data, error } = await createServerClient().then((db) =>
-    db.from("pages").select("notebook_id").in("notebook_id", notebookIds),
-  );
-  if (error) throw new Error(error.message);
-  for (const r of data) counts.set(r.notebook_id, (counts.get(r.notebook_id) ?? 0) + 1);
-  return counts;
-}

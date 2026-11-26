@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "./Dashboard";
-import type { RecentPage, SubjectSummary } from "./queries";
+import type { FolderSummary, RecentPage } from "./queries";
 
 afterEach(cleanup);
 
@@ -10,28 +10,62 @@ vi.mock("next/link", () => ({
     <a href={href} {...rest}>{children}</a>
   ),
 }));
-vi.mock("@/features/library/actions", () => ({ createSubjectAction: async () => null, createQuickPageAction: async () => null }));
+vi.mock("@/features/library/actions", () => ({
+  createFolderAction: async () => null,
+  createQuickPageAction: async () => null,
+  createFolderPageAction: async () => null,
+  renamePageAction: async () => null,
+  movePageAction: async () => null,
+  duplicatePageAction: async () => null,
+  deletePageAction: async () => null,
+}));
 
 const today = new Date(2026, 10, 23, 12);
-const subjects: SubjectSummary[] = [
-  { id: "s1", name: "Biology", tint: "#F6CFCF", notebooks: 2, pages: 5 },
-  { id: "s2", name: "Chemistry", tint: "#F9DFC0", notebooks: 1, pages: 1 },
+const folders: FolderSummary[] = [
+  { id: "s1", name: "Biology", tint: "#F6CFCF", pages: 5 },
+  { id: "s2", name: "Chemistry", tint: "#F9DFC0", pages: 1 },
 ];
 const recent: RecentPage[] = [
-  { id: "p1", title: "Cell walls", subjectId: "s1", subjectName: "Biology", notebookTitle: "Cells", tint: "#F6CFCF", editedAt: new Date(2026, 10, 23, 9).toISOString() },
-  { id: "p2", title: "Moles", subjectId: "s2", subjectName: "Chemistry", notebookTitle: "Stoichiometry", tint: "#F9DFC0", editedAt: new Date(2026, 10, 22, 9).toISOString() },
+  { id: "p1", title: "Cell walls", folderId: "s1", folderName: "Biology", tint: "#F6CFCF", editedAt: new Date(2026, 10, 23, 9).toISOString() },
+  { id: "p2", title: "Moles", folderId: "s2", folderName: "Chemistry", tint: "#F9DFC0", editedAt: new Date(2026, 10, 22, 9).toISOString() },
 ];
 
 describe("Dashboard", () => {
-  it("offers a one-tap New page button in the header", () => {
-    render(<Dashboard name="Anas" subjects={subjects} recent={recent} today={today} />);
+  it("offers a one-tap New page button at the right end of the Continue row", () => {
+    render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);
     const b = screen.getByRole("button", { name: "New page" }) as HTMLButtonElement;
     expect(b.type).toBe("submit");
     expect(b.closest("form")).toBeTruthy();
-    expect(b.closest("header")).toBeTruthy();
+    expect(b.closest("header")).toBeNull();
+    const row = screen.getByRole("heading", { name: "Continue where you left off" }).parentElement!;
+    expect(row.contains(b)).toBe(true);
+    expect(row.lastElementChild!.contains(b) || row.lastElementChild === b).toBe(true);
+  });
+  it("still offers New page when there are no folders yet", () => {
+    render(<Dashboard name="Anas" folders={[]} recent={[]} today={today} />);
+    expect(screen.getByRole("button", { name: "New page" })).toBeTruthy();
+  });
+  it("each recent page card has an actions menu button next to a link that opens the page", () => {
+    render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);
+    const btn = screen.getByRole("button", { name: "Actions for Cell walls" });
+    expect(btn.closest("a")).toBeNull();
+    fireEvent.click(btn);
+    const move = screen.getByRole("menuitem", { name: "Move to folder" });
+    fireEvent.click(move);
+    const dlg = within(screen.getByRole("dialog", { name: "Move to folder" }));
+    expect(dlg.getByRole("button", { name: "Chemistry" })).toBeTruthy();
+    expect((dlg.getByRole("button", { name: "Biology (current)" }) as HTMLButtonElement).disabled).toBe(true);
+  });
+  it("lists Your folders, each card linking to its folder with its page count", () => {
+    render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);
+    expect(screen.getByRole("heading", { name: "Your folders" })).toBeTruthy();
+    const card = screen.getByRole("link", { name: /Biology.*5 pages|5 pages.*Biology/ });
+    expect(card.getAttribute("href")).toBe("/app/s/s1");
+    expect(screen.getByRole("button", { name: "New folder" })).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/notebook|subject/i);
   });
   it("greets by name and shows the date and panel cards", () => {
-    render(<Dashboard name="Anas" subjects={subjects} recent={recent} today={today} />);
+    render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);
     expect(screen.getByRole("heading", { level: 1, name: "Hi, Anas!" })).toBeTruthy();
     expect(screen.getByText("Monday, 23 November")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Today's classes" })).toBeTruthy();
@@ -39,22 +73,22 @@ describe("Dashboard", () => {
     expect(screen.getByText("edited today", { exact: false })).toBeTruthy();
   });
 
-  it("shows a friendly empty state with a New subject button when there are no subjects", () => {
-    render(<Dashboard name="Anas" subjects={[]} recent={[]} today={today} />);
-    expect(screen.getByText("Create your first subject to start taking notes.")).toBeTruthy();
-    const btn = screen.getByRole("button", { name: "New subject" });
+  it("shows a friendly empty state with a New folder button when there are no folders", () => {
+    render(<Dashboard name="Anas" folders={[]} recent={[]} today={today} />);
+    expect(screen.getByText("Create your first folder to start taking notes.")).toBeTruthy();
+    const btn = screen.getByRole("button", { name: "New folder" });
     btn.focus();
     fireEvent.click(btn);
-    expect(screen.getByRole("dialog", { name: "New subject" })).toBeTruthy();
-    expect(screen.getByLabelText("Subject name")).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "New folder" })).toBeTruthy();
+    expect(screen.getByLabelText("Folder name")).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(document.activeElement).toBe(btn);
   });
 
   it("returns focus to the trigger on Close and traps Tab inside the dialog", () => {
-    render(<Dashboard name="Anas" subjects={[]} recent={[]} today={today} />);
-    const trigger = screen.getByRole("button", { name: "New subject" });
+    render(<Dashboard name="Anas" folders={[]} recent={[]} today={today} />);
+    const trigger = screen.getByRole("button", { name: "New folder" });
     trigger.focus();
     fireEvent.click(trigger);
     const dialog = screen.getByRole("dialog");
@@ -72,30 +106,30 @@ describe("Dashboard", () => {
   });
 
   it("keeps focus in the field when the dashboard re-renders while the dialog is open", () => {
-    const { rerender } = render(<Dashboard name="Anas" subjects={[]} recent={[]} today={today} />);
-    fireEvent.click(screen.getByRole("button", { name: "New subject" }));
-    const input = screen.getByLabelText("Subject name");
+    const { rerender } = render(<Dashboard name="Anas" folders={[]} recent={[]} today={today} />);
+    fireEvent.click(screen.getByRole("button", { name: "New folder" }));
+    const input = screen.getByLabelText("Folder name");
     input.focus();
-    rerender(<Dashboard name="Anas" subjects={[]} recent={[]} today={new Date(2026, 10, 24, 12)} />);
+    rerender(<Dashboard name="Anas" folders={[]} recent={[]} today={new Date(2026, 10, 24, 12)} />);
     expect(document.activeElement).toBe(input);
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("chip filter narrows both the subjects and the recent pages", () => {
-    render(<Dashboard name="Anas" subjects={subjects} recent={recent} today={today} />);
+  it("chip filter narrows both the folders and the recent pages", () => {
+    render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);
     fireEvent.click(screen.getByRole("button", { name: "Chemistry" }));
     expect(screen.getByRole("button", { name: "Chemistry" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.queryByRole("link", { name: /Biology/ })).toBeNull();
     expect(screen.queryByRole("link", { name: /Cell walls/ })).toBeNull();
     expect(screen.getByRole("link", { name: /Moles/ })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /Chemistry.*1 notebook/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "All subjects" }));
+    expect(screen.getByRole("link", { name: /1 page.*Chemistry/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "All folders" }));
     expect(screen.getByRole("link", { name: /Cell walls/ })).toBeTruthy();
   });
 
-  it("a subject chip with no recent pages and an empty search shows the no-recent message, not no-matches", () => {
-    render(<Dashboard name="Anas" subjects={subjects} recent={[recent[0]]} today={today} />);
+  it("a folder chip with no recent pages and an empty search shows the no-recent message, not no-matches", () => {
+    render(<Dashboard name="Anas" folders={folders} recent={[recent[0]]} today={today} />);
     fireEvent.click(screen.getByRole("button", { name: "Chemistry" }));
     expect(screen.getByText("Pages you edit will show up here.")).toBeTruthy();
     expect(screen.queryByText("Nothing matches your search.")).toBeNull();
@@ -103,17 +137,17 @@ describe("Dashboard", () => {
     expect(screen.getAllByText("Nothing matches your search.").length).toBeGreaterThan(0);
   });
 
-  it("matches recent pages to the chip by subject id, not name", () => {
-    const twin = [{ ...recent[0], id: "p9", title: "Twin", subjectId: "other", subjectName: "Chemistry" }, recent[1]];
-    render(<Dashboard name="Anas" subjects={subjects} recent={twin} today={today} />);
+  it("matches recent pages to the chip by folder id, not name", () => {
+    const twin = [{ ...recent[0], id: "p9", title: "Twin", folderId: "other", folderName: "Chemistry" }, recent[1]];
+    render(<Dashboard name="Anas" folders={folders} recent={twin} today={today} />);
     fireEvent.click(screen.getByRole("button", { name: "Chemistry" }));
     expect(screen.queryByRole("link", { name: /Twin/ })).toBeNull();
     expect(screen.getByRole("link", { name: /Moles/ })).toBeTruthy();
   });
 
   it("search filters by name", () => {
-    render(<Dashboard name="Anas" subjects={subjects} recent={recent} today={today} />);
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search your subjects and pages" }), { target: { value: "cell" } });
+    render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search your folders and pages" }), { target: { value: "cell" } });
     expect(screen.getByRole("link", { name: /Cell walls/ })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /Moles/ })).toBeNull();
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "zzz" } });
@@ -125,13 +159,29 @@ describe("Dashboard", () => {
     render(
       <Dashboard
         name="Anas"
-        subjects={[{ ...subjects[0], name: long }]}
-        recent={[{ ...recent[0], title: long, subjectName: long }]}
+        folders={[{ ...folders[0], name: long }]}
+        recent={[{ ...recent[0], title: long, folderName: long }]}
         today={today}
       />,
     );
     for (const el of screen.getAllByText(long)) {
       expect(el.className).toMatch(/truncate/);
     }
+  });
+
+  it("a recent card shows the page's real preview when it has one, the placeholder otherwise or when it fails", () => {
+    const withPreview = [{ ...recent[0], previewUrl: "https://s/p1.jpg?v=1" }, recent[1]];
+    render(<Dashboard name="Anas" folders={folders} recent={withPreview} today={today} />);
+    const card = (id: string) => document.querySelector(`a[href="/app/p/${id}"]`)!;
+    const img = card("p1").querySelector("img")!;
+    expect(img.getAttribute("src")).toBe("https://s/p1.jpg?v=1");
+    expect(img.getAttribute("alt")).toBe("");
+    expect(img.className).toMatch(/object-cover/);
+    expect(card("p1").querySelector("svg")).toBeNull();
+    expect(card("p2").querySelector("img")).toBeNull();
+    expect(card("p2").querySelector("svg")).toBeTruthy();
+    fireEvent.error(img);
+    expect(card("p1").querySelector("img")).toBeNull();
+    expect(card("p1").querySelector("svg")).toBeTruthy();
   });
 });

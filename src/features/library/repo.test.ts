@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { MemoryLibraryRepo } from "./memory-repo";
+import { FolderNotEmptyError } from "./repo";
 
 let repo: MemoryLibraryRepo;
 beforeEach(() => {
@@ -23,16 +24,39 @@ describe("MemoryLibraryRepo", () => {
     expect((await repo.listPages(n.id)).map((p) => p.id)).toEqual([a.id, b.id]);
   });
 
-  it("deleting a subject removes its notebooks and pages", async () => {
+  it("deleting an empty folder removes it and its empty notebooks only", async () => {
     const s = await repo.createSubject({ name: "Bio", color: "#16a34a" });
     const other = await repo.createSubject({ name: "Chem", color: "#2563eb" });
-    const n = await repo.createNotebook(s.id, "Cells");
+    await repo.createNotebook(s.id, "Pages");
     const keep = await repo.createNotebook(other.id, "Atoms");
-    await repo.createPage(n.id);
     await repo.deleteSubject(s.id);
     expect(await repo.listNotebooks(s.id)).toEqual([]);
-    expect(await repo.listPages(n.id)).toEqual([]);
+    expect((await repo.listSubjects()).map((x) => x.id)).toEqual([other.id]);
     expect(await repo.listNotebooks(other.id)).toEqual([keep]);
+  });
+
+  it("refuses to delete a folder that has pages, in any of its notebooks, and keeps everything", async () => {
+    const s = await repo.createSubject({ name: "Bio", color: "#16a34a" });
+    await repo.createNotebook(s.id, "Pages");
+    const old = await repo.createNotebook(s.id, "Cells");
+    const p = await repo.createPage(old.id);
+    const err = await repo.deleteSubject(s.id).catch((e) => e);
+    expect(err).toBeInstanceOf(FolderNotEmptyError);
+    expect((await repo.listSubjects()).map((x) => x.id)).toEqual([s.id]);
+    expect((await repo.listFolderPages(s.id)).map((x) => x.id)).toEqual([p.id]);
+  });
+
+  it("lists a folder's pages from all its notebooks, newest first, and nothing from other folders", async () => {
+    const s = await repo.createSubject({ name: "Bio", color: "#16a34a" });
+    const other = await repo.createSubject({ name: "Chem", color: "#2563eb" });
+    const cells = await repo.createNotebook(s.id, "Cells");
+    const pagesNb = await repo.createNotebook(s.id, "Pages");
+    const a = await repo.createPage(cells.id, "A");
+    const b = await repo.createPage(pagesNb.id, "B");
+    const c = await repo.createPage(cells.id, "C");
+    await repo.createPage((await repo.createNotebook(other.id, "Atoms")).id, "Elsewhere");
+    expect((await repo.listFolderPages(s.id)).map((x) => x.id)).toEqual([c.id, b.id, a.id]);
+    expect(await repo.listFolderPages("missing")).toEqual([]);
   });
 
   it("empty subject name throws 'Name is required'", async () => {

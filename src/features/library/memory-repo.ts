@@ -1,4 +1,4 @@
-import { requireName, type LibraryRepo } from "./repo";
+import { FolderNotEmptyError, requireName, type LibraryRepo } from "./repo";
 import type { Notebook, Page, Subject } from "./types";
 
 const OWNER = "memory-owner";
@@ -9,8 +9,12 @@ export class MemoryLibraryRepo implements LibraryRepo {
   private notebooks: Notebook[] = [];
   private pages: Page[] = [];
 
+  private clock = 0;
+
+  /** Strictly increasing, so "newest first" is well defined even within one millisecond. */
   private now() {
-    return new Date().toISOString();
+    this.clock = Math.max(this.clock + 1, Date.now());
+    return new Date(this.clock).toISOString();
   }
 
   async listSubjects() {
@@ -38,10 +42,16 @@ export class MemoryLibraryRepo implements LibraryRepo {
   }
 
   async deleteSubject(id: string) {
-    const nbIds = new Set(this.notebooks.filter((n) => n.subject_id === id).map((n) => n.id));
+    if ((await this.listFolderPages(id)).length > 0) throw new FolderNotEmptyError();
     this.subjects = this.subjects.filter((s) => s.id !== id);
     this.notebooks = this.notebooks.filter((n) => n.subject_id !== id);
-    this.pages = this.pages.filter((p) => !nbIds.has(p.notebook_id));
+  }
+
+  async listFolderPages(subjectId: string) {
+    const nbIds = new Set(this.notebooks.filter((n) => n.subject_id === subjectId).map((n) => n.id));
+    return this.pages
+      .filter((p) => nbIds.has(p.notebook_id))
+      .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
   }
 
   async listNotebooks(subjectId: string) {

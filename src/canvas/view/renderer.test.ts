@@ -1,3 +1,4 @@
+import { markTaintedImage } from "../attachments/image-loader";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Scene } from "../model/scene";
 import type { CanvasElement, StrokeEl } from "../model/types";
@@ -569,5 +570,105 @@ describe("Renderer", () => {
     expect(ctx.roundRect).toHaveBeenCalledTimes(2);
     expect(ctx.fillText).toHaveBeenCalledWith("2:05", expect.any(Number), expect.any(Number));
     r.destroy();
+  });
+  describe("drawSnapshot (page previews)", () => {
+    const photo = { id: "p", z: 2, updatedAt: 1, type: "image", x: 10, y: 20, w: 200, h: 100, assetPath: "o/p/a.jpg" } as const;
+    const bitmap = { width: 400, height: 200 } as unknown as ImageBitmap;
+
+    it("draws the scene onto another context through another camera, without selection or live ink", () => {
+      scene.add(stroke("a", 0));
+      const r = make();
+      r.resize(100, 100, 2);
+      flush();
+      r.setSelection(["a"]);
+      r.setLive(stroke("live", 500));
+      flush();
+      const other = fakeCtx();
+      const made0 = made;
+      const ok = r.drawSnapshot(other as unknown as CanvasRenderingContext2D, new Camera(-10, -10, 0.5), 240, 180);
+      expect(ok).toBe(true);
+      // Ground over the whole target, then the world transform of the snapshot camera at dpr 1.
+      expect(other.fillRect.mock.calls[0]).toEqual([0, 0, 240, 180]);
+      expect(other.setTransform.mock.calls[1]).toEqual([0.5, 0, 0, 0.5, 5, 5]);
+      expect(other.fill).toHaveBeenCalled();
+      expect(other.strokeRect).not.toHaveBeenCalled(); // no selection box
+      // The cached stroke path is reused: no new path for "a"; the live stroke is not drawn.
+      expect(made).toBe(made0);
+      expect(frames).toHaveLength(0);
+      // The live canvas still draws with its own context and camera afterwards.
+      ctx.setTransform.mockClear();
+      r.requestFrame();
+      flush();
+      expect(ctx.setTransform.mock.calls[1]).toEqual([2, 0, 0, 2, -0, -0]);
+      r.destroy();
+    });
+
+    it("draws nothing and returns false once destroyed", () => {
+      scene.add(stroke("a", 0));
+      const r = make();
+      r.destroy();
+      const other = fakeCtx();
+      expect(r.drawSnapshot(other as unknown as CanvasRenderingContext2D, new Camera(), 10, 10)).toBe(false);
+      expect(other.fillRect).not.toHaveBeenCalled();
+    });
+
+    it("preloadImages waits for the page's photos, so the snapshot draws them", async () => {
+      scene.add(photo);
+      let resolve!: (b: ImageBitmap) => void;
+      const load = vi.fn(() => new Promise<ImageBitmap>((res) => { resolve = res; }));
+      const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: load });
+      const done = r.preloadImages(1_000);
+      expect(load).toHaveBeenCalledWith("o/p/a.jpg");
+      resolve(bitmap);
+      await done;
+      const other = fakeCtx();
+      r.drawSnapshot(other as unknown as CanvasRenderingContext2D, new Camera(), 300, 300);
+      expect(other.drawImage).toHaveBeenCalledWith(bitmap, 10, 20, 200, 100);
+      r.destroy();
+    });
+
+    it("a tainted photo reports itself, and skipTainted draws a labelled box instead of the photo", async () => {
+      scene.add(photo);
+      const img = { width: 400, height: 200 } as unknown as ImageBitmap;
+      markTaintedImage(img);
+      const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: async () => img });
+      expect(r.hasTaintedImages()).toBe(false); // not loaded yet
+      await r.preloadImages(1_000);
+      expect(r.hasTaintedImages()).toBe(true);
+      expect(r.hasTaintedImages({ minX: 4_000, minY: 4_000, maxX: 5_000, maxY: 5_000 })).toBe(false);
+      const plain = fakeCtx();
+      r.drawSnapshot(plain as unknown as CanvasRenderingContext2D, new Camera(), 300, 300);
+      expect(plain.drawImage).toHaveBeenCalled();
+      const safe = fakeCtx();
+      expect(r.drawSnapshot(safe as unknown as CanvasRenderingContext2D, new Camera(), 300, 300, { skipTainted: true })).toBe(true);
+      expect(safe.drawImage).not.toHaveBeenCalled();
+      expect(safe.fillText).toHaveBeenCalledWith("Photo", 110, 70);
+      r.destroy();
+    });
+
+    it("preloadImages with a frame only requests the photos inside it", async () => {
+      scene.add(photo);
+      scene.add({ ...photo, id: "far", assetPath: "o/p/far.jpg", x: 5_000, y: 5_000 });
+      const load = vi.fn(async () => bitmap);
+      const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: load });
+      await r.preloadImages(1_000, { minX: 0, minY: 0, maxX: 500, maxY: 500 });
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenCalledWith("o/p/a.jpg");
+      r.destroy();
+    });
+
+    it("preloadImages gives up after its timeout", async () => {
+      vi.useFakeTimers();
+      try {
+        scene.add(photo);
+        const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: () => new Promise<ImageBitmap>(() => {}) });
+        const done = r.preloadImages(500);
+        await vi.advanceTimersByTimeAsync(500);
+        await expect(done).resolves.toBeUndefined();
+        r.destroy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });

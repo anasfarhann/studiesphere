@@ -30,7 +30,7 @@ function Soon({ label, icon }: { label: string; icon: IconName }) {
 }
 
 /** Left rail on >= md, bottom bar below. Sign-out lives in the Settings popover. */
-export function AppRail({ active, account }: { active: "home" | "subjects"; account?: RailAccount }) {
+export function AppRail({ active, account }: { active: "home" | "folders"; account?: RailAccount }) {
   const [open, setOpen] = useState(false);
   const popId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -70,8 +70,8 @@ export function AppRail({ active, account }: { active: "home" | "subjects"; acco
         <Icon name="logo" size={26} />
       </Link>
       <NewPageForm variant="rail" className={`${btn} cursor-pointer bg-ink text-white disabled:cursor-not-allowed disabled:opacity-50`} />
-      {/* Home and Subjects pointed at the same place, so they are one item (keeps six items inside 320 px). */}
-      <NavLink href="/app" label={t("navHome")} icon="home" active={active === "home" || active === "subjects"} />
+      {/* Home and Folders pointed at the same place, so they are one item (keeps six items inside 320 px). */}
+      <NavLink href="/app" label={t("navHome")} icon="home" active={active === "home" || active === "folders"} />
       <Soon label={t("navTimetableSoon")} icon="calendar" />
       <Soon label={t("navFlashcardsSoon")} icon="cards" />
       <Soon label={t("navQuizSoon")} icon="trophy" />

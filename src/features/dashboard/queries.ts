@@ -2,17 +2,20 @@ import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
 import { t } from "@/i18n/en";
 import { toPastel } from "@/ui/pastel";
+import { signPreviewUrls } from "@/features/library/previews";
 
 export type RecentPage = {
   id: string;
   title: string;
-  subjectId: string;
-  subjectName: string;
-  notebookTitle: string;
+  folderId: string;
+  folderName: string;
   tint: string;
   editedAt: string;
+  /** Signed, cache-busted URL of the page's preview; absent when it has none (the card shows the placeholder). */
+  previewUrl?: string;
 };
-export type SubjectSummary = { id: string; name: string; tint: string; notebooks: number; pages: number };
+/** A folder (a `subjects` row) with the number of pages across all its notebooks. */
+export type FolderSummary = { id: string; name: string; tint: string; pages: number };
 
 /** From rows ordered newest-first, the first `limit` distinct page ids with their newest edit time. */
 export function pickRecent(
@@ -78,7 +81,10 @@ export async function getRecentPages(limit = 3): Promise<RecentPage[]> {
   const pageRows = mergeRecent(picked, [...editedRows.data, ...newest.data], limit);
   if (pageRows.length === 0) return [];
 
-  const nbs = await db.from("notebooks").select("id, title, subject_id").in("id", [...new Set(pageRows.map((p) => p.notebook_id))]);
+  const [nbs, previews] = await Promise.all([
+    db.from("notebooks").select("id, subject_id").in("id", [...new Set(pageRows.map((p) => p.notebook_id))]),
+    signPreviewUrls(db, user.id, pageRows),
+  ]);
   if (nbs.error) throw new Error(nbs.error.message);
   const subs = await db.from("subjects").select("id, name, color").in("id", [...new Set(nbs.data.map((n) => n.subject_id))]);
   if (subs.error) throw new Error(subs.error.message);
@@ -91,16 +97,16 @@ export async function getRecentPages(limit = 3): Promise<RecentPage[]> {
     return {
       id: p.id,
       title: p.title,
-      subjectId: nb?.subject_id ?? "",
-      subjectName: sub?.name ?? "",
-      notebookTitle: nb?.title ?? "",
+      folderId: nb?.subject_id ?? "",
+      folderName: sub?.name ?? "",
       tint: toPastel(sub?.color ?? ""),
       editedAt: p.editedAt,
+      ...(previews[p.id] ? { previewUrl: previews[p.id] } : {}),
     };
   });
 }
 
-export async function getSubjectSummaries(): Promise<SubjectSummary[]> {
+export async function getFolderSummaries(): Promise<FolderSummary[]> {
   await getUser();
   const db = await createServerClient();
   const [subs, nbs, pgs] = await Promise.all([
@@ -109,12 +115,8 @@ export async function getSubjectSummaries(): Promise<SubjectSummary[]> {
     db.from("pages").select("id, notebook_id"),
   ]);
   for (const r of [subs, nbs, pgs]) if (r.error) throw new Error(r.error.message);
-  const nbCount = new Map<string, number>();
   const subjectOf = new Map<string, string>();
-  for (const n of nbs.data ?? []) {
-    subjectOf.set(n.id, n.subject_id);
-    nbCount.set(n.subject_id, (nbCount.get(n.subject_id) ?? 0) + 1);
-  }
+  for (const n of nbs.data ?? []) subjectOf.set(n.id, n.subject_id);
   const pageCount = new Map<string, number>();
   for (const p of pgs.data ?? []) {
     const sid = subjectOf.get(p.notebook_id);
@@ -124,7 +126,6 @@ export async function getSubjectSummaries(): Promise<SubjectSummary[]> {
     id: s.id,
     name: s.name,
     tint: toPastel(s.color),
-    notebooks: nbCount.get(s.id) ?? 0,
     pages: pageCount.get(s.id) ?? 0,
   }));
 }

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
-import { requireName, type LibraryRepo } from "./repo";
+import { FolderNotEmptyError, requireName, type LibraryRepo } from "./repo";
 import type { Notebook, Page, Subject } from "./types";
 
 type Client = SupabaseClient<Database>;
@@ -38,9 +38,39 @@ export class SupabaseLibraryRepo implements LibraryRepo {
   }
 
   async deleteSubject(id: string): Promise<void> {
-    // Notebooks and pages cascade in the database.
+    // Refused while the folder has pages: notebooks and pages cascade in the database, and the UI offers no
+    // cascade delete. (A page created in another tab between this check and the delete would still go with
+    // the folder; closing that gap needs a database-side guard, i.e. a migration.)
+    if ((await this.folderPageIds(id, 1)).length > 0) throw new FolderNotEmptyError();
     const { error } = await this.db.from("subjects").delete().eq("id", id);
     if (error) throw new Error(error.message);
+  }
+
+  async listFolderPages(subjectId: string): Promise<Page[]> {
+    const nbIds = await this.folderNotebookIds(subjectId);
+    if (nbIds.length === 0) return [];
+    const { data, error } = await this.db
+      .from("pages")
+      .select("*")
+      .in("notebook_id", nbIds)
+      .order("created_at", { ascending: false })
+      .order("id", { ascending: false });
+    if (error) throw new Error(error.message);
+    return data;
+  }
+
+  private async folderNotebookIds(subjectId: string): Promise<string[]> {
+    const { data, error } = await this.db.from("notebooks").select("id").eq("subject_id", subjectId);
+    if (error) throw new Error(error.message);
+    return data.map((n) => n.id);
+  }
+
+  private async folderPageIds(subjectId: string, limit: number): Promise<string[]> {
+    const nbIds = await this.folderNotebookIds(subjectId);
+    if (nbIds.length === 0) return [];
+    const { data, error } = await this.db.from("pages").select("id").in("notebook_id", nbIds).limit(limit);
+    if (error) throw new Error(error.message);
+    return data.map((p) => p.id);
   }
 
   async listNotebooks(subjectId: string): Promise<Notebook[]> {

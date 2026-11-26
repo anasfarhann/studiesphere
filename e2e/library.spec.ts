@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 const email = process.env.E2E_USER_EMAIL;
 const password = process.env.E2E_USER_PASSWORD;
 
-test("create subject, notebook and page, landing on the page route", async ({ page }) => {
+test("create a folder and a page in it, then back to the folder, rename and delete rules", async ({ page }) => {
   test.skip(!email || !password, "needs E2E_USER_EMAIL and E2E_USER_PASSWORD (confirmed user)");
   await page.goto("/login");
   await page.getByLabel("Email").fill(email!);
@@ -11,21 +11,33 @@ test("create subject, notebook and page, landing on the page route", async ({ pa
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/app$/);
 
-  const subject = `Biology ${Date.now()}`;
-  await page.getByRole("button", { name: "New subject" }).click();
-  await page.getByLabel("Subject name").fill(subject);
+  const folder = `Biology ${Date.now()}`;
+  await page.getByRole("button", { name: "New folder" }).click();
+  await page.getByLabel("Folder name").fill(folder);
   await page.getByRole("radio", { name: "Mint" }).check({ force: true });
-  await page.getByRole("button", { name: "Create subject" }).click();
+  await page.getByRole("button", { name: "Create folder" }).click();
   await expect(page).toHaveURL(/\/app\/s\/[0-9a-f-]+$/);
-  await expect(page.getByRole("heading", { name: subject })).toBeVisible();
+  const folderUrl = page.url();
+  await expect(page.getByRole("heading", { name: folder })).toBeVisible();
+  await expect(page.getByText("No pages in this folder yet.")).toBeVisible();
 
-  await page.getByRole("button", { name: "New notebook" }).first().click();
-  await page.getByLabel("Notebook title").fill("Cells");
-  await page.getByRole("button", { name: "Create notebook" }).click();
-  await expect(page).toHaveURL(/\/app\/n\/[0-9a-f-]+$/);
+  // An empty folder can be renamed.
+  const renamed = `${folder} renamed`;
+  await page.getByRole("button", { name: "Rename" }).click();
+  await page.getByLabel("Folder name").fill(renamed);
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("heading", { level: 1, name: renamed })).toBeVisible();
 
-  await page.getByRole("button", { name: "New page" }).click();
+  await page.getByRole("main").getByRole("button", { name: "New page" }).click();
   await expect(page).toHaveURL(/\/app\/p\/[0-9a-f-]+$/);
   await expect(page.getByTestId("canvas")).toBeVisible();
-  await expect(page.getByRole("link", { name: /Back to/ })).toBeVisible();
+  await page.getByRole("link", { name: `Back to ${renamed}` }).click();
+  await expect(page).toHaveURL(folderUrl);
+  await expect(page.getByText("1 page", { exact: true })).toBeVisible();
+  expect(await page.locator("body").innerText()).not.toMatch(/notebook/i);
+
+  // A folder with pages cannot be deleted.
+  await page.getByRole("button", { name: "Delete" }).click();
+  await expect(page.getByRole("dialog")).toContainText("This folder still has pages.");
+  await expect(page.getByRole("button", { name: "Delete folder" })).toHaveCount(0);
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { AttachmentError, AttachmentService, MAX_ATTACHMENT_BYTES, type AttachmentStorage } from "./upload";
+import { AttachmentError, AttachmentService, MAX_ATTACHMENT_BYTES, previewPath, supabaseAttachmentStorage, type AttachmentStorage } from "./upload";
 
 function fakeStorage(over: Partial<AttachmentStorage> = {}) {
   const storage: AttachmentStorage = {
@@ -86,5 +86,50 @@ describe("file attachments (Task 18)", () => {
     await ins.insert(mk(2 * 1024 * 1024));
     expect(scene.all()).toHaveLength(1);
     expect(scene.get("f1")).toMatchObject({ type: "file", fileName: "a.pdf", mime: "application/pdf", bytes: 2 * 1024 * 1024 });
+  });
+});
+
+describe("page previews (Task 3)", () => {
+  it("previewPath is the fixed {owner}/{page}/preview.jpg", () => {
+    expect(previewPath("own", "pg")).toBe("own/pg/preview.jpg");
+  });
+
+  it("uploadPreview upserts the fixed path as image/jpeg", async () => {
+    const storage = fakeStorage();
+    const svc = new AttachmentService(storage, () => 0, () => "never");
+    const blob = new Blob(["j"], { type: "image/jpeg" });
+    await svc.uploadPreview(blob, { ownerId: "own", pageId: "pg" });
+    await svc.uploadPreview(blob, { ownerId: "own", pageId: "pg" });
+    expect(storage.upload).toHaveBeenCalledTimes(2);
+    expect(storage.upload).toHaveBeenNthCalledWith(2, "own/pg/preview.jpg", blob, { contentType: "image/jpeg", upsert: true });
+  });
+
+  it("uploadPreview rejects on a storage error (the caller ignores it)", async () => {
+    const svc = new AttachmentService(fakeStorage({ upload: async () => ({ error: { message: "nope" } }) }));
+    await expect(svc.uploadPreview(new Blob(["j"]), { ownerId: "o", pageId: "p" })).rejects.toThrow("nope");
+  });
+
+  it("previewExists signs the fixed path, false when it is missing; removePreview removes it", async () => {
+    const remove = vi.fn(async () => ({ error: null }));
+    const storage = fakeStorage({
+      createSignedUrl: async (p: string) => (p === "o/a/preview.jpg" ? { url: "u", error: null } : { url: null, error: { message: "not found" } }),
+      remove,
+    });
+    const svc = new AttachmentService(storage);
+    expect(await svc.previewExists({ ownerId: "o", pageId: "a" })).toBe(true);
+    expect(await svc.previewExists({ ownerId: "o", pageId: "b" })).toBe(false);
+    await svc.removePreview({ ownerId: "o", pageId: "a" });
+    expect(remove).toHaveBeenCalledWith(["o/a/preview.jpg"]);
+  });
+
+  it("the Supabase adapter passes upsert only when asked", async () => {
+    const upload = vi.fn(async () => ({ error: null }));
+    const client = { storage: { from: () => ({ upload, createSignedUrl: vi.fn(), remove: vi.fn() }) } };
+    const s = supabaseAttachmentStorage(client);
+    const b = new Blob(["x"]);
+    await s.upload("o/p/a.jpg", b, { contentType: "image/jpeg" });
+    await s.upload("o/p/preview.jpg", b, { contentType: "image/jpeg", upsert: true });
+    expect(upload).toHaveBeenNthCalledWith(1, "o/p/a.jpg", b, { contentType: "image/jpeg", upsert: false });
+    expect(upload).toHaveBeenNthCalledWith(2, "o/p/preview.jpg", b, { contentType: "image/jpeg", upsert: true });
   });
 });

@@ -21,7 +21,7 @@ import { Selection } from "./selection";
 import { clampSize, loadSettings, normalizeSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
 import type { Rect } from "./model/types";
 import { Camera } from "./view/camera";
-import { Renderer, type ImageLoader, type RendererOptions } from "./view/renderer";
+import { Renderer, type ImageLoader, type RendererOptions, type SnapshotOptions } from "./view/renderer";
 
 export interface EditorOptions {
   elements: CanvasElement[];
@@ -44,6 +44,8 @@ const TAP_MAX_MS = 250;
 /** An auto text box being typed stops this many screen px short of the canvas's right edge (and wraps there). */
 export const TEXT_EDGE_MARGIN_PX = 12;
 const TAP_MAX_MOVE = 10;
+/** Longest wait for photos before a page preview is drawn (they show as grey boxes if still loading). */
+const PRELOAD_IMAGES_MS = 8_000;
 type Tap = { t0: number; ids: [number, number]; up: number; moved: number; zoom0: number };
 
 function isEditable(t: EventTarget | null): boolean {
@@ -627,6 +629,28 @@ export class Editor {
     const r = this.camera.viewRect(this.viewW, this.viewH);
     // padBottom (world units) also finds elements just below the view whose attachments reach into it.
     return this.scene.getVisible(padBottom > 0 ? { ...r, maxY: r.maxY + padBottom } : r);
+  }
+
+  /** Draws the scene onto another context through `camera` (page previews); false once destroyed. */
+  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number, opts?: SnapshotOptions): boolean {
+    if (this.destroyed) return false;
+    return this.renderer.drawSnapshot(ctx, camera, w, h, opts);
+  }
+
+  /** A photo inside `area` would taint an exported canvas (see isTaintedImage). */
+  hasTaintedImages(area?: Rect): boolean {
+    return !this.destroyed && this.renderer.hasTaintedImages(area);
+  }
+
+  /** Resolves once the photos inside `area` (default: all) are decoded, or after `timeoutMs`. Never rejects. */
+  preloadImages(area?: Rect, timeoutMs = PRELOAD_IMAGES_MS): Promise<void> {
+    if (this.destroyed) return Promise.resolve();
+    return this.renderer.preloadImages(timeoutMs, area);
+  }
+
+  /** A pointer is down on the canvas (drawing, erasing, panning) or text is being typed. */
+  isInteracting(): boolean {
+    return this.pointers.size > 0 || this.text.session !== null;
   }
 
   resize(cssW: number, cssH: number, dpr: number): void {

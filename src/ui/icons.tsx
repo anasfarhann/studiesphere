@@ -1,7 +1,7 @@
 export type IconName =
   | "logo" | "home" | "book" | "calendar" | "cards" | "trophy" | "settings" | "search" | "plus"
-  | "chevronLeft" | "chevronRight" | "bell" | "pen" | "highlighter" | "eraser" | "lasso" | "text"
-  | "hand" | "photo" | "mic" | "paperclip" | "undo" | "redo" | "history" | "trash" | "play" | "pause" | "close";
+  | "folder" | "chevronLeft" | "chevronRight" | "bell" | "pen" | "highlighter" | "eraser" | "lasso" | "text"
+  | "hand" | "photo" | "mic" | "paperclip" | "undo" | "redo" | "history" | "trash" | "play" | "pause" | "close" | "dots" | "share";
 
 const P: Record<IconName, React.ReactNode> = {
   logo: (<><circle cx="12" cy="12" r="8" /><path d="M4.5 9.5c5 2 10 2 15 0M4.5 14.5c5-2 10-2 15 0" /></>),
@@ -13,6 +13,7 @@ const P: Record<IconName, React.ReactNode> = {
   settings: (<><circle cx="12" cy="12" r="3" /><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7" /></>),
   search: (<><circle cx="11" cy="11" r="6.5" /><path d="m20 20-4-4" /></>),
   plus: <path d="M12 5v14M5 12h14" />,
+  folder: <path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z" />,
   chevronLeft: <path d="m14 6-6 6 6 6" />,
   chevronRight: <path d="m10 6 6 6-6 6" />,
   bell: (<><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15z" /><path d="M10 20.5a2.2 2.2 0 0 0 4 0" /></>),
@@ -32,6 +33,8 @@ const P: Record<IconName, React.ReactNode> = {
   play: <path d="M8 5v14l11-7z" />,
   pause: <path d="M8 5v14M16 5v14" />,
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  share: <path d="M12 15V4M8 7.5 12 3.5l4 4M6 11H5.5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1v-7a1 1 0 0 0-1-1H18" />,
+  dots: (<><circle cx="6" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18" cy="12" r="1.2" /></>),
 };
 
 /** Stroke icon from the design's set. Decorative: always aria-hidden. */

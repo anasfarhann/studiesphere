@@ -6,7 +6,8 @@ import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
 import { SUBJECT_COLORS } from "./colors";
 import { toFormError, type FormState } from "./form-error";
-import { ensureQuickNotebook, quickPageTitle } from "./quick-notes";
+import { deletePage, duplicatePage, movePage, renamePage } from "./page-ops";
+import { ensureFolderNotebook, ensureQuickNotebook, quickPageTitle } from "./quick-notes";
 import { SupabaseLibraryRepo } from "./supabase-repo";
 
 async function repo() {
@@ -17,7 +18,7 @@ async function repo() {
 const text = (f: FormData, k: string) => String(f.get(k) ?? "");
 
 // redirect() throws, so it must stay outside the try blocks.
-export async function createSubjectAction(_prev: FormState, form: FormData): Promise<FormState> {
+export async function createFolderAction(_prev: FormState, form: FormData): Promise<FormState> {
   const color = text(form, "color");
   const valid = SUBJECT_COLORS.some((c) => c.hex === color) ? color : SUBJECT_COLORS[0].hex;
   const r = await repo(); // auth redirect happens outside the try
@@ -31,29 +32,47 @@ export async function createSubjectAction(_prev: FormState, form: FormData): Pro
   redirect(`/app/s/${id}`);
 }
 
-export async function createNotebookAction(subjectId: string, _prev: FormState, form: FormData): Promise<FormState> {
+/** Renames a folder. Returns null on success so the dialog can close. */
+export async function renameFolderAction(folderId: string, _prev: FormState, form: FormData): Promise<FormState> {
   const r = await repo(); // auth redirect happens outside the try
-  let id: string;
   try {
-    id = (await r.createNotebook(subjectId, text(form, "title"))).id;
+    await r.renameSubject(folderId, text(form, "name"));
   } catch (e) {
     return toFormError(e);
   }
-  redirect(`/app/n/${id}`);
+  revalidatePath("/app");
+  revalidatePath(`/app/s/${folderId}`);
+  return null;
 }
 
-export async function createPageAction(notebookId: string): Promise<FormState> {
+/** Deletes an empty folder and goes home; refused with a message while the folder has pages. */
+export async function deleteFolderAction(folderId: string): Promise<FormState> {
   const r = await repo(); // auth redirect happens outside the try
-  let id: string;
   try {
-    id = (await r.createPage(notebookId)).id;
+    await r.deleteSubject(folderId);
   } catch (e) {
     return toFormError(e);
   }
+  revalidatePath("/app");
+  redirect("/app");
+}
+
+/** "New page" inside a folder: a dated page in the folder's hidden notebook, then open it. */
+export async function createFolderPageAction(folderId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  const user = await getUser(); // redirects to /login when signed out
+  const supabase = await createServerClient();
+  let id: string;
+  try {
+    const notebookId = await ensureFolderNotebook(supabase, user.id, folderId);
+    id = (await new SupabaseLibraryRepo(supabase).createPage(notebookId, quickPageTitle(new Date(), form.get("tz")))).id;
+  } catch (e) {
+    return toFormError(e);
+  }
+  revalidatePath("/app");
   redirect(`/app/p/${id}`);
 }
 
-/** One-tap "New page": a page in the user's Quick notes subject, created on demand. */
+/** One-tap "New page": a page in the user's Quick notes folder, created on demand. */
 export async function createQuickPageAction(_prev: FormState, form: FormData): Promise<FormState> {
   const user = await getUser(); // redirects to /login when signed out
   const supabase = await createServerClient();
@@ -62,9 +81,41 @@ export async function createQuickPageAction(_prev: FormState, form: FormData): P
     const notebookId = await ensureQuickNotebook(supabase, user.id);
     id = (await new SupabaseLibraryRepo(supabase).createPage(notebookId, quickPageTitle(new Date(), form.get("tz")))).id;
   } catch (e) {
-    // Shown inline next to the button (NewPageForm), like createPageAction.
+    // Shown inline next to the button (NewPageForm).
     return toFormError(e);
   }
   revalidatePath("/app");
   redirect(`/app/p/${id}`);
+}
+
+/*
+ * Page actions (the page menu on home cards and folder rows). Each returns FormState (null = success, so the
+ * dialog or menu can close) and refreshes every /app view that lists pages. Auth runs before any try.
+ */
+async function pageOp(run: (db: Awaited<ReturnType<typeof createServerClient>>, ownerId: string) => Promise<unknown>): Promise<FormState> {
+  const user = await getUser(); // redirects to /login when signed out
+  const supabase = await createServerClient();
+  try {
+    await run(supabase, user.id);
+  } catch (e) {
+    return toFormError(e);
+  }
+  revalidatePath("/app", "layout");
+  return null;
+}
+
+export async function renamePageAction(pageId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  return pageOp((db, owner) => renamePage(db, owner, pageId, text(form, "title")));
+}
+
+export async function movePageAction(pageId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  return pageOp((db, owner) => movePage(db, owner, pageId, text(form, "folderId")));
+}
+
+export async function duplicatePageAction(pageId: string): Promise<FormState> {
+  return pageOp((db, owner) => duplicatePage(db, owner, pageId));
+}
+
+export async function deletePageAction(pageId: string): Promise<FormState> {
+  return pageOp((db, owner) => deletePage(db, owner, pageId));
 }

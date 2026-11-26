@@ -22,18 +22,18 @@ describe("IconButton", () => {
 
 describe("PillButton", () => {
   it("renders children as a pill", () => {
-    render(<PillButton icon="plus">New subject</PillButton>);
-    expect(screen.getByRole("button", { name: "New subject" }).className).toMatch(/rounded-full/);
+    render(<PillButton icon="plus">New folder</PillButton>);
+    expect(screen.getByRole("button", { name: "New folder" }).className).toMatch(/rounded-full/);
   });
 });
 
 vi.mock("@/features/library/actions", () => ({ createQuickPageAction: async () => null }));
 
 describe("AppRail", () => {
-  it("marks Home current for both home and subjects", () => {
-    const { unmount } = render(<AppRail active="subjects" />);
+  it("marks Home current for both home and folders", () => {
+    const { unmount } = render(<AppRail active="folders" />);
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.queryByRole("link", { name: "Subjects" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Folders" })).toBeNull();
     unmount();
     render(<AppRail active="home" />);
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("aria-current")).toBe("page");

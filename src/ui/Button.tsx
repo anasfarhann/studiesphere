@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes } from "react";
+import type { ButtonHTMLAttributes, Ref } from "react";
 import { Icon, type IconName } from "./icons";
 
 const cx = (...c: (string | false | undefined)[]) => c.filter(Boolean).join(" ");
@@ -29,6 +29,7 @@ type IconButtonProps = Omit<ButtonHTMLAttributes<HTMLButtonElement>, "aria-label
   size?: 44 | 52;
   /** Resting background: white card (default) or the beige panel, for use on cards. */
   tone?: "card" | "panel";
+  ref?: Ref<HTMLButtonElement>;
 };
 
 export function IconButton({ icon, label, active, size = 44, tone = "card", className, type = "button", ...rest }: IconButtonProps) {
