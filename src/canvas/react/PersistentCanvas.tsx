@@ -108,6 +108,7 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
         preloadImages: (area) => editor.preloadImages(area),
         hasTaintedImages: (area) => editor.hasTaintedImages(area),
         isInteracting: () => editor.isInteracting(),
+        onChange: (fn) => editor.scene.onChange(fn),
       };
       setLiveTarget(target);
       let mounted = true;

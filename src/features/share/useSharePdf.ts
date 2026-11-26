@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { t } from "@/i18n/en";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { deliverPdf, loadPageTarget, PdfError, sharePagePdf, type PdfTarget } from "./page-pdf";
@@ -13,6 +13,9 @@ import { deliverPdf, loadPageTarget, PdfError, sharePagePdf, type PdfTarget } fr
  * `liveTarget`: the canvas page's live editor scene (never destroyed here); without it the page is loaded from
  * Supabase through the browser client (dashboard and folder menus).
  */
+/** A built-but-unshared PDF is dropped after this long, even if no edit was seen (the page may have changed elsewhere). */
+export const READY_TTL_MS = 60_000;
+
 export function useSharePdf(page: { id: string; title: string }, liveTarget?: PdfTarget | null) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,5 +72,22 @@ export function useSharePdf(page: { id: string; title: string }, liveTarget?: Pd
   }, []);
 
   const clearError = useCallback(() => setError(null), []);
-  return { busy, error, ready, share, shareReady, clearError };
+  /** Drops the built PDF and the ready state. */
+  const dismissReady = useCallback(() => {
+    built.current = null;
+    setReady(false);
+  }, []);
+
+  // The built PDF is of the page as it was: an edit to the live scene, or 60 s, makes it stale.
+  useEffect(() => {
+    if (!ready) return;
+    const off = liveTarget?.onChange?.(dismissReady);
+    const timer = setTimeout(dismissReady, READY_TTL_MS);
+    return () => {
+      off?.();
+      clearTimeout(timer);
+    };
+  }, [ready, liveTarget, dismissReady]);
+
+  return { busy, error, ready, share, shareReady, clearError, dismissReady };
 }

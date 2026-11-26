@@ -92,6 +92,42 @@ describe("buildPagePdf", () => {
     expect(js.calls.addImage.mock.calls[0][1]).toBe("JPEG");
   });
 
+  it("waits for document.fonts.ready after the probe draw, before the slice draw (no photos)", async () => {
+    const order: string[] = [];
+    let release: () => void = () => {};
+    const ready = new Promise<void>((res) => (release = res));
+    vi.stubGlobal("document", { fonts: { ready: ready.then(() => void order.push("fonts")) } });
+    try {
+      const draw = vi.fn(() => (order.push("draw"), true));
+      const js = fakeJsPdf();
+      const p = buildPagePdf({ elements: () => [stroke("a", 0, 0)], drawSnapshot: draw }, { loadJsPdf: js.load, createCanvas: fakeCanvas });
+      await new Promise((r) => setTimeout(r, 20));
+      expect(order).toEqual(["draw"]); // only the probe so far: the slice draw waits for the fonts
+      release();
+      await p;
+      expect(order.slice(0, 3)).toEqual(["draw", "fonts", "draw"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("gives up on fonts after 3 s", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("document", { fonts: { ready: new Promise<void>(() => {}) } });
+    try {
+      const draw = vi.fn(() => true);
+      const p = buildPagePdf({ elements: () => [stroke("a", 0, 0)], drawSnapshot: draw }, { loadJsPdf: fakeJsPdf().load, createCanvas: fakeCanvas });
+      await vi.advanceTimersByTimeAsync(2_900);
+      expect(draw).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(200);
+      await p;
+      expect(draw.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("keeps each raster within the size cap", async () => {
     const sizes: number[] = [];
     const js = fakeJsPdf();

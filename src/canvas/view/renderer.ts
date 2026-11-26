@@ -1,3 +1,4 @@
+import { t } from "@/i18n/en";
 import type { Scene } from "../model/scene";
 import type { AudioEl, CanvasElement, FileEl, Rect, StrokeEl } from "../model/types";
 import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, FILE_ICON_X, TEXT_LINE_HEIGHT } from "../model/bounds";
@@ -620,7 +621,7 @@ export class Renderer {
     ctx.font = `${size}px sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("Photo", (b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2);
+    ctx.fillText(t("photoPlaceholder"), (b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2);
     ctx.textAlign = "start";
     ctx.textBaseline = "alphabetic";
   }

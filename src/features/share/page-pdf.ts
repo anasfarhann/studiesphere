@@ -33,6 +33,8 @@ export const RASTER_MAX_SIDE = 4096;
 export const JPEG_QUALITY = 0.9;
 /** Photos are waited for at most this long in total (then drawn as grey boxes, like the canvas does). */
 export const PHOTO_DEADLINE_MS = 20_000;
+/** The text faces (Lora, Caveat, JetBrains Mono) are waited for at most this long after the probe draw. */
+export const FONT_DEADLINE_MS = 3000;
 
 export type PdfErrorCode = "empty" | "render" | "build";
 export class PdfError extends Error {
@@ -146,6 +148,21 @@ export async function buildPagePdf(target: PdfTarget, opts: BuildOptions = {}): 
     await Promise.race([target.preloadImages(area).catch(() => {}), new Promise<void>((res) => (timer = setTimeout(res, left)))]);
     clearTimeout(timer);
   };
+  // The probe draw starts loading the text faces (the renderer asks for them while drawing text); without this wait
+  // a page with no photos would be drawn with fallback fonts. The renderer clears its text-wrap cache when a face
+  // loads, and the first slice draw below re-wraps with the loaded metrics.
+  const waitFonts = async () => {
+    if (typeof document === "undefined" || !document.fonts?.ready) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([document.fonts.ready, new Promise<void>((res) => (timer = setTimeout(res, FONT_DEADLINE_MS)))]);
+    } catch {
+      // Best effort.
+    }
+    clearTimeout(timer);
+    // Let the renderer's own font-load callbacks (which drop its text-wrap cache) run before the slices draw.
+    await new Promise<void>((res) => setTimeout(res, 0));
+  };
   try {
     const probe = create();
     probe.width = 1;
@@ -155,7 +172,7 @@ export async function buildPagePdf(target: PdfTarget, opts: BuildOptions = {}): 
     if (pctx) target.drawSnapshot(pctx, new Camera(bounds.minX, bounds.minY, 1 / span), 1, 1, { skipTainted: true });
     probe.width = 0;
     probe.height = 0;
-    await waitPhotos(bounds);
+    await Promise.all([waitPhotos(bounds), waitFonts()]);
   } catch {
     // Best effort: the per-page draws below wait again for whatever is still loading.
   }

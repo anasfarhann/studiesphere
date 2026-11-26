@@ -7,11 +7,23 @@ import { ValidationError } from "./repo";
 type Row = Record<string, unknown>;
 
 /** Minimal in-memory stand-in for the query builder shapes page-ops uses (select/insert/update/delete + eq/in/order/range/limit). */
-function fakeDb(seed: Record<string, Row[]>, opts: { failElementInsert?: boolean } = {}) {
+function fakeDb(seed: Record<string, Row[]>, opts: { failElementInsert?: boolean; storage?: "ok" | "error" | "throw" } = {}) {
   const tables: Record<string, Row[]> = { subjects: [], notebooks: [], pages: [], canvas_elements: [], ...seed };
   let n = 0;
   const log: string[] = [];
+  const copies: [string, string, string][] = [];
   const db = {
+    storage: opts.storage
+      ? {
+          from: (bucket: string) => ({
+            copy: async (from: string, to: string) => {
+              copies.push([bucket, from, to]);
+              if (opts.storage === "throw") throw new Error("storage down");
+              return opts.storage === "error" ? { data: null, error: { message: "Object not found" } } : { data: { path: to }, error: null };
+            },
+          }),
+        }
+      : undefined,
     from(table: string) {
       const filters: [string, unknown][] = [];
       let inF: [string, unknown[]] | undefined;
@@ -63,7 +75,7 @@ function fakeDb(seed: Record<string, Row[]>, opts: { failElementInsert?: boolean
       return q;
     },
   };
-  return { db: db as unknown as SupabaseClient<Database>, tables: () => tables, log };
+  return { db: db as unknown as SupabaseClient<Database>, tables: () => tables, log, copies };
 }
 
 const base = () => ({
@@ -175,6 +187,19 @@ describe("duplicatePage", () => {
     const f = fakeDb(seed);
     const copy = await duplicatePage(f.db, "u1", "p1");
     expect(f.tables().canvas_elements.filter((e) => e.page_id === copy.id)).toHaveLength(1250);
+  });
+  it("copies the card preview to the new page's owner-scoped path", async () => {
+    const f = fakeDb(base(), { storage: "ok" });
+    const copy = await duplicatePage(f.db, "u1", "p1");
+    expect(f.copies).toEqual([["attachments", "u1/p1/preview.jpg", `u1/${copy.id}/preview.jpg`]]);
+  });
+  it("ignores a failed or throwing preview copy", async () => {
+    for (const storage of ["error", "throw"] as const) {
+      const f = fakeDb(base(), { storage });
+      const copy = await duplicatePage(f.db, "u1", "p1");
+      expect(f.tables().pages.some((p) => p.id === copy.id)).toBe(true);
+      expect(f.copies).toHaveLength(1);
+    }
   });
   it("refuses another owner's page", async () => {
     const f = fakeDb(base());

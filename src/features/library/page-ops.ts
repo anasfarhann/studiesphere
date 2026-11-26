@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { t } from "@/i18n/en";
 import type { Database, Json } from "@/lib/supabase/types";
+import { previewPath } from "@/canvas/attachments/upload";
 import { ensureFolderNotebook } from "./quick-notes";
 import { requireName } from "./repo";
 import { SupabaseLibraryRepo } from "./supabase-repo";
@@ -91,6 +92,13 @@ export async function duplicatePage(db: Client, ownerId: string, pageId: string)
     const { error: cleanupErr } = await db.from("pages").delete().eq("id", copy.id).eq("owner_id", ownerId);
     if (cleanupErr) console.error("duplicatePage: could not remove the partial copy", copy.id, cleanupErr.message);
     throw e;
+  }
+  // Best effort: the copy's card shows the same preview right away instead of a placeholder until its first edit.
+  // Both paths are under the owner's own prefix. Any failure (no preview yet, storage down) is ignored.
+  try {
+    await db.storage.from("attachments").copy(previewPath(ownerId, pageId), previewPath(ownerId, copy.id));
+  } catch {
+    // ignored
   }
   return copy;
 }

@@ -67,6 +67,8 @@ export interface PreviewTarget {
   preloadImages?(frame: Rect): Promise<void>;
   /** A pointer is down or text is being typed: not a moment to draw a preview. */
   isInteracting?(): boolean;
+  /** Subscribes to scene changes (edits); returns the unsubscribe. */
+  onChange?(fn: () => void): () => void;
 }
 
 const newCanvas = () => document.createElement("canvas");

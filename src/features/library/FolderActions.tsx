@@ -4,12 +4,16 @@ import { useState } from "react";
 import { t } from "@/i18n/en";
 import { PillButton } from "@/ui/Button";
 import { Dialog } from "@/ui/Dialog";
+import { QUICK_SUBJECT } from "./quick-notes";
 import { DeleteFolderForm, RenameFolderForm } from "./forms";
 
 /** Rename and Delete for the folder banner. Delete is only offered for an empty folder. */
 export function FolderActions({ folder, pageCount }: { folder: { id: string; name: string }; pageCount: number }) {
   const [open, setOpen] = useState<"rename" | "delete" | null>(null);
   const close = () => setOpen(null);
+  // "Quick notes" is found by its name (see quick-notes.ts). Renaming it would make the next quick note create a
+  // second "Quick notes" folder, and deleting it would just recreate it, so it offers neither.
+  if (folder.name === QUICK_SUBJECT) return null;
   return (
     <>
       <div role="group" aria-label={t("folderActions")} className="flex flex-wrap gap-2">

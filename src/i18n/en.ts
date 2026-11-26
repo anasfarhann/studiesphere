@@ -85,6 +85,8 @@ export const en = {
   sharePdfEmpty: "This page is empty, so there's nothing to share yet.",
   sharePdfReady: "PDF ready. Tap to share",
   sharePdfPage: "Share page as PDF",
+  sharePdfDismiss: "Dismiss",
+  photoPlaceholder: "Photo",
   pageDelete: "Delete",
   pageDeleteTitle: "Delete page",
   pageDeleteConfirm: "Delete “{title}”? This can't be undone.",
