@@ -146,6 +146,11 @@ export class Selection {
     return { before, after: [] };
   }
 
+  /** Tells listeners the selected elements changed in place (a scale drag), so overlays follow. */
+  notify(): void {
+    this.emit();
+  }
+
   onChange(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => {

@@ -582,6 +582,36 @@ describe("Editor history and eraser", () => {
       expect(n).toBe(1);
     });
 
+    it("dragging a corner of the selection with the Pencil scales it as one undo step; a palm cannot", () => {
+      editor.scene.add(seed("a", 10));
+      editor.scene.add(seed("b", 60));
+      editor.setTool("lasso");
+      editor.selection.set(["a", "b"]);
+      const b0 = editor.getSelectionBounds()!;
+      editor.router.penSeen = true;
+      // A finger on the corner while the Pencil is in use only pans the page.
+      fire(canvas, "pointerdown", 5, "touch", b0.maxX, b0.maxY);
+      fire(canvas, "pointermove", 5, "touch", b0.maxX + 80, b0.maxY + 80);
+      fire(canvas, "pointerup", 5, "touch", b0.maxX + 80, b0.maxY + 80, { buttons: 0 });
+      expect(editor.getSelectionBounds()).toEqual(b0);
+      const w = b0.maxX - b0.minX;
+      const h = b0.maxY - b0.minY;
+      const [cx, cy] = editor.camera.worldToScreen(b0.maxX, b0.maxY);
+      const [tx, ty] = editor.camera.worldToScreen(b0.minX + w * 1.5, b0.minY + h * 1.5);
+      fire(canvas, "pointerdown", 6, "pen", cx, cy);
+      fire(canvas, "pointermove", 6, "pen", tx, ty);
+      fire(canvas, "pointerup", 6, "pen", tx, ty, { buttons: 0 });
+      const b1 = editor.getSelectionBounds()!;
+      expect(b1.minX).toBeCloseTo(b0.minX);
+      expect(b1.minY).toBeCloseTo(b0.minY);
+      expect(b1.maxX - b1.minX).toBeCloseTo(w * 1.5);
+      expect((editor.scene.get("a") as StrokeEl).size).toBeCloseTo(3);
+      editor.undo();
+      expect(editor.scene.get("a")).toMatchObject({ size: 2, points: seed("a", 10).points });
+      expect(editor.scene.get("b")).toMatchObject({ size: 2, points: seed("b", 60).points });
+      expect(editor.canUndo()).toBe(false);
+    });
+
     it("changing tool away from lasso clears the selection", () => {
       lassoAround();
       editor.setTool("pen");
@@ -1151,6 +1181,26 @@ describe("Editor eyedropper", () => {
     fire(canvas, "pointerup", 2, "mouse", 100, 300);
     expect(got).toHaveLength(1);
     expect(editor.scene.all()).toHaveLength(2);
+  });
+
+  it("a pick captures its pointer; the press after it never pairs with the press before it as a double tap", () => {
+    make([strokeEl("#2563eb")]);
+    editor.scene.add({ id: "tx", z: 5, updatedAt: 1, type: "text", x: 30, y: 300, w: 100, text: "hi", fontSize: 18, color: "#000" });
+    const capture = vi.fn();
+    canvas.setPointerCapture = capture;
+    fire(canvas, "pointerdown", 1, "pen", 35, 305);
+    fire(canvas, "pointerup", 1, "pen", 35, 305, { buttons: 0 });
+    const dots = editor.scene.all().filter((e) => e.type === "stroke").length;
+    editor.armEyedropper(() => {});
+    capture.mockClear();
+    fire(canvas, "pointerdown", 2, "pen", 100, 50);
+    expect(capture).toHaveBeenCalledWith(2);
+    fire(canvas, "pointerup", 2, "pen", 100, 50, { buttons: 0 });
+    fire(canvas, "pointerdown", 3, "pen", 35, 305);
+    fire(canvas, "pointerup", 3, "pen", 35, 305, { buttons: 0 });
+    // The dot from before the pick is still there (its step never discarded); the new press drew its own.
+    expect(editor.scene.all().filter((e) => e.type === "stroke")).toHaveLength(dots + 1);
+    expect(editor.text.session).toBeNull();
   });
 
   it("an empty tap keeps it armed", () => {

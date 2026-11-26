@@ -198,6 +198,10 @@ describe("placeMenu", () => {
     expect(placeMenu({ ...base, centerX: 200, boxTop: 20, boxBottom: 840 }).top).toBe(8);
     expect(placeMenu({ ...base, centerX: 200, boxTop: 2000, boxBottom: 2100 }).top).toBe(844 - 56 - 8);
   });
+  it("clears the corner scale handles' touch targets when the selection has them", () => {
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 300, boxBottom: 400, clear: 22 }).top).toBe(300 - 56 - 8 - 22);
+    expect(placeMenu({ ...base, centerX: 200, boxTop: 20, boxBottom: 100, clear: 22 }).top).toBe(100 + 8 + 22);
+  });
   it("a menu wider than the view pins to the left gap", () => {
     expect(placeMenu({ ...base, menuW: 500, centerX: 200, boxTop: 300, boxBottom: 400 }).left).toBe(8);
   });

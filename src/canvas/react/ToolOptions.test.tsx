@@ -292,6 +292,29 @@ describe("ToolOptions text styles", () => {
     expect(editor.settings.pen.presets).toEqual(["#00aa55", "#2563EB", "#abcdef"]);
   });
 
+  it("removing a preset never makes Save preset overwrite a different colour", () => {
+    act(() => editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, presets: ["#1B1A1F", "#2563EB", "#DC2626", "#444444", "#555555", "#666666"] } })));
+    render(<ToolOptions editor={editor} tool="pen" />);
+    fireEvent.click(screen.getByRole("button", { name: "Colour #555555" })); // selects it
+    fireEvent.click(screen.getByRole("button", { name: "Colour #555555" })); // opens the wheel
+    fireEvent.keyDown(screen.getByRole("button", { name: "Colour #444444" }), { key: "Delete" });
+    expect(editor.settings.pen.presets).toEqual(["#1B1A1F", "#2563EB", "#DC2626", "#555555", "#666666"]);
+    fireEvent.change(screen.getByRole("textbox", { name: "Hex" }), { target: { value: "#00aa55" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save preset" }));
+    // The tapped #555555 is replaced where it now is; #666666 (now at its old index) is kept.
+    expect(editor.settings.pen.presets).toEqual(["#1B1A1F", "#2563EB", "#DC2626", "#00aa55", "#666666"]);
+  });
+
+  it("Save preset is not offered once the tapped preset itself was removed", () => {
+    act(() => editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, presets: ["#1B1A1F", "#2563EB", "#DC2626", "#444444", "#555555"] } })));
+    render(<ToolOptions editor={editor} tool="pen" />);
+    fireEvent.click(screen.getByRole("button", { name: "Colour #444444" }));
+    fireEvent.click(screen.getByRole("button", { name: "Colour #444444" }));
+    expect(screen.getByRole("button", { name: "Save preset" })).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("button", { name: "Colour #444444" }), { key: "Delete" });
+    expect(screen.queryByRole("button", { name: "Save preset" })).toBeNull();
+  });
+
   it("Reset colours restores the three defaults", () => {
     act(() => editor.updateSettings((s) => ({ ...s, pen: { ...s.pen, presets: ["#111111", "#222222", "#333333", "#444444"] } })));
     render(<ToolOptions editor={editor} tool="pen" />);

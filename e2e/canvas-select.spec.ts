@@ -110,5 +110,62 @@ for (const viewport of [
       );
       expect(colors).toEqual(["#DC2626"]);
     });
+
+    test("lasso two strokes → drag a corner → scaled about the opposite corner, menu clear of the handles, one undo", async ({ page }) => {
+      await page.goto("/dev/canvas");
+      await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+      const canvas = (await page.getByTestId("canvas").boundingBox())!;
+      const ox = canvas.x + 60;
+      const oy = canvas.y + 260;
+      for (const [x0, y0, x1, y1] of [[0, 0, 80, 40], [40, 60, 120, 100]]) {
+        await page.mouse.move(ox + x0, oy + y0);
+        await page.mouse.down();
+        await page.mouse.move(ox + x1, oy + y1, { steps: 6 });
+        await page.mouse.up();
+      }
+      await page.getByRole("button", { name: "Select (lasso)" }).click();
+      await page.mouse.move(ox - 30, oy - 30);
+      await page.mouse.down();
+      await page.mouse.move(ox + 160, oy - 30, { steps: 5 });
+      await page.mouse.move(ox + 160, oy + 140, { steps: 5 });
+      await page.mouse.move(ox - 30, oy + 140, { steps: 5 });
+      await page.mouse.move(ox - 30, oy - 30, { steps: 5 });
+      await page.mouse.up();
+      type Sel = { selection: { ids: string[] }; getSelectionBounds(): { minX: number; minY: number; maxX: number; maxY: number }; undo(): void };
+      const bounds = () =>
+        page.evaluate(() => {
+          const ed = (window as unknown as { __editor: Sel & NonNullable<EditorHook["__editor"]> }).__editor;
+          const b = ed.getSelectionBounds();
+          const [x0, y0] = ed.camera.worldToScreen(b.minX, b.minY);
+          const [x1, y1] = ed.camera.worldToScreen(b.maxX, b.maxY);
+          return { n: ed.selection.ids.length, x0, y0, x1, y1 };
+        });
+      const b0 = await bounds();
+      expect(b0.n).toBe(2);
+      // The menu stays off the top corners' 44 px touch targets.
+      const menu = (await page.getByRole("toolbar", { name: "Selection actions" }).boundingBox())!;
+      const overlaps = (cx: number, cy: number) =>
+        menu.x < cx + 22 && menu.x + menu.width > cx - 22 && menu.y < cy + 22 && menu.y + menu.height > cy - 22;
+      expect(overlaps(canvas.x + b0.x0, canvas.y + b0.y0)).toBe(false);
+      expect(overlaps(canvas.x + b0.x1, canvas.y + b0.y0)).toBe(false);
+      const w = b0.x1 - b0.x0;
+      const h = b0.y1 - b0.y0;
+      await page.mouse.move(canvas.x + b0.x1, canvas.y + b0.y1);
+      await page.mouse.down();
+      await page.mouse.move(canvas.x + b0.x0 + w * 1.5, canvas.y + b0.y0 + h * 1.5, { steps: 8 });
+      await page.mouse.up();
+      const b1 = await bounds();
+      expect(b1.n).toBe(2);
+      expect(Math.abs(b1.x0 - b0.x0)).toBeLessThan(1);
+      expect(Math.abs(b1.y0 - b0.y0)).toBeLessThan(1);
+      expect(Math.abs((b1.x1 - b1.x0) / w - 1.5)).toBeLessThan(0.02);
+      expect(Math.abs((b1.y1 - b1.y0) / h - 1.5)).toBeLessThan(0.02);
+      await page.keyboard.press("Control+z");
+      const sizes = await page.evaluate(() =>
+        (window as unknown as { __editor: { scene: { all(): { size?: number }[] } } }).__editor.scene.all().map((e) => e.size),
+      );
+      const pen = await page.evaluate(() => (window as unknown as { __editor: { settings: { pen: { size: number } } } }).__editor.settings.pen.size);
+      expect(sizes).toEqual([pen, pen]);
+    });
   });
 }

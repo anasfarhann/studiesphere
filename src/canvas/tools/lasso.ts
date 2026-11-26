@@ -8,6 +8,7 @@ import { elementAt, type Selection } from "../selection";
 import type { TextStyleFields } from "../model/text-style";
 import type { Measure } from "../model/wrap-text";
 import { ImageResize } from "./image-resize";
+import { SelectionScale } from "./selection-scale";
 import { TextResize } from "./text-resize";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
 
@@ -63,13 +64,14 @@ export interface LassoToolContext {
 
 /**
  * Draw a loop to select; tap to select the topmost element under the pointer (or clear on empty space);
- * drag inside the selection box to move it.
+ * drag inside the selection box to move it; drag a corner of a stroke or multi-element selection to scale it.
  */
 export class LassoTool implements Tool {
   readonly id = "lasso" as const;
-  private mode: "idle" | "lasso" | "move" | "resize" | "resize-text" = "idle";
+  private mode: "idle" | "lasso" | "move" | "resize" | "resize-text" | "scale" = "idle";
   private resize: ImageResize;
   private textResize: TextResize;
+  private scale: SelectionScale;
   private path: [number, number][] = [];
   private last: [number, number] = [0, 0];
   private start: [number, number] = [0, 0];
@@ -81,6 +83,7 @@ export class LassoTool implements Tool {
   constructor(private ctx: LassoToolContext) {
     this.resize = new ImageResize(ctx);
     this.textResize = new TextResize(ctx);
+    this.scale = new SelectionScale(ctx);
   }
 
   down(p: WorldPoint, e: PointerInfo): void {
@@ -92,6 +95,10 @@ export class LassoTool implements Tool {
     }
     if (this.textResize.begin(p[0], p[1])) {
       this.mode = "resize-text";
+      return;
+    }
+    if (this.scale.begin(p[0], p[1])) {
+      this.mode = "scale";
       return;
     }
     this.start = [p[0], p[1]];
@@ -129,6 +136,9 @@ export class LassoTool implements Tool {
     } else if (this.mode === "resize-text") {
       const p = pts[pts.length - 1];
       if (p) this.textResize.move(p[0]);
+    } else if (this.mode === "scale") {
+      const p = pts[pts.length - 1];
+      if (p) this.scale.move(p[0], p[1]);
     } else if (this.mode === "move") {
       const p = pts[pts.length - 1];
       // Under the tap slop nothing moves yet (it may be a tap on another element).
@@ -203,6 +213,8 @@ export class LassoTool implements Tool {
       this.resize.end();
     } else if (mode === "resize-text") {
       this.textResize.end();
+    } else if (mode === "scale") {
+      this.scale.end();
     } else if (mode === "move" && this.moveBefore) {
       this.ctx.history.push({ before: this.moveBefore, after: this.moveAfter });
       this.moveBefore = null;

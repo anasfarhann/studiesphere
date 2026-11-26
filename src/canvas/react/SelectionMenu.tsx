@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
+import { isScalable, SCALE_HANDLE_HIT_PX } from "../tools/selection-scale";
 import { ColorSwatches } from "./ColorSwatches";
 import { ToolOptions } from "./ToolOptions";
 
@@ -10,7 +11,8 @@ import { ToolOptions } from "./ToolOptions";
 const GAP = 8;
 
 type Kind = "strokes" | "image" | "text" | "mixed";
-type Anchor = { centerX: number; boxTop: number; boxBottom: number };
+/** `clear`: extra room to keep off the box's edges (the corner scale handles' touch targets reach outside it). */
+type Anchor = { centerX: number; boxTop: number; boxBottom: number; clear?: number };
 type View =
   | ({ mode: "selection"; kind: Kind; key: string; strokeColor: string } & Anchor)
   | ({ mode: "paste"; key: string } & Anchor);
@@ -21,10 +23,11 @@ type View =
  */
 export function placeMenu(o: Anchor & { menuW: number; menuH: number; viewW: number; viewH: number }): { left: number; top: number } {
   const left = Math.max(GAP, Math.min(o.centerX - o.menuW / 2, o.viewW - o.menuW - GAP));
-  let top = o.boxTop - o.menuH - GAP;
+  const clear = o.clear ?? 0;
+  let top = o.boxTop - o.menuH - GAP - clear;
   if (top < GAP) {
     // No room above: below the box, or (a box filling the view) at the top of the view.
-    const below = o.boxBottom + GAP;
+    const below = o.boxBottom + GAP + clear;
     top = below + o.menuH + GAP <= o.viewH ? below : GAP;
   }
   top = Math.max(GAP, Math.min(top, o.viewH - o.menuH - GAP));
@@ -51,7 +54,8 @@ function readView(editor: Editor): View | null {
     else if (els.length === 1 && els[0].type === "text") kind = "text";
     const colors = new Set(strokes.map((s) => s.color.toLowerCase()));
     const strokeColor = colors.size === 1 ? strokes[0].color : "";
-    return { mode: "selection", kind, key: editor.selection.ids.join(","), strokeColor, centerX: (x0 + x1) / 2, boxTop: y0, boxBottom: y1 };
+    const clear = isScalable(els) ? SCALE_HANDLE_HIT_PX / 2 : 0;
+    return { mode: "selection", kind, key: editor.selection.ids.join(","), strokeColor, centerX: (x0 + x1) / 2, boxTop: y0, boxBottom: y1, clear };
   }
   const at = editor.getPasteAnchor();
   if (!at) return null;

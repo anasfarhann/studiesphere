@@ -40,8 +40,10 @@ export interface ColorSwatchesProps {
 export function ColorSwatches({ presets, value, onPick, onWheelChange, onWheelCommit, editing, eyedropper }: ColorSwatchesProps) {
   const [wheelOpen, setWheelOpen] = useState(false);
   const [message, setMessage] = useState("");
-  // The preset that was selected when it was last tapped: "Save preset" replaces that slot with the wheel colour.
-  const [anchor, setAnchor] = useState<number | null>(null);
+  // The preset last tapped, by colour: "Save preset" replaces it, wherever it is now, with the wheel colour. Kept
+  // as a colour (not an index) so removing another preset never retargets Save; gone from the presets, no Save.
+  const [anchor, setAnchor] = useState<string | null>(null);
+  const anchorIndex = anchor === null ? -1 : presets.findIndex((p) => p.toLowerCase() === anchor.toLowerCase());
   const press = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
   const longPressed = useRef(false);
 
@@ -104,7 +106,7 @@ export function ColorSwatches({ presets, value, onPick, onWheelChange, onWheelCo
                   longPressed.current = false;
                   return;
                 }
-                setAnchor(presets.indexOf(c));
+                setAnchor(c);
                 if (selected) setWheelOpen((o) => !o);
                 else onPick(c);
               }}
@@ -130,10 +132,15 @@ export function ColorSwatches({ presets, value, onPick, onWheelChange, onWheelCo
               >
                 {t("colorAdd")}
               </button>
-              {anchor !== null && anchor < presets.length ? (
+              {anchorIndex >= 0 ? (
                 <button
                   type="button"
-                  onClick={() => setMessage(editing.save(anchor, value))}
+                  onClick={() => {
+                    const msg = editing.save(anchorIndex, value);
+                    // The slot now holds the wheel colour, unless that is already a preset (the save is refused).
+                    if (!presets.some((p) => p.toLowerCase() === value.toLowerCase())) setAnchor(value);
+                    setMessage(msg);
+                  }}
                   className="inline-flex h-11 touch-manipulation cursor-pointer items-center justify-center rounded-full border border-ink px-5 text-sm font-medium text-ink"
                 >
                   {t("colorSave")}

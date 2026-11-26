@@ -295,8 +295,12 @@ export class Editor {
     const pick = this.pick;
     if (!pick) return false;
     if (this.router.classify({ pointerType: kind, activeTouches: touches }).kind !== "draw") return false;
-    // The press is consumed whatever it finds: it must not draw, select or pan.
+    // The press is consumed whatever it finds: it must not draw, select or pan. Captured like any press, so its
+    // up/cancel reaches the canvas and the pointer is forgotten even when it lifts off it.
+    this.capture(e);
     this.pointers.set(e.pointerId, { kind, mode: "ignore", lastX: sx, lastY: sy });
+    // A pick sits between the previous stroke and the next press: that stroke is no double tap's first tap.
+    this.lastStroke = null;
     const [x, y] = this.camera.screenToWorld(sx, sy);
     const r = pickColorAt({
       scene: this.scene,

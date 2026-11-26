@@ -113,3 +113,40 @@ test("the eyedropper picks a stroke's colour from the page, then draws with it",
   await page.keyboard.press("Escape");
   await expect(page.getByTestId("eyedropper-hint")).toHaveCount(0);
 });
+
+test.describe("at 320 x 640", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("with 12 pen presets and the wheel open, swatches, Save, Add, Reset and the dropper fit and are 44 px", async ({ page }) => {
+    const extra = Array.from({ length: 9 }, (_, i) => `#10${(0x20 + i * 16).toString(16).padStart(2, "0")}aa`);
+    await page.addInitScript((presets) => {
+      localStorage.setItem("ss.tools.v1", JSON.stringify({ pen: { presets: ["#1B1A1F", "#2563EB", "#DC2626", ...presets] } }));
+    }, extra);
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    await page.getByRole("button", { name: "Pen", exact: true }).click();
+    const opts = page.getByRole("group", { name: "Pen options" });
+    const swatches = opts.getByRole("button", { name: /^Colour #/ });
+    await expect(swatches).toHaveCount(12);
+    await opts.getByRole("button", { name: "Colour #1B1A1F" }).click(); // selected -> opens the wheel (and anchors Save)
+    await expect(opts.getByRole("slider", { name: "Hue" })).toBeVisible();
+    const targets = [
+      ...(await swatches.all()),
+      opts.getByRole("button", { name: "Save preset" }),
+      opts.getByRole("button", { name: "Add to presets" }),
+      opts.getByRole("button", { name: "Reset colours" }),
+      opts.getByRole("button", { name: "Pick a colour from the page" }),
+    ];
+    for (const el of targets) {
+      await el.scrollIntoViewIfNeeded();
+      const b = (await el.boundingBox())!;
+      expect(b.x).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width).toBeLessThanOrEqual(320);
+      expect(b.y).toBeGreaterThanOrEqual(0);
+      expect(b.y + b.height).toBeLessThanOrEqual(640);
+      expect(Math.min(b.width, b.height)).toBeGreaterThanOrEqual(44);
+    }
+    // Nothing scrolls the page sideways.
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320);
+  });
+});
