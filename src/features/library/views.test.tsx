@@ -16,6 +16,10 @@ vi.mock("./actions", () => ({
   createFolderAction: async () => null,
   createQuickPageAction: async () => null,
   createFolderPageAction: m.folderPage,
+  renamePageAction: async () => null,
+  movePageAction: async () => null,
+  duplicatePageAction: async () => null,
+  deletePageAction: async () => null,
   renameFolderAction: m.rename,
   deleteFolderAction: m.del,
 }));
@@ -27,6 +31,10 @@ beforeEach(() => {
 });
 
 const long = "L".repeat(60);
+const folders = [
+  { id: "f1", name: "Biology" },
+  { id: "f2", name: "Chemistry" },
+];
 const folder = { id: "f1", name: "Biology", color: "#dc2626" };
 // An older folder: pages came from two notebooks ("Cells" and the hidden "Pages"), already merged newest first.
 const pages = [
@@ -37,7 +45,7 @@ const pages = [
 
 describe("FolderView", () => {
   it("links home, names the folder, counts and lists every page in order", () => {
-    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} />);
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} folders={folders} />);
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("href")).toBe("/app");
     expect(screen.getByRole("heading", { level: 1, name: "Biology" })).toBeTruthy();
     expect(screen.getByText("3 pages")).toBeTruthy();
@@ -47,7 +55,7 @@ describe("FolderView", () => {
   });
 
   it("New page creates a page in this folder", async () => {
-    render(<FolderView folder={folder} pages={[]} audioPageIds={new Set()} />);
+    render(<FolderView folder={folder} pages={[]} audioPageIds={new Set()} folders={folders} />);
     expect(screen.getByText("No pages in this folder yet.")).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "New page" }));
@@ -56,14 +64,22 @@ describe("FolderView", () => {
     expect(m.folderPage.mock.calls[0][0]).toBe("f1");
   });
 
+  it("each page row has the same actions menu, separate from the link that opens the page", () => {
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} folders={folders} />);
+    const btn = screen.getByRole("button", { name: "Actions for Organelles" });
+    expect(btn.closest("a")).toBeNull();
+    fireEvent.click(btn);
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Open", "Duplicate", "Rename", "Move to folder", "Delete"]);
+  });
+
   it("shows the Recording badge only for pages with audio", () => {
-    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set(["p2"])} />);
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set(["p2"])} folders={folders} />);
     expect(screen.getAllByText("Recording")).toHaveLength(1);
     expect(screen.getByRole("link", { name: /Cell structure/ }).textContent).toContain("Recording");
   });
 
   it("renames the folder from a dialog that closes on success", async () => {
-    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} />);
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} folders={folders} />);
     fireEvent.click(screen.getByRole("button", { name: "Rename" }));
     const input = screen.getByLabelText("Folder name") as HTMLInputElement;
     expect(input.value).toBe("Biology");
@@ -78,7 +94,7 @@ describe("FolderView", () => {
   });
 
   it("refuses to delete a folder that has pages, with no delete button", () => {
-    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} />);
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} folders={folders} />);
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     const dialog = screen.getByRole("dialog", { name: "Delete folder" });
     expect(dialog.textContent).toContain("This folder still has pages. Delete or move them first.");
@@ -87,7 +103,7 @@ describe("FolderView", () => {
 
   it("confirms before deleting an empty folder, naming it, and shows a server refusal", async () => {
     m.del.mockResolvedValue({ error: "This folder still has pages. Delete or move them first." });
-    render(<FolderView folder={folder} pages={[]} audioPageIds={new Set()} />);
+    render(<FolderView folder={folder} pages={[]} audioPageIds={new Set()} folders={folders} />);
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));
     expect(screen.getByRole("dialog").textContent).toContain("Delete “Biology”? This can't be undone.");
     await act(async () => {
@@ -98,12 +114,12 @@ describe("FolderView", () => {
   });
 
   it("truncates long names", () => {
-    render(<FolderView folder={{ ...folder, name: long }} pages={[{ id: "p", title: long }]} audioPageIds={new Set()} />);
+    render(<FolderView folder={{ ...folder, name: long }} pages={[{ id: "p", title: long }]} audioPageIds={new Set()} folders={folders} />);
     expect(screen.getAllByText(long).every((el) => el.className.includes("truncate"))).toBe(true);
   });
 
   it("renders a legacy colour as its pastel", () => {
-    render(<FolderView folder={{ ...folder, color: "#2563eb" }} pages={[]} audioPageIds={new Set()} />);
+    render(<FolderView folder={{ ...folder, color: "#2563eb" }} pages={[]} audioPageIds={new Set()} folders={folders} />);
     const banner = screen.getByRole("heading", { level: 1 }).closest("section") as HTMLElement;
     expect(banner.style.background.toLowerCase()).toMatch(/#cfe3f7|rgb\(207, 227, 247\)/);
   });

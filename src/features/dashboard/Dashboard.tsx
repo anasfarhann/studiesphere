@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
 import { FolderForm } from "@/features/library/forms";
 import { NewPageForm } from "@/features/library/NewPageForm";
+import { PageActionsMenu } from "@/features/library/PageActionsMenu";
 import { t } from "@/i18n/en";
 import { PillButton } from "@/ui/Button";
 import { Dialog } from "@/ui/Dialog";
@@ -35,23 +36,30 @@ function useLocalToday(override?: Date): Date | null {
 
 const count = (n: number, one: string, many: string) => (n === 1 ? t(one as "dashPageOne") : t(many as "dashPageMany").replace("{n}", String(n)));
 
-function RecentCard({ page, today }: { page: RecentPage; today: Date | null }) {
+function RecentCard({ page, today, folders }: { page: RecentPage; today: Date | null; folders: FolderSummary[] }) {
   return (
-    <Link href={`/app/p/${page.id}`} className="flex min-w-0 flex-col gap-3 rounded-3xl bg-card p-3.5 text-ink no-underline">
-      <div className="relative h-[104px] overflow-hidden rounded-2xl" style={{ background: page.tint }}>
-        <svg width="100%" height="104" viewBox="0 0 240 104" preserveAspectRatio="none" fill="none" stroke="#1B1A1F" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-          <path d="M18 30c14-8 22 6 34-2s18-6 30 0 20-4 32 2" />
-          <path d="M18 52c20-6 30 4 46-1s24 3 40-2" />
-          <path d="M18 74c10-5 18 3 28 0" />
-          <circle cx="190" cy="56" r="22" strokeOpacity="0.35" />
-        </svg>
-      </div>
-      <div className="flex min-w-0 flex-col gap-1 px-1 pb-1">
-        <span className="truncate text-[17px] font-semibold">{page.title || t("untitledPage")}</span>
-        <span className="truncate text-[13px] text-muted">{page.folderName}</span>
-        {today && <span className="truncate text-[13px] text-muted">{formatEdited(page.editedAt, today)}</span>}
-      </div>
-    </Link>
+    <div className="relative flex min-w-0 flex-col rounded-3xl bg-card p-3.5 text-ink">
+      <Link href={`/app/p/${page.id}`} className="flex min-w-0 flex-col gap-3 text-ink no-underline">
+        <div className="relative h-[104px] overflow-hidden rounded-2xl" style={{ background: page.tint }}>
+          <svg width="100%" height="104" viewBox="0 0 240 104" preserveAspectRatio="none" fill="none" stroke="#1B1A1F" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+            <path d="M18 30c14-8 22 6 34-2s18-6 30 0 20-4 32 2" />
+            <path d="M18 52c20-6 30 4 46-1s24 3 40-2" />
+            <path d="M18 74c10-5 18 3 28 0" />
+            <circle cx="190" cy="56" r="22" strokeOpacity="0.35" />
+          </svg>
+        </div>
+        <div className="flex min-w-0 flex-col gap-1 px-1 pb-1">
+          <span className="truncate text-[17px] font-semibold">{page.title || t("untitledPage")}</span>
+          <span className="truncate text-[13px] text-muted">{page.folderName}</span>
+          {today && <span className="truncate text-[13px] text-muted">{formatEdited(page.editedAt, today)}</span>}
+        </div>
+      </Link>
+      <PageActionsMenu
+        page={{ id: page.id, title: page.title, folderId: page.folderId }}
+        folders={folders.map((f) => ({ id: f.id, name: f.name }))}
+        className="absolute top-[22px] right-[22px]"
+      />
+    </div>
   );
 }
 
@@ -111,7 +119,6 @@ export function Dashboard({
             <p className="text-[17px] text-muted">{t("dashSubtitle")}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3 max-md:w-full">
-            <NewPageForm variant="pill" className="h-[52px]" />
             <label className="flex h-[52px] min-w-[260px] max-w-full items-center gap-2.5 rounded-full bg-card px-5 focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink max-md:min-w-0 max-md:flex-1">
               <Icon name="search" size={18} className="shrink-0 text-muted" />
               <span className="sr-only">{t("dashSearch")}</span>
@@ -139,22 +146,24 @@ export function Dashboard({
           </div>
         )}
 
-        {!empty && (
-          <section aria-labelledby="continue-h" className="flex flex-col gap-3.5">
+        <section aria-labelledby="continue-h" className="flex flex-col gap-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 id="continue-h" className="text-[15px] font-medium text-muted">
               {t("dashContinue")}
             </h2>
-            {shownRecent.length > 0 ? (
+            <NewPageForm variant="pill" className="h-11" />
+          </div>
+          {!empty &&
+            (shownRecent.length > 0 ? (
               <div className="grid grid-cols-[repeat(auto-fit,minmax(min(220px,100%),1fr))] gap-4">
                 {shownRecent.map((p) => (
-                  <RecentCard key={p.id} page={p} today={today} />
+                  <RecentCard key={p.id} page={p} today={today} folders={folders} />
                 ))}
               </div>
             ) : (
               <p className="text-[15px] text-muted">{recent.length === 0 || (q === "" && selected) ? t("dashNoRecent") : t("dashNoMatches")}</p>
-            )}
-          </section>
-        )}
+            ))}
+        </section>
 
         <section aria-labelledby="folders-h" className="flex flex-col gap-3.5">
           <div className="flex items-center justify-between gap-3">

@@ -7,9 +7,15 @@ const m = vi.hoisted(() => ({
   renameSubject: vi.fn(),
   deleteSubject: vi.fn(),
   redirect: vi.fn(),
+  renamePage: vi.fn(),
+  movePage: vi.fn(),
+  duplicatePage: vi.fn(),
+  deletePage: vi.fn(),
+  revalidate: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ redirect: m.redirect, unstable_rethrow: () => {} }));
-vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+vi.mock("next/cache", () => ({ revalidatePath: m.revalidate }));
+vi.mock("./page-ops", () => ({ renamePage: m.renamePage, movePage: m.movePage, duplicatePage: m.duplicatePage, deletePage: m.deletePage }));
 vi.mock("@/lib/auth", () => ({ getUser: async () => ({ id: "u1" }) }));
 vi.mock("@/lib/supabase/server", () => ({ createServerClient: async () => ({}) }));
 vi.mock("./supabase-repo", () => ({
@@ -21,8 +27,8 @@ vi.mock("./supabase-repo", () => ({
 }));
 vi.mock("./quick-notes", async (orig) => ({ ...(await orig<typeof import("./quick-notes")>()), ensureQuickNotebook: m.ensure, ensureFolderNotebook: m.ensureFolder }));
 
-import { createFolderPageAction, createQuickPageAction, deleteFolderAction, renameFolderAction } from "./actions";
-import { FolderNotEmptyError } from "./repo";
+import { createFolderPageAction, deletePageAction, duplicatePageAction, movePageAction, renamePageAction, createQuickPageAction, deleteFolderAction, renameFolderAction } from "./actions";
+import { FolderNotEmptyError, ValidationError } from "./repo";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -102,5 +108,37 @@ describe("deleteFolderAction", () => {
       error: "This folder still has pages. Delete or move them first.",
     });
     expect(m.redirect).not.toHaveBeenCalled();
+  });
+});
+
+describe("page actions", () => {
+  beforeEach(() => {
+    for (const k of ["renamePage", "movePage", "duplicatePage", "deletePage"] as const) m[k].mockResolvedValue(undefined);
+  });
+  it("rename passes the signed-in owner and the new title, refreshes /app, returns null", async () => {
+    const f = new FormData();
+    f.set("title", "Mitosis");
+    await expect(renamePageAction("p1", null, f)).resolves.toBeNull();
+    expect(m.renamePage).toHaveBeenCalledWith(expect.anything(), "u1", "p1", "Mitosis");
+    expect(m.revalidate).toHaveBeenCalledWith("/app", "layout");
+  });
+  it("move passes the target folder", async () => {
+    const f = new FormData();
+    f.set("folderId", "f2");
+    await expect(movePageAction("p1", null, f)).resolves.toBeNull();
+    expect(m.movePage).toHaveBeenCalledWith(expect.anything(), "u1", "p1", "f2");
+  });
+  it("duplicate and delete are owner scoped", async () => {
+    await expect(duplicatePageAction("p1")).resolves.toBeNull();
+    expect(m.duplicatePage).toHaveBeenCalledWith(expect.anything(), "u1", "p1");
+    await expect(deletePageAction("p1")).resolves.toBeNull();
+    expect(m.deletePage).toHaveBeenCalledWith(expect.anything(), "u1", "p1");
+  });
+  it("failures become translated form errors and do not refresh", async () => {
+    m.deletePage.mockRejectedValue(new Error("secret detail"));
+    await expect(deletePageAction("p1")).resolves.toEqual({ error: "Something went wrong, please try again" });
+    m.renamePage.mockRejectedValue(new ValidationError("x"));
+    await expect(renamePageAction("p1", null, new FormData())).resolves.toEqual({ error: "Name is required" });
+    expect(m.revalidate).not.toHaveBeenCalled();
   });
 });

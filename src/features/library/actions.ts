@@ -6,6 +6,7 @@ import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
 import { SUBJECT_COLORS } from "./colors";
 import { toFormError, type FormState } from "./form-error";
+import { deletePage, duplicatePage, movePage, renamePage } from "./page-ops";
 import { ensureFolderNotebook, ensureQuickNotebook, quickPageTitle } from "./quick-notes";
 import { SupabaseLibraryRepo } from "./supabase-repo";
 
@@ -85,4 +86,36 @@ export async function createQuickPageAction(_prev: FormState, form: FormData): P
   }
   revalidatePath("/app");
   redirect(`/app/p/${id}`);
+}
+
+/*
+ * Page actions (the page menu on home cards and folder rows). Each returns FormState (null = success, so the
+ * dialog or menu can close) and refreshes every /app view that lists pages. Auth runs before any try.
+ */
+async function pageOp(run: (db: Awaited<ReturnType<typeof createServerClient>>, ownerId: string) => Promise<unknown>): Promise<FormState> {
+  const user = await getUser(); // redirects to /login when signed out
+  const supabase = await createServerClient();
+  try {
+    await run(supabase, user.id);
+  } catch (e) {
+    return toFormError(e);
+  }
+  revalidatePath("/app", "layout");
+  return null;
+}
+
+export async function renamePageAction(pageId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  return pageOp((db, owner) => renamePage(db, owner, pageId, text(form, "title")));
+}
+
+export async function movePageAction(pageId: string, _prev: FormState, form: FormData): Promise<FormState> {
+  return pageOp((db, owner) => movePage(db, owner, pageId, text(form, "folderId")));
+}
+
+export async function duplicatePageAction(pageId: string): Promise<FormState> {
+  return pageOp((db, owner) => duplicatePage(db, owner, pageId));
+}
+
+export async function deletePageAction(pageId: string): Promise<FormState> {
+  return pageOp((db, owner) => deletePage(db, owner, pageId));
 }

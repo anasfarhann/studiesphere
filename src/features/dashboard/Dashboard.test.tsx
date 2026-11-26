@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "./Dashboard";
 import type { FolderSummary, RecentPage } from "./queries";
@@ -10,7 +10,15 @@ vi.mock("next/link", () => ({
     <a href={href} {...rest}>{children}</a>
   ),
 }));
-vi.mock("@/features/library/actions", () => ({ createFolderAction: async () => null, createQuickPageAction: async () => null }));
+vi.mock("@/features/library/actions", () => ({
+  createFolderAction: async () => null,
+  createQuickPageAction: async () => null,
+  createFolderPageAction: async () => null,
+  renamePageAction: async () => null,
+  movePageAction: async () => null,
+  duplicatePageAction: async () => null,
+  deletePageAction: async () => null,
+}));
 
 const today = new Date(2026, 10, 23, 12);
 const folders: FolderSummary[] = [
@@ -23,12 +31,30 @@ const recent: RecentPage[] = [
 ];
 
 describe("Dashboard", () => {
-  it("offers a one-tap New page button in the header", () => {
+  it("offers a one-tap New page button at the right end of the Continue row", () => {
     render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);
     const b = screen.getByRole("button", { name: "New page" }) as HTMLButtonElement;
     expect(b.type).toBe("submit");
     expect(b.closest("form")).toBeTruthy();
-    expect(b.closest("header")).toBeTruthy();
+    expect(b.closest("header")).toBeNull();
+    const row = screen.getByRole("heading", { name: "Continue where you left off" }).parentElement!;
+    expect(row.contains(b)).toBe(true);
+    expect(row.lastElementChild!.contains(b) || row.lastElementChild === b).toBe(true);
+  });
+  it("still offers New page when there are no folders yet", () => {
+    render(<Dashboard name="Anas" folders={[]} recent={[]} today={today} />);
+    expect(screen.getByRole("button", { name: "New page" })).toBeTruthy();
+  });
+  it("each recent page card has an actions menu button next to a link that opens the page", () => {
+    render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);
+    const btn = screen.getByRole("button", { name: "Actions for Cell walls" });
+    expect(btn.closest("a")).toBeNull();
+    fireEvent.click(btn);
+    const move = screen.getByRole("menuitem", { name: "Move to folder" });
+    fireEvent.click(move);
+    const dlg = within(screen.getByRole("dialog", { name: "Move to folder" }));
+    expect(dlg.getByRole("button", { name: "Chemistry" })).toBeTruthy();
+    expect((dlg.getByRole("button", { name: "Biology (current)" }) as HTMLButtonElement).disabled).toBe(true);
   });
   it("lists Your folders, each card linking to its folder with its page count", () => {
     render(<Dashboard name="Anas" folders={folders} recent={recent} today={today} />);

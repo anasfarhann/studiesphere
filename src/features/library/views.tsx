@@ -4,6 +4,7 @@ import { Icon } from "@/ui/icons";
 import { PASTELS, toPastel } from "@/ui/pastel";
 import { FolderActions } from "./FolderActions";
 import { NewPageForm } from "./NewPageForm";
+import { PageActionsMenu } from "./PageActionsMenu";
 
 const count = (n: number, one: string, many: string) => (n === 1 ? one : many.replace("{n}", String(n)));
 
@@ -24,10 +25,13 @@ export function FolderView({
   folder,
   pages,
   audioPageIds,
+  folders,
 }: {
   folder: { id: string; name: string; color: string };
   pages: { id: string; title: string }[];
   audioPageIds: Set<string>;
+  /** Every folder, for "Move to folder". */
+  folders: { id: string; name: string }[];
 }) {
   const tint = toPastel(folder.color);
   return (
@@ -68,7 +72,8 @@ export function FolderView({
       ) : (
         <section aria-label={t("pagesLabel")} className="grid grid-cols-[repeat(auto-fill,minmax(min(200px,100%),1fr))] gap-[18px]">
           {pages.map((p, i) => (
-            <Link key={p.id} href={`/app/p/${p.id}`} className="flex min-w-0 flex-col gap-2.5 text-ink no-underline">
+            <div key={p.id} className="relative flex min-w-0 flex-col">
+            <Link href={`/app/p/${p.id}`} className="flex min-w-0 flex-col gap-2.5 text-ink no-underline">
               <div className="relative aspect-[3/4] overflow-hidden rounded-[22px] bg-card shadow-[0_1px_0_rgba(27,26,31,0.04),0_8px_24px_rgba(27,26,31,0.06)]">
                 <svg width="100%" height="100%" viewBox="0 0 150 200" fill="none" strokeLinecap="round" aria-hidden="true">
                   <path d="M18 30c10-6 18 4 28-1s14-3 24 1" stroke="#1B1A1F" strokeOpacity="0.6" strokeWidth="2" />
@@ -87,6 +92,8 @@ export function FolderView({
               </div>
               <span className="truncate px-1.5 text-base font-semibold">{p.title || t("untitledPage")}</span>
             </Link>
+            <PageActionsMenu page={{ id: p.id, title: p.title, folderId: folder.id }} folders={folders} className="absolute top-2.5 right-2.5" />
+            </div>
           ))}
         </section>
       )}

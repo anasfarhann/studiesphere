@@ -69,3 +69,25 @@ test("Your folders: cards show page counts, no notebook wording, no overflow", a
     expect(await noOverflow(page)).toBe(true);
   }
 });
+
+test("page actions menu opens from the card and its items are at least 44 px at 390", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dev/dashboard");
+  const trigger = page.getByRole("button", { name: "Actions for Cell walls and membranes" });
+  const tb = await trigger.boundingBox();
+  expect(tb!.width).toBeGreaterThanOrEqual(44);
+  expect(tb!.height).toBeGreaterThanOrEqual(44);
+  await trigger.click();
+  const items = page.getByRole("menuitem");
+  await expect(items).toHaveCount(5);
+  for (let i = 0; i < 5; i++) {
+    const b = await items.nth(i).boundingBox();
+    expect(b!.height).toBeGreaterThanOrEqual(44);
+    expect(b!.x).toBeGreaterThanOrEqual(0);
+    expect(b!.x + b!.width).toBeLessThanOrEqual(390);
+  }
+  expect(await noOverflow(page)).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
