@@ -31,7 +31,10 @@ function validElement(v: unknown): v is CanvasElement {
         Array.isArray(v.points) && v.points.every((p) => Array.isArray(p) && p.length === 3 && p.every(fin))
       );
     case "text":
-      return fin(v.x) && fin(v.y) && fin(v.w) && fin(v.fontSize) && str(v.text) && str(v.color);
+      return (
+        fin(v.x) && fin(v.y) && fin(v.w) && fin(v.fontSize) && str(v.text) && str(v.color) && (v.autoW === undefined || typeof v.autoW === "boolean") &&
+        (v.lines === undefined || fin(v.lines)) && (v.maxW === undefined || fin(v.maxW))
+      );
     case "image":
       return fin(v.x) && fin(v.y) && fin(v.w) && fin(v.h) && str(v.assetPath) && (v.crop === undefined || validCrop(v.crop) !== null);
     case "audio":

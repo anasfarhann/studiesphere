@@ -113,3 +113,103 @@ for (const viewport of [
     await inside();
   });
 }
+
+type SizeHook = {
+  __editor: {
+    scene: { all(): { id: string; type: string; text?: string; w?: number; autoW?: boolean }[] };
+    camera: { zoom: number; worldToScreen(x: number, y: number): [number, number] };
+    getSelectionBounds(): { minX: number; minY: number; maxX: number; maxY: number } | null;
+  };
+};
+
+for (const viewport of [
+  { width: 834, height: 1194 },
+  { width: 390, height: 844 },
+]) {
+  test.describe(`auto-width text at ${viewport.width}`, () => {
+    test.use({ viewport });
+
+    async function typeBox(page: import("@playwright/test").Page, text: string) {
+      await page.goto("/dev/canvas");
+      await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+      const canvas = (await page.getByTestId("canvas").boundingBox())!;
+      await page.getByRole("button", { name: "Text", exact: true }).click();
+      await page.mouse.click(canvas.x + 40, canvas.y + 200);
+      await expect(page.getByTestId("text-editor")).toBeFocused();
+      await page.keyboard.type(text);
+      await page.keyboard.press("Escape");
+      // Select it by tapping it with the lasso (after the double-tap window, which would reopen it for editing).
+      await page.getByRole("button", { name: "Select (lasso)" }).click();
+      await page.waitForTimeout(400);
+      await page.mouse.click(canvas.x + 48, canvas.y + 210);
+      const sel = () =>
+        page.evaluate(() => {
+          const ed = (window as unknown as SizeHook).__editor;
+          const b = ed.getSelectionBounds();
+          if (!b) return null;
+          const [x0, y0] = ed.camera.worldToScreen(b.minX, b.minY);
+          const [x1, y1] = ed.camera.worldToScreen(b.maxX, b.maxY);
+          return { x0, y0, x1, y1, w: x1 - x0, h: y1 - y0 };
+        });
+      const el = () => page.evaluate(() => (window as unknown as SizeHook).__editor.scene.all().find((e) => e.type === "text")!);
+      return { canvas, sel, el };
+    }
+
+    test("a short word gets a narrow box (selection outline < 120 px)", async ({ page }) => {
+      const { sel, el } = await typeBox(page, "test");
+      expect(await el()).toMatchObject({ text: "test", autoW: true });
+      const b = await sel();
+      expect(b).not.toBeNull();
+      expect(b!.w).toBeLessThan(120);
+      expect(b!.w).toBeGreaterThan(20);
+    });
+
+    test("drag the right handle: fixed width, text wraps (taller); undo restores auto width", async ({ page }) => {
+      const { canvas, sel, el } = await typeBox(page, "photosynthesis happens in leaves");
+      const before = (await sel())!;
+      const start = await el();
+      expect(start.autoW).toBe(true);
+      const y = canvas.y + (before.y0 + before.y1) / 2;
+      await page.mouse.move(canvas.x + before.x1, y);
+      await page.mouse.down();
+      await page.mouse.move(canvas.x + before.x1 - before.w / 2, y, { steps: 6 });
+      await page.mouse.up();
+      const after = (await sel())!;
+      expect(after.w).toBeLessThan(before.w - 20);
+      expect(after.h).toBeGreaterThan(before.h + 10);
+      expect(await el()).toMatchObject({ autoW: false });
+      await expect(page.getByTestId("save-status")).toHaveText("Saved");
+      await page.getByRole("button", { name: "Undo" }).click();
+      expect(await el()).toMatchObject({ autoW: true, w: start.w });
+    });
+  });
+}
+
+test.describe("auto-width text near the screen edge at 390", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("a long sentence wraps inside the screen while typing and after commit", async ({ page }) => {
+    await page.goto("/dev/canvas");
+    await page.waitForFunction(() => (window as unknown as EditorHook).__editor !== undefined);
+    const canvas = (await page.getByTestId("canvas").boundingBox())!;
+    await page.getByRole("button", { name: "Text", exact: true }).click();
+    await page.mouse.click(canvas.x + 120, canvas.y + 300);
+    const ta = page.getByTestId("text-editor");
+    await expect(ta).toBeFocused();
+    await page.keyboard.type("Photosynthesis converts light energy into chemical energy stored in glucose molecules");
+    const tb = (await ta.boundingBox())!;
+    expect(tb.x + tb.width).toBeLessThanOrEqual(390);
+    expect(tb.height).toBeGreaterThan(40); // it wrapped
+    await page.keyboard.press("Escape");
+    const right = await page.evaluate(() => {
+      const ed = (window as unknown as SizeHook).__editor;
+      const el = ed.scene.all().find((e) => e.type === "text") as { x?: number; y?: number; w?: number };
+      return ed.camera.worldToScreen(el.x! + el.w!, el.y!)[0];
+    });
+    expect(canvas.x + right).toBeLessThanOrEqual(390);
+    // The canvas draws the same wrap: the box's height is its measured line count.
+    const el = await page.evaluate(() => (window as unknown as SizeHook).__editor.scene.all().find((e) => e.type === "text") as unknown as { lines: number; fontSize: number });
+    expect(el.lines).toBeGreaterThan(1);
+    expect(Math.abs(el.lines * el.fontSize * 1.4 - tb.height)).toBeLessThanOrEqual(2);
+  });
+});

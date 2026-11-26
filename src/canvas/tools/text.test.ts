@@ -54,7 +54,7 @@ describe("TextEditing", () => {
     editing.commit("Mitochondria");
     const els = scene.all();
     expect(els).toHaveLength(1);
-    expect(els[0]).toMatchObject({ id: "t1", type: "text", x: 40, y: 50, w: 320, fontSize: 18, color: "#2563eb", text: "Mitochondria", z: 0 });
+    expect(els[0]).toMatchObject({ id: "t1", type: "text", x: 40, y: 50, fontSize: 18, color: "#2563eb", text: "Mitochondria", z: 0, autoW: true });
     expect(editing.session).toBeNull();
     history.undo(scene);
     expect(scene.all()).toHaveLength(0);
@@ -110,6 +110,117 @@ describe("TextEditing", () => {
     expect(focused).toBe(1);
     editing.commit();
     expect((scene.get("t1") as TextEl).text).toBe("from input");
+  });
+});
+
+describe("TextEditing auto width", () => {
+  const make = (size = 20) => {
+    const scene = new Scene();
+    const history = new History();
+    let n = 0;
+    const editing = new TextEditing({ scene, history, style: () => ({ size, font: "sans" }), newId: () => `t${++n}`, now: () => 1 });
+    return { scene, history, editing };
+  };
+  const box = (scene: Scene, id = "t1") => scene.get(id) as TextEl;
+
+  it("a new box starts small and auto-width; 'test' at 20px is tens of units wide, not 320", () => {
+    const { scene, editing } = make();
+    editing.beginAt(0, 0);
+    expect(editing.session).toMatchObject({ autoW: true });
+    expect(editing.session!.w).toBeLessThanOrEqual(60);
+    editing.commit("test");
+    expect(box(scene).autoW).toBe(true);
+    expect(box(scene).w).toBeGreaterThan(30);
+    expect(box(scene).w).toBeLessThan(80);
+  });
+
+  it("uses the injected measure (the real canvas one in the app)", () => {
+    const scene = new Scene();
+    const editing = new TextEditing({
+      scene, history: new History(), newId: () => "m", now: () => 1,
+      measure: () => (s: string) => s.length * 10,
+    });
+    editing.beginAt(0, 0);
+    editing.commit("abcdefghij");
+    expect(box(scene, "m").w).toBeGreaterThanOrEqual(100);
+    expect(box(scene, "m").w).toBeLessThan(110);
+  });
+
+  it("long text caps at 560 and wraps", () => {
+    const { scene, editing } = make();
+    editing.beginAt(0, 0);
+    editing.commit("word ".repeat(100).trim());
+    expect(box(scene).w).toBe(560);
+    const b = boundsOf(box(scene));
+    expect(b.maxY - b.minY).toBeGreaterThan(20 * 1.4 * 2);
+  });
+
+  it("newline-separated lines size to the longest", () => {
+    const { scene, editing } = make();
+    editing.beginAt(0, 0);
+    editing.commit("ab\nabcdefghijkl\nabc");
+    const multi = box(scene).w;
+    editing.beginAt(0, 300);
+    editing.commit("abcdefghijkl");
+    expect(box(scene, "t2").w).toBe(multi);
+  });
+
+  it("editing an auto box recomputes its width in the same undo step", () => {
+    const { scene, history, editing } = make();
+    editing.beginAt(0, 0);
+    editing.commit("hi");
+    const w0 = box(scene).w;
+    editing.beginEdit("t1");
+    expect(editing.session).toMatchObject({ autoW: true });
+    editing.commit("a much longer line of text");
+    expect(box(scene).w).toBeGreaterThan(w0);
+    expect(box(scene).autoW).toBe(true);
+    history.undo(scene);
+    expect(box(scene)).toMatchObject({ text: "hi", w: w0 });
+  });
+
+  it("commit stores the really measured line count", () => {
+    const scene = new Scene();
+    const editing = new TextEditing({
+      scene, history: new History(), newId: () => "m", now: () => 1, measure: () => (s: string) => s.length * 10,
+    });
+    editing.beginAt(0, 0);
+    editing.commit("one\ntwo\n" + "x".repeat(80));
+    // 80 chars * 10 = 800 > 560: the long line wraps into two.
+    expect(box(scene, "m")).toMatchObject({ w: 560, lines: 4 });
+  });
+
+  it("near the screen edge the box wraps at the editor's cap, and keeps it as maxW", () => {
+    const scene = new Scene();
+    const editing = new TextEditing({
+      scene, history: new History(), newId: () => "c", now: () => 1, measure: () => (s: string) => s.length * 10,
+      maxAutoWidth: () => 200,
+    });
+    editing.beginAt(0, 0);
+    expect(editing.session?.maxW).toBe(200);
+    editing.commit("x".repeat(50));
+    expect(box(scene, "c")).toMatchObject({ w: 200, maxW: 200, lines: 3, autoW: true });
+    // Re-opened with room to spare: the cap is lifted.
+    const wide = new TextEditing({ scene, history: new History(), measure: () => (s: string) => s.length * 10, maxAutoWidth: () => 2000 });
+    wide.beginEdit("c");
+    wide.commit("x".repeat(60));
+    expect(box(scene, "c").maxW).toBeUndefined();
+    expect(box(scene, "c").w).toBe(560);
+  });
+
+  it("editing a fixed-width or legacy box keeps its width", () => {
+    const { scene, editing } = make();
+    scene.add({ id: "f", z: 0, updatedAt: 1, type: "text", x: 0, y: 0, w: 90, text: "x", fontSize: 20, color: "#000", autoW: false });
+    scene.add({ id: "old", z: 1, updatedAt: 1, type: "text", x: 0, y: 200, w: 320, text: "x", fontSize: 18, color: "#000" });
+    editing.beginEdit("f");
+    editing.commit("a much longer line of text that wraps");
+    expect(box(scene, "f")).toMatchObject({ w: 90, autoW: false });
+    editing.beginEdit("old");
+    editing.commit("hi");
+    expect(box(scene, "old").w).toBe(320);
+    expect("autoW" in box(scene, "old")).toBe(false);
+    expect("lines" in box(scene, "old")).toBe(false);
+    expect(box(scene, "f").lines).toBeGreaterThan(1);
   });
 });
 

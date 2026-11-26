@@ -7,6 +7,8 @@ import { History } from "./model/history";
 import { Scene } from "./model/scene";
 import type { Change } from "./model/history";
 import type { CanvasElement, StrokeEl, TextEl } from "./model/types";
+import { cssFont, type TextStyleFields } from "./model/text-style";
+import type { Measure } from "./model/wrap-text";
 import { EraserTool } from "./tools/eraser";
 import { HighlighterTool } from "./tools/highlighter";
 import { ImageCrop, type CropHandle, type CropState } from "./tools/image-crop";
@@ -39,6 +41,8 @@ type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number;
 
 /** A two-finger tap: both fingers down and up within this long, barely moving. */
 const TAP_MAX_MS = 250;
+/** An auto text box being typed stops this many screen px short of the canvas's right edge (and wraps there). */
+export const TEXT_EDGE_MARGIN_PX = 12;
 const TAP_MAX_MOVE = 10;
 type Tap = { t0: number; ids: [number, number]; up: number; moved: number; zoom0: number };
 
@@ -132,7 +136,16 @@ export class Editor {
       scene: this.scene,
       history: this.history,
       style: () => this.current.text,
+      measure: (style) => this.renderer.measureFor(style),
+      onMeasured: (id) => this.noteMeasured(id),
+      maxAutoWidth: (x, y) => {
+        if (this.viewW <= 0) return Infinity;
+        const [sx] = this.camera.worldToScreen(x, y);
+        return (this.viewW - TEXT_EDGE_MARGIN_PX - sx) / this.camera.zoom;
+      },
     });
+    // A face that finishes loading changes text metrics: re-measure boxes measured with its fallback.
+    this.renderer.onFontReady(() => this.remeasureTexts());
     this.text.onChange(() => {
       if (!this.text.session) this.commitTextStyle();
       this.renderer.setHidden(this.text.hiddenId);
@@ -184,6 +197,8 @@ export class Editor {
         selection: this.selection,
         setLasso: (pts) => this.renderer.setLasso(pts),
         zoom: () => this.camera.zoom,
+        measureText: (style) => this.renderer.measureFor(style),
+        onTextMeasured: (id) => this.noteMeasured(id),
         onEmpty: (at) => {
           if (this.clipboard.isEmpty) return;
           this.pasteAnchor = at;
@@ -395,6 +410,9 @@ export class Editor {
     if (next.fontSize !== undefined) next.fontSize = clampSize("text", next.fontSize);
     const changed = (Object.keys(next) as (keyof TextStylePatch)[]).some((k) => (before[k] ?? false) !== (next[k] ?? false));
     if (!changed) return true;
+    // An auto-width box re-measures in its new style; a fixed one keeps w and rewraps.
+    // Both (not legacy boxes) store their re-measured line count.
+    const resized: Partial<TextEl> = current.autoW !== undefined ? this.text.measureBox({ ...current, ...next }) : {};
     if (opts?.live) {
       if (this.textStyleBefore === null || this.textStyleBefore.id !== id) {
         this.commitTextStyle();
@@ -403,7 +421,8 @@ export class Editor {
     } else {
       this.commitTextStyle();
     }
-    this.scene.update(id, next satisfies Partial<TextEl>);
+    this.scene.update(id, { ...next, ...resized } satisfies Partial<TextEl>);
+    this.noteMeasured(id);
     if (!opts?.live) {
       const after = this.scene.get(id);
       if (after) this.history.push({ before: [before], after: [after] });
@@ -420,6 +439,49 @@ export class Editor {
     if (!before) return;
     const after = this.scene.get(before.id);
     if (after) this.history.push({ before: [before], after: [after] });
+  }
+
+  /**
+   * Ids of text boxes this session stored a measured w/lines for while their face was still loading (so measured in
+   * the fallback). Only these are ever re-measured: boxes merely viewed are never written, or a stale tab could
+   * clobber another device's edit under last-write-wins.
+   */
+  private measuredEarly = new Set<string>();
+
+  /** Called after this session stores a box's measured w/lines (commit, resize, restyle). */
+  private noteMeasured(id: string): void {
+    const el = this.scene.get(id);
+    if (!el || el.type !== "text" || el.autoW === undefined) return;
+    if (!this.renderer.fontLoaded(cssFont(el, el.fontSize))) this.measuredEarly.add(id);
+  }
+
+  /**
+   * Once a face has loaded: re-measures the boxes this session measured before it did ({@link noteMeasured}) and
+   * silently (no undo step) updates those off by more than 2 units or a line. Returns how many changed.
+   */
+  remeasureTexts(): number {
+    if (this.destroyed || this.measuredEarly.size === 0) return 0;
+    const patches: Array<[string, Partial<TextEl>]> = [];
+    for (const id of [...this.measuredEarly]) {
+      const el = this.scene.get(id);
+      if (!el || el.type !== "text" || el.autoW === undefined) {
+        this.measuredEarly.delete(id);
+        continue;
+      }
+      // Still loading (another face finished first), being edited, or mid-restyle: its own commit measures again.
+      if (!this.renderer.fontLoaded(cssFont(el, el.fontSize))) continue;
+      this.measuredEarly.delete(id);
+      if (id === this.text.hiddenId || id === this.textStyleBefore?.id) continue;
+      const m = this.text.measureBox(el);
+      if (Math.abs(m.w - el.w) > 2 || m.lines !== el.lines) patches.push([id, m]);
+    }
+    if (patches.length > 0) this.scene.batch(() => { for (const [id, p] of patches) this.scene.update(id, p); });
+    return patches.length;
+  }
+
+  /** Measures text in `style` exactly as the canvas draws it (world units). */
+  measureText(style: TextStyleFields): Measure {
+    return this.renderer.measureFor(style);
   }
 
   /** Opens the single selected text box in the text editor. */

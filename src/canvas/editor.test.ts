@@ -629,6 +629,23 @@ describe("Editor history and eraser", () => {
       expect(editor.canUndo()).toBe(false);
     });
 
+    it("restyling an auto-width box recomputes its width; a fixed box keeps w", () => {
+      editor.scene.add({ id: "auto", z: 1, updatedAt: 1, type: "text", x: 0, y: 0, w: 60, text: "hello", fontSize: 18, color: "#000", autoW: true });
+      editor.scene.add({ id: "fix", z: 2, updatedAt: 1, type: "text", x: 0, y: 200, w: 60, text: "hello", fontSize: 18, color: "#000", autoW: false });
+      editor.selection.set(["auto"]);
+      editor.restyleText({ fontSize: 40 });
+      const a = editor.scene.get("auto") as { w: number; autoW?: boolean };
+      expect(a.w).toBeGreaterThan(100);
+      expect(a.autoW).toBe(true);
+      editor.undo();
+      expect((editor.scene.get("auto") as { w: number }).w).toBe(60);
+      editor.selection.set(["fix"]);
+      editor.restyleText({ fontSize: 40, bold: true });
+      expect(editor.scene.get("fix")).toMatchObject({ w: 60, autoW: false, fontSize: 40 });
+      // "hello" in bold 40px (approx 0.55em x 1.06 per char) is ~117 wide: it wraps in 60.
+      expect((editor.scene.get("fix") as { lines?: number }).lines).toBeGreaterThan(1);
+    });
+
     it("with several elements selected, or none, restyle does nothing", () => {
       addText("a", 0);
       addText("b", 200);
@@ -996,5 +1013,93 @@ describe("Editor image select and crop", () => {
     editor.crop.reset();
     editor.crop.done();
     expect("crop" in (editor.scene.get("p") as object)).toBe(false);
+  });
+});
+
+describe("font-load re-measure", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+  let loaded: boolean;
+  let k: number;
+  let resolveLoad: () => void;
+  const realFonts = Object.getOwnPropertyDescriptor(document, "fonts");
+
+  beforeEach(() => {
+    localStorage.clear();
+    frames = [];
+    loaded = false;
+    k = 10;
+    let pending: Array<() => void> = [];
+    resolveLoad = () => {
+      loaded = true;
+      const p = pending;
+      pending = [];
+      p.forEach((fn) => fn());
+    };
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: { check: () => loaded, load: () => new Promise<void>((r) => pending.push(r)) },
+    });
+    canvas = document.createElement("canvas");
+    const ctx = { ...fakeCtx(), measureText: (str: string) => ({ width: str.length * k }) };
+    canvas.getContext = (() => ctx) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [
+        // Viewed only: stored w/lines differ from what this device measures.
+        { id: "seen", z: 1, updatedAt: 1, type: "text", x: 0, y: 300, w: 999, text: "hello", fontSize: 18, color: "#000", autoW: true },
+        { id: "seen2", z: 2, updatedAt: 1, type: "text", x: 0, y: 400, w: 40, text: "hello there", fontSize: 18, color: "#000", autoW: false, lines: 1 },
+      ],
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+  });
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+    if (realFonts) Object.defineProperty(document, "fonts", realFonts);
+    else delete (document as unknown as { fonts?: unknown }).fonts;
+  });
+
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it("never writes boxes that were only viewed, whatever their stored w/lines", async () => {
+    flushFrames(); // draws them: asks for the face
+    editor.scene.takeDirty();
+    expect(editor.remeasureTexts()).toBe(0);
+    resolveLoad();
+    await settle();
+    expect(editor.remeasureTexts()).toBe(0);
+    expect(editor.scene.takeDirty().upserts).toEqual([]);
+    expect(editor.scene.get("seen")).toMatchObject({ w: 999, updatedAt: 1 });
+    expect("lines" in editor.scene.get("seen")!).toBe(false);
+  });
+
+  it("a box committed before its face loaded is re-measured once, silently", async () => {
+    editor.text.beginAt(0, 0);
+    editor.text.commit("abcdefghij");
+    const id = editor.scene.all().find((e) => e.type === "text" && e.text === "abcdefghij")!.id;
+    const w0 = (editor.scene.get(id) as { w: number }).w;
+    expect(w0).toBeGreaterThanOrEqual(100);
+    k = 14; // the real face is wider than the fallback
+    editor.scene.takeDirty();
+    resolveLoad();
+    await settle();
+    const after = editor.scene.get(id) as { w: number };
+    expect(after.w).toBeGreaterThan(w0 + 30);
+    expect(editor.scene.takeDirty().upserts.map((e) => e.id)).toEqual([id]);
+    expect(editor.canRedo()).toBe(false);
+    editor.undo(); // the creation, not the re-measure
+    expect(editor.scene.get(id)).toBeUndefined();
+    expect(editor.remeasureTexts()).toBe(0); // once only
+  });
+
+  it("skips a re-measure within 2 units and the same line count", async () => {
+    editor.text.beginAt(0, 0);
+    editor.text.commit("abcdefghij");
+    editor.scene.takeDirty();
+    k = 10.15; // 10 chars: +1.5 units
+    resolveLoad();
+    await settle();
+    expect(editor.scene.takeDirty().upserts).toEqual([]);
   });
 });

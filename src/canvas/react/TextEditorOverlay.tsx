@@ -4,8 +4,18 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { t } from "@/i18n/en";
 import type { Editor } from "../editor";
 import { TEXT_LINE_HEIGHT } from "../model/bounds";
+import { autoTextWidth } from "../model/text-layout";
 import { cssFont, fontFamily, whenFontReady } from "../model/text-style";
 import type { TextSession } from "../tools/text";
+
+/**
+ * Screen width of the box being edited: a fixed box keeps its w; an auto box fits `text` as the canvas will draw it,
+ * wrapping at the session's cap (which keeps it short of the screen's right edge; the commit stores the same cap).
+ */
+function screenWidth(editor: Editor, s: TextSession, text: string): number {
+  const w = s.autoW ? autoTextWidth(editor.measureText(s), text, s.fontSize, s.maxW) : s.w;
+  return w * editor.camera.zoom;
+}
 
 type Box = { left: number; top: number; width: number; fontSize: number; session: TextSession };
 
@@ -21,9 +31,12 @@ export function TextEditorOverlay({ editor }: { editor: Editor }) {
   const grow = useCallback(() => {
     const ta = ref.current;
     if (!ta) return;
+    // An auto box widens with the text (up to the maximum, then wraps), measured with the canvas's own font.
+    const s = editor.text.session;
+    if (s?.autoW) ta.style.width = `${screenWidth(editor, s, ta.value)}px`;
     ta.style.height = "auto";
     ta.style.height = `${ta.scrollHeight}px`;
-  }, []);
+  }, [editor]);
 
   useEffect(() => {
     const ta = ref.current;
@@ -49,7 +62,8 @@ export function TextEditorOverlay({ editor }: { editor: Editor }) {
       }
       const [left, top] = editor.camera.worldToScreen(s.x, s.y);
       const z = editor.camera.zoom;
-      setBox({ left, top, width: s.w * z, fontSize: s.fontSize * z, session: s });
+      const typed = ref.current && document.activeElement === ref.current ? ref.current.value : s.text;
+      setBox({ left, top, width: screenWidth(editor, s, typed), fontSize: s.fontSize * z, session: s });
     };
     sync();
     const offText = editor.text.onChange(sync);

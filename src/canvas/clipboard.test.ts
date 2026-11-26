@@ -57,6 +57,28 @@ describe("Clipboard", () => {
     expect(again.items()).toEqual([expect.objectContaining({ type: "image", x: 0, y: 0, w: 100, h: 50 })]);
   });
 
+  it("keeps a text box's autoW and w through storage and paste", () => {
+    const auto: TextEl = { ...txt, id: "auto", w: 37, autoW: true, lines: 1, maxW: 300 };
+    const fixedBox: TextEl = { ...txt, id: "fixed", y: 100, w: 250, autoW: false };
+    new Clipboard({ owner: "user-a", storage }).copy([auto, fixedBox]);
+    const again = new Clipboard({ owner: "user-a", storage });
+    expect(again.isEmpty).toBe(false);
+    const scene = new Scene();
+    const ids = pasteInto({ scene, history: new History(), selection: new Selection(scene), newId }, again, [500, 500]);
+    const out = ids.map((id) => scene.get(id) as TextEl);
+    expect(out.map((e) => [e.w, e.autoW])).toEqual(expect.arrayContaining([[37, true], [250, false]]));
+    expect(out.find((e) => e.autoW)).toMatchObject({ lines: 1, maxW: 300 });
+  });
+
+  it("rejects a text box whose autoW is not a boolean", () => {
+    storage.setItem(CLIPBOARD_KEY, JSON.stringify({ v: 1, owner: "user-a", w: 1, h: 1, elements: [{ ...txt, autoW: "yes" }] }));
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+    storage.setItem(CLIPBOARD_KEY, JSON.stringify({ v: 1, owner: "user-a", w: 1, h: 1, elements: [{ ...txt, lines: "2" }] }));
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+    storage.setItem(CLIPBOARD_KEY, JSON.stringify({ v: 1, owner: "user-a", w: 1, h: 1, elements: [{ ...txt, maxW: null }] }));
+    expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);
+  });
+
   it("treats corrupt or malformed storage as empty", () => {
     storage.setItem(CLIPBOARD_KEY, "{not json");
     expect(new Clipboard({ owner: "user-a", storage }).isEmpty).toBe(true);

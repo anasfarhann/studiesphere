@@ -4,10 +4,12 @@ import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, F
 import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
 import { formatDuration } from "../model/format-duration";
 import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
-import { cssFont, whenFontReady } from "../model/text-style";
-import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
+import { textLines } from "../model/text-layout";
+import { cssFont, whenFontReady, type TextStyleFields } from "../model/text-style";
+import { approxMeasure, approxMeasureFor, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
+import { textHandleCenter } from "../tools/text-resize";
 import { validCrop } from "../tools/image-crop";
 import { outlineToPath, strokeOutline, type PathFactory } from "./stroke-path";
 
@@ -172,6 +174,24 @@ export class Renderer {
     this.requestFrame();
   }
 
+  /**
+   * Measures text in `style` with this canvas (the same measureText the boxes are drawn with), so a box's stored
+   * width matches its drawing. Falls back to the approximation where the context cannot measure.
+   */
+  measureFor(style: TextStyleFields): Measure {
+    const { ctx } = this;
+    if (typeof ctx.measureText !== "function") return approxMeasureFor(style);
+    return (str, fontSize) => {
+      const prev = ctx.font;
+      const font = cssFont(style, fontSize);
+      this.awaitFont(font);
+      ctx.font = font;
+      const w = ctx.measureText(str).width;
+      ctx.font = prev;
+      return w;
+    };
+  }
+
   /** The lasso path being drawn (world coordinates), or null. */
   setLasso(points: [number, number][] | null): void {
     this.lasso = points;
@@ -186,6 +206,8 @@ export class Renderer {
       this.pending = null;
     }
     this.cache.clear();
+    this.textCache.clear();
+    this.fontListeners.clear();
     this.releaseImages(() => true);
     window.removeEventListener("online", this.onWake);
     document.removeEventListener("visibilitychange", this.onWake);
@@ -347,6 +369,7 @@ export class Renderer {
     if (!this.maybeRemoved) return;
     this.maybeRemoved = false;
     for (const id of this.cache.keys()) if (!this.scene.get(id)) this.cache.delete(id);
+    for (const id of this.textCache.keys()) if (!this.scene.get(id)) this.textCache.delete(id);
     if (this.images.size > 0) {
       const used = new Set<string>();
       for (const el of this.scene.all()) if (el.type === "image") used.add(el.assetPath);
@@ -368,11 +391,37 @@ export class Renderer {
 
   /** Fonts already asked for: a face still loading is drawn in its fallback, then redrawn once it arrives. */
   private fontsAsked = new Set<string>();
+  private fontListeners = new Set<() => void>();
+  /** Wrapped lines per text element, valid while its updatedAt is unchanged (dropped when a face loads). */
+  private textCache = new Map<string, { updatedAt: number; lines: string[] }>();
+
+  /** Whether `font` (a CSS font shorthand) is ready to measure. True where the Font Loading API is missing. */
+  fontLoaded(font: string): boolean {
+    if (typeof document === "undefined" || !document.fonts || typeof document.fonts.check !== "function") return true;
+    try {
+      return document.fonts.check(font);
+    } catch {
+      return true;
+    }
+  }
+
+  /** Runs `fn` whenever a font face the canvas asked for finishes loading. Returns an unsubscribe. */
+  onFontReady(fn: () => void): () => void {
+    this.fontListeners.add(fn);
+    return () => {
+      this.fontListeners.delete(fn);
+    };
+  }
 
   private awaitFont(font: string): void {
     if (this.fontsAsked.has(font)) return;
     this.fontsAsked.add(font);
-    whenFontReady(font, () => this.requestFrame());
+    whenFontReady(font, () => {
+      if (this.destroyed) return;
+      this.textCache.clear();
+      for (const fn of [...this.fontListeners]) fn();
+      this.requestFrame();
+    });
   }
 
   private drawElement(el: CanvasElement): void {
@@ -386,7 +435,10 @@ export class Renderer {
       this.awaitFont(font);
       ctx.textBaseline = "alphabetic";
       const measure: Measure = typeof ctx.measureText === "function" ? (str) => ctx.measureText(str).width : approxMeasure;
-      const lines = wrapText(measure, el.text, el.w, el.fontSize);
+      // A legacy or resized box wraps at its stored w; an auto box at its measured width (see textLines).
+      const hit = this.textCache.get(el.id);
+      const lines = hit && hit.updatedAt === el.updatedAt ? hit.lines : textLines(measure, el);
+      if (lines !== hit?.lines) this.textCache.set(el.id, { updatedAt: el.updatedAt, lines });
       lines.forEach((line, i) => {
         const baseline = el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1);
         ctx.fillText(line, el.x, baseline);
@@ -528,12 +580,18 @@ export class Renderer {
     ctx.setLineDash([4 / camera.zoom, 3 / camera.zoom]);
     ctx.strokeRect(minX, minY, maxX - minX, maxY - minY);
     ctx.restore();
-    this.drawResizeHandle(maxX, maxY);
+    this.drawResizeHandle({ minX, minY, maxX, maxY });
   }
 
-  /** Corner grip for a single selected photo (the touch target is larger than what is drawn). */
-  private drawResizeHandle(cx: number, cy: number): void {
-    if (this.selection.length !== 1 || this.scene.get(this.selection[0])?.type !== "image") return;
+  /**
+   * Grip for a single selected photo (bottom-right corner) or text box (right edge, vertically centred).
+   * The touch target is larger than what is drawn.
+   */
+  private drawResizeHandle(b: { minX: number; minY: number; maxX: number; maxY: number }): void {
+    if (this.selection.length !== 1) return;
+    const type = this.scene.get(this.selection[0])?.type;
+    if (type !== "image" && type !== "text") return;
+    const [cx, cy] = type === "image" ? [b.maxX, b.maxY] : textHandleCenter(b);
     const { ctx, camera } = this;
     const s = HANDLE_DRAW_PX / camera.zoom;
     ctx.fillStyle = "#2563eb";

@@ -15,7 +15,23 @@ export type TextEl = Base & {
   type: "text";
   x: number;
   y: number;
+  /** Wrap width. For an auto-width box it is kept in sync with the measured text on every commit. */
   w: number;
+  /**
+   * true: the box is as wide as its longest line (up to AUTO_TEXT_MAX_W, then wraps). false or absent: it wraps
+   * at `w` (absent on boxes made before auto width; false once resized by hand).
+   */
+  autoW?: boolean;
+  /**
+   * Auto boxes only: a narrower maximum than AUTO_TEXT_MAX_W, set when the box was typed near the screen's right
+   * edge (the editor wrapped there), so the canvas wraps where the editor did.
+   */
+  maxW?: number;
+  /**
+   * Wrapped line count measured with the real font when the box last changed; bounds use it for the height.
+   * Absent on legacy boxes, whose height is approximated as before.
+   */
+  lines?: number;
   text: string;
   fontSize: number;
   color: string;
