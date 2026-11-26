@@ -122,7 +122,8 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
           target: {
             elements: () => editor.scene.all(),
             drawSnapshot: (ctx, camera, w, h) => editor.drawSnapshot(ctx, camera, w, h),
-            preloadImages: () => editor.preloadImages(),
+            preloadImages: (area) => editor.preloadImages(area),
+            isInteracting: () => editor.isInteracting(),
           },
           sink: preview,
           onChange: (fn) => editor.scene.onChange(fn),

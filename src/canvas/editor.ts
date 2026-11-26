@@ -637,10 +637,15 @@ export class Editor {
     return this.renderer.drawSnapshot(ctx, camera, w, h);
   }
 
-  /** Resolves once every photo on the page is decoded, or after `timeoutMs`. Never rejects. */
-  preloadImages(timeoutMs = PRELOAD_IMAGES_MS): Promise<void> {
+  /** Resolves once the photos inside `area` (default: all) are decoded, or after `timeoutMs`. Never rejects. */
+  preloadImages(area?: Rect, timeoutMs = PRELOAD_IMAGES_MS): Promise<void> {
     if (this.destroyed) return Promise.resolve();
-    return this.renderer.preloadImages(timeoutMs);
+    return this.renderer.preloadImages(timeoutMs, area);
+  }
+
+  /** A pointer is down on the canvas (drawing, erasing, panning) or text is being typed. */
+  isInteracting(): boolean {
+    return this.pointers.size > 0 || this.text.session !== null;
   }
 
   resize(cssW: number, cssH: number, dpr: number): void {

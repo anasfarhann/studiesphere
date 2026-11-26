@@ -4,6 +4,7 @@ import type { Camera } from "../view/camera";
 import {
   capturePreview,
   encodeJpeg,
+  frameRect,
   PREVIEW_MARGIN,
   PREVIEW_MAX_H,
   PREVIEW_MAX_W,
@@ -22,7 +23,7 @@ describe("previewFrame", () => {
   it("frames the bounding box of all elements with a small margin, 480 px wide", () => {
     const f = previewFrame([rect(100, 200, 500, 400), rect(300, 250, 900, 900)])!;
     // Union 100..900 x 200..900 (800 x 700), plus the margin on every side.
-    const m = Math.max(PREVIEW_MARGIN, 800 * 0.04);
+    const m = Math.max(PREVIEW_MARGIN, 800 * 0.04); // 4% of the width
     expect(f.x).toBeCloseTo(100 - m);
     expect(f.y).toBeCloseTo(200 - m);
     expect(f.width).toBe(PREVIEW_MAX_W);
@@ -36,11 +37,24 @@ describe("previewFrame", () => {
     expect(f.scale).toBeLessThan(0.03);
   });
 
-  it("caps the height, keeping the top of a tall page", () => {
+  it("caps the height, keeping the top band of a tall page, with a width-based margin", () => {
     const f = previewFrame([rect(0, 0, 600, 10_000)])!;
     expect(f.width).toBe(PREVIEW_MAX_W);
     expect(f.height).toBe(PREVIEW_MAX_H);
-    expect(f.y).toBeCloseTo(-Math.max(PREVIEW_MARGIN, 10_000 * 0.04));
+    // The margin follows the width (600), not the 10 000 tall extent: content is not shrunk by huge side margins.
+    expect(f.x).toBeCloseTo(-PREVIEW_MARGIN);
+    expect(f.y).toBeCloseTo(-PREVIEW_MARGIN);
+    expect(f.scale).toBeCloseTo(PREVIEW_MAX_W / (600 + 2 * PREVIEW_MARGIN));
+  });
+
+  it("frameRect is the world rectangle the preview shows", () => {
+    const f = previewFrame([rect(0, 0, 600, 10_000)])!;
+    const r = frameRect(f);
+    expect(r.minX).toBeCloseTo(f.x);
+    expect(r.minY).toBeCloseTo(f.y);
+    expect(r.maxX).toBeCloseTo(f.x + f.width / f.scale);
+    expect(r.maxY).toBeCloseTo(f.y + f.height / f.scale);
+    expect(r.maxY).toBeLessThan(1_000);
   });
 
   it("does not blow a small scribble up more than 2x, and keeps at least a 4:3 shape", () => {
@@ -106,6 +120,15 @@ describe("encodeJpeg", () => {
     expect(f.toBlob.mock.calls[0][1]).toBe("image/jpeg");
     expect(f.toBlob.mock.calls[0][2]).toBe(PREVIEW_QUALITY);
     expect(PREVIEW_QUALITY).toBe(0.7);
+  });
+
+  it("releases the canvas backing store once encoded (iOS canvas memory)", async () => {
+    const f = fakeCanvas();
+    f.canvas.width = 480;
+    f.canvas.height = 360;
+    await encodeJpeg(f.canvas);
+    expect(f.canvas.width).toBe(0);
+    expect(f.canvas.height).toBe(0);
   });
 
   it("resolves null when the browser cannot encode", async () => {

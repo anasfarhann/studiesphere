@@ -1,4 +1,4 @@
-import { capturePreview, encodeJpeg, type PreviewTarget } from "./page-preview";
+import { capturePreview, encodeJpeg, previewRect, type PreviewTarget } from "./page-preview";
 
 /** At most one preview per 20 s while editing (see the plan's Global Constraints). */
 export const PREVIEW_INTERVAL_MS = 20_000;
@@ -45,6 +45,8 @@ const defaultIdle = (cb: () => void) => {
 export class PagePreviews {
   private dirty = false;
   private running = false;
+  /** A run has started but not drawn yet (it is waiting for photos): a leave must draw in its place. */
+  private awaitingCapture = false;
   private disposed = false;
   private last = -Infinity;
   private timer: ReturnType<typeof setTimeout> | null = null;
@@ -77,10 +79,14 @@ export class PagePreviews {
     }
   }
 
-  /** Leaving (tab hidden): when there are edits since the last preview, draw one now and upload it. */
+  /**
+   * Leaving (tab hidden, unmount): when there are edits not yet in a preview, or a run has not drawn yet, draw now
+   * and upload. Nothing when the last capture is merely still uploading.
+   */
   flush(): void {
-    if (this.disposed || !(this.dirty || this.running)) return;
+    if (this.disposed || !(this.dirty || this.awaitingCapture)) return;
     this.dirty = false;
+    this.awaitingCapture = false;
     if (this.timer !== null) clearTimeout(this.timer);
     this.timer = null;
     this.last = Date.now();
@@ -113,20 +119,39 @@ export class PagePreviews {
 
   private async fire(): Promise<void> {
     if (this.disposed || !this.dirty) return;
+    // Drawing or typing: try again shortly rather than compete with the pen (Safari has no requestIdleCallback).
+    if (this.opts.target.isInteracting?.()) {
+      this.schedule();
+      return;
+    }
     this.dirty = false;
-    this.last = Date.now();
     await this.generate(true);
   }
 
   private async generate(touch: boolean): Promise<void> {
     this.running = true;
+    this.awaitingCapture = true;
+    const prevLast = this.last;
+    this.last = Date.now();
     try {
-      await this.opts.target.preloadImages?.().catch(() => {});
-      // Left while the photos loaded: dispose() already drew the latest state.
-      if (this.disposed) return;
+      const area = previewRect(this.opts.target);
+      if (area) await this.opts.target.preloadImages?.(area).catch(() => {});
+      // A leave drew in our place (or the page is gone): nothing more to do.
+      if (this.disposed || !this.awaitingCapture) return;
+      if (this.opts.target.isInteracting?.()) {
+        // The pen came down while the photos loaded: keep the edits pending and retry.
+        this.awaitingCapture = false;
+        this.dirty = true;
+        this.last = prevLast; // no preview was made: this does not count toward the throttle
+        return;
+      }
+      this.awaitingCapture = false;
       this.captureAndSave(touch);
       await this.chain;
+    } catch {
+      // previewRect or a target method threw: no preview this time.
     } finally {
+      this.awaitingCapture = false;
       this.running = false;
       if (this.dirty) this.schedule();
     }

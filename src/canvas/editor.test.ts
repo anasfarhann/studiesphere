@@ -54,6 +54,14 @@ describe("Editor input wiring", () => {
     canvas.remove();
   });
 
+  it("isInteracting is true while a pointer is down (page previews wait for it)", () => {
+    expect(editor.isInteracting()).toBe(false);
+    fire(canvas, "pointerdown", 1, "mouse", 10, 10);
+    expect(editor.isInteracting()).toBe(true);
+    fire(canvas, "pointerup", 1, "mouse", 20, 20);
+    expect(editor.isInteracting()).toBe(false);
+  });
+
   it("a mouse drag adds one simulated-pressure stroke in world coordinates", () => {
     editor.camera.x = 100;
     editor.camera.y = 50;

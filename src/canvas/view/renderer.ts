@@ -1,5 +1,5 @@
 import type { Scene } from "../model/scene";
-import type { AudioEl, CanvasElement, FileEl, StrokeEl } from "../model/types";
+import type { AudioEl, CanvasElement, FileEl, Rect, StrokeEl } from "../model/types";
 import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, FILE_ICON_X, TEXT_LINE_HEIGHT } from "../model/bounds";
 import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
 import { formatDuration } from "../model/format-duration";
@@ -334,13 +334,13 @@ export class Renderer {
   }
 
   /**
-   * Starts loading every photo on the page (not only the visible ones) and resolves once none is still loading,
-   * or after `timeoutMs`. Never rejects.
+   * Starts loading the photos inside `area` (default: the whole page) and resolves once none of them is still
+   * loading, or after `timeoutMs`. Never rejects.
    */
-  async preloadImages(timeoutMs: number): Promise<void> {
+  async preloadImages(timeoutMs: number, area?: Rect): Promise<void> {
     if (this.destroyed || !this.loadImage) return;
     const waits: Promise<void>[] = [];
-    for (const el of this.scene.all()) {
+    for (const el of area ? this.scene.getVisible(area) : this.scene.all()) {
       if (el.type !== "image") continue;
       const entry = this.imageFor(el.assetPath);
       const p = this.loads.get(el.assetPath);

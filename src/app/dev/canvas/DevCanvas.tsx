@@ -3,13 +3,6 @@
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { AttachmentService, type AttachmentStorage } from "@/canvas/attachments/upload";
 import type { PreviewSink } from "@/canvas/preview/preview-scheduler";
-
-declare global {
-  interface Window {
-    /** e2e hook: the last page preview the dev canvas made. */
-    __devPreview?: { type: string; bytes: number; width: number; height: number };
-  }
-}
 import type { CanvasElement } from "@/canvas/model/types";
 import { MemoryElementStore, MemoryOfflineQueue } from "@/canvas/persistence/memory-store";
 import type { ElementStore, Tombstone } from "@/canvas/persistence/store";
@@ -18,6 +11,13 @@ import { PersistentCanvas } from "@/canvas/react/PersistentCanvas";
 import { FileStatus } from "@/canvas/react/FileStatus";
 import { PhotoStatus } from "@/canvas/react/PhotoStatus";
 import { RecordingBar } from "@/canvas/react/RecordingBar";
+
+declare global {
+  interface Window {
+    /** e2e hook: the last page preview the dev canvas made. */
+    __devPreview?: { type: string; bytes: number; width: number; height: number };
+  }
+}
 
 const noop = () => {};
 const DEMO_STARTED = 0;

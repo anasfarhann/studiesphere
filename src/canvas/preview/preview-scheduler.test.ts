@@ -8,12 +8,13 @@ const stroke = (id: string): StrokeEl => ({
   points: [[0, 0, 0.5], [100, 100, 0.5]], simulatePressure: false,
 });
 
-function setup(opts: { elements?: CanvasElement[]; sink?: Partial<PreviewSink>; draw?: () => boolean } = {}) {
+function setup(opts: { elements?: CanvasElement[]; sink?: Partial<PreviewSink>; draw?: () => boolean; busy?: () => boolean } = {}) {
   let els: CanvasElement[] = opts.elements ?? [stroke("a")];
   const listeners = new Set<() => void>();
   const draw = vi.fn(opts.draw ?? (() => true));
-  const preload = vi.fn(async () => {});
-  const target: PreviewTarget = { elements: () => els, drawSnapshot: draw, preloadImages: preload };
+  const preload = vi.fn<(frame: { minX: number; minY: number; maxX: number; maxY: number }) => Promise<void>>(async () => {});
+  const busy = vi.fn(opts.busy ?? (() => false));
+  const target: PreviewTarget = { elements: () => els, drawSnapshot: draw, preloadImages: preload, isInteracting: busy };
   const sink: PreviewSink = {
     save: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),
@@ -41,7 +42,7 @@ function setup(opts: { elements?: CanvasElement[]; sink?: Partial<PreviewSink>; 
   const setElements = (e: CanvasElement[]) => {
     els = e;
   };
-  return { p, sink, draw, preload, change, setElements, listeners };
+  return { p, sink, draw, preload, busy, change, setElements, listeners };
 }
 
 /** Lets the chained promises (preload, encode, save) run. */
@@ -96,6 +97,11 @@ describe("PagePreviews throttle", () => {
     await vi.advanceTimersByTimeAsync(2_000);
     expect(s.preload).toHaveBeenCalled();
     expect(s.preload.mock.invocationCallOrder[0]).toBeLessThan(s.draw.mock.invocationCallOrder[0]);
+    // Only the framed area: the stroke spans 0..100, so the rect is a little larger than that, not the world.
+    const r = s.preload.mock.calls[0][0];
+    expect(r.minX).toBeLessThan(0);
+    expect(r.maxX).toBeGreaterThan(100);
+    expect(r.maxX).toBeLessThan(1_000);
     s.p.dispose();
   });
 
@@ -139,6 +145,60 @@ describe("PagePreviews throttle", () => {
     s.p.dispose();
   });
 
+  it("waits while the user is drawing or typing, then captures once they stop", async () => {
+    let busy = true;
+    const s = setup({ busy: () => busy });
+    s.p.start();
+    s.change();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(s.draw).not.toHaveBeenCalled();
+    busy = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.draw).toHaveBeenCalledTimes(1);
+    expect(s.sink.save).toHaveBeenCalledTimes(1);
+    s.p.dispose();
+  });
+
+  it("re-checks after the photos load: a pen down by then waits too", async () => {
+    let busy = false;
+    const s = setup({ busy: () => busy });
+    s.preload.mockImplementation(async () => {
+      busy = true;
+    });
+    s.p.start();
+    s.change();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.draw).not.toHaveBeenCalled();
+    s.preload.mockImplementation(async () => {});
+    busy = false;
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.draw).toHaveBeenCalledTimes(1);
+    s.p.dispose();
+  });
+
+  it("a leave while the last capture is still uploading (nothing new) does not capture again", async () => {
+    const s = setup({ sink: { save: vi.fn(() => new Promise<void>(() => {})) } });
+    s.p.start();
+    s.change();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.draw).toHaveBeenCalledTimes(1);
+    s.p.dispose();
+    expect(s.draw).toHaveBeenCalledTimes(1);
+  });
+
+  it("a leave while the photos are still loading captures at once (the editor is about to go)", async () => {
+    const s = setup();
+    s.preload.mockImplementation(() => new Promise<void>(() => {}));
+    s.p.start();
+    s.change();
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(s.draw).not.toHaveBeenCalled();
+    s.p.dispose();
+    expect(s.draw).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(s.sink.save).toHaveBeenCalledTimes(1);
+  });
+
   it("removes the preview when the page was emptied", async () => {
     const s = setup();
     s.p.start();
@@ -158,6 +218,20 @@ describe("PagePreviews first preview", () => {
     await vi.advanceTimersByTimeAsync(0);
     await settle();
     expect(s.sink.save).toHaveBeenCalledWith(expect.any(Blob), { touch: false });
+    s.p.dispose();
+  });
+
+  it("the first preview counts toward the 20 s throttle", async () => {
+    const s = setup({ sink: { exists: vi.fn(async () => false) } });
+    s.p.start();
+    await vi.advanceTimersByTimeAsync(0);
+    await settle();
+    expect(s.sink.save).toHaveBeenCalledTimes(1);
+    s.change();
+    await vi.advanceTimersByTimeAsync(PREVIEW_INTERVAL_MS - 100);
+    expect(s.sink.save).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(s.sink.save).toHaveBeenCalledTimes(2);
     s.p.dispose();
   });
 

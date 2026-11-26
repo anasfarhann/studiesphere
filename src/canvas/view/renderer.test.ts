@@ -626,6 +626,17 @@ describe("Renderer", () => {
       r.destroy();
     });
 
+    it("preloadImages with a frame only requests the photos inside it", async () => {
+      scene.add(photo);
+      scene.add({ ...photo, id: "far", assetPath: "o/p/far.jpg", x: 5_000, y: 5_000 });
+      const load = vi.fn(async () => bitmap);
+      const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: load });
+      await r.preloadImages(1_000, { minX: 0, minY: 0, maxX: 500, maxY: 500 });
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenCalledWith("o/p/a.jpg");
+      r.destroy();
+    });
+
     it("preloadImages gives up after its timeout", async () => {
       vi.useFakeTimers();
       try {
