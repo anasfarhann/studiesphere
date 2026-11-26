@@ -4,6 +4,16 @@ export type Measure = (s: string, fontSize: number) => number;
 /** Average glyph advance for sans-serif, as a share of the font size (slightly generous). */
 export const APPROX_CHAR_WIDTH = 0.55;
 
+/** Average glyph advance per font, as a share of the font size (slightly generous, like the sans default). */
+const APPROX_BY_FONT = { sans: APPROX_CHAR_WIDTH, serif: 0.56, hand: 0.5, mono: 0.62 } as const;
+
+/** Context-free measure for a styled box. A legacy box (no `font`) measures exactly as before. */
+export function approxMeasureFor(style: { font?: keyof typeof APPROX_BY_FONT; bold?: boolean }): Measure {
+  if (!style.font) return approxMeasure;
+  const k = APPROX_BY_FONT[style.font] * (style.bold ? 1.06 : 1);
+  return (s, fontSize) => s.length * k * fontSize;
+}
+
 /** Context-free measure: used by bounds, and by the renderer when no 2D context can measure. */
 export const approxMeasure: Measure = (s, fontSize) => s.length * APPROX_CHAR_WIDTH * fontSize;
 

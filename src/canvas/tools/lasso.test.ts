@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { Scene } from "../model/scene";
 import { History } from "../model/history";
 import { pointInPolygon } from "../geometry/point-in-polygon";
-import type { StrokeEl, TextEl } from "../model/types";
+import type { ImageEl, StrokeEl, TextEl } from "../model/types";
 import { Selection } from "../selection";
 import { elementsInLasso, LassoTool } from "./lasso";
 import type { PointerInfo } from "./tool";
@@ -42,9 +42,9 @@ describe("elementsInLasso", () => {
     expect(elementsInLasso(new Scene([sixty]), box)).toEqual(["s"]);
   });
 
-  it("boxes are selected when their centre is inside", () => {
+  it("boxes are selected when they overlap the lasso", () => {
     const inside: TextEl = { id: "t1", type: "text", x: 40, y: 40, w: 40, text: "hi", fontSize: 10, color: "#000", z: 0, updatedAt: 1 };
-    const outside: TextEl = { ...inside, id: "t2", x: 90, y: 90, w: 100 };
+    const outside: TextEl = { ...inside, id: "t2", x: 110, y: 90, w: 100 };
     expect(elementsInLasso(new Scene([inside, outside]), box)).toEqual(["t1"]);
   });
 });
@@ -103,5 +103,114 @@ describe("LassoTool", () => {
     tool.move([[30, 20, 0.5]], mouse);
     tool.cancel();
     expect(history.canUndo()).toBe(true);
+  });
+});
+
+describe("elementsInLasso: boxes overlap the polygon at all", () => {
+  const img: ImageEl = { id: "img", type: "image", x: 80, y: 80, w: 100, h: 100, assetPath: "o/p/i.png", z: 0, updatedAt: 1 };
+  it("a lasso partly over an image selects it (bounds corner inside the polygon)", () => {
+    expect(elementsInLasso(new Scene([img]), box)).toEqual(["img"]);
+  });
+  it("a small lasso drawn entirely inside an image selects it (polygon vertex inside the bounds)", () => {
+    const tiny: [number, number][] = [[100, 100], [110, 100], [110, 110]];
+    expect(elementsInLasso(new Scene([img]), tiny)).toEqual(["img"]);
+  });
+  it("a lasso crossing a text box without corners on either side selects it (edges cross)", () => {
+    const txt: TextEl = { id: "t", type: "text", x: 0, y: 40, w: 200, text: "hi", fontSize: 10, color: "#000", z: 0, updatedAt: 1 };
+    const band: [number, number][] = [[90, 0], [110, 0], [110, 100], [90, 100]];
+    expect(elementsInLasso(new Scene([txt]), band)).toEqual(["t"]);
+  });
+  it("a lasso near but not touching a box does not select it", () => {
+    const far: ImageEl = { ...img, x: 120, y: 120 };
+    expect(elementsInLasso(new Scene([far]), box)).toEqual([]);
+  });
+});
+
+describe("LassoTool taps", () => {
+  const image: ImageEl = { id: "img", type: "image", x: 0, y: 0, w: 100, h: 100, assetPath: "o/p/i.png", z: 0, updatedAt: 1 };
+  const over = (): StrokeEl => ({ ...stroke("ink", [[10, 50], [90, 50]]), z: 1 });
+  let scene: Scene;
+  let selection: Selection;
+  let empty: [number, number][];
+  let zoom: number;
+  let tool: LassoTool;
+
+  beforeEach(() => {
+    scene = new Scene([image, over()]);
+    selection = new Selection(scene);
+    empty = [];
+    zoom = 1;
+    tool = new LassoTool({
+      scene, history: new History(), selection, setLasso: () => {}, zoom: () => zoom,
+      onEmpty: (at) => empty.push(at),
+    });
+  });
+
+  const tap = (x: number, y: number, jitter = 0) => {
+    tool.down([x, y, 0.5], mouse);
+    if (jitter) tool.move([[x + jitter, y, 0.5]], mouse);
+    tool.up();
+  };
+
+  it("a tap selects the topmost element under it", () => {
+    tap(50, 52);
+    expect(selection.ids).toEqual(["ink"]);
+    tap(50, 80);
+    expect(selection.ids).toEqual(["img"]);
+  });
+
+  it("strokes are hit within 8 screen px of their path, scaled by zoom", () => {
+    scene.remove("img");
+    tap(50, 57);
+    expect(selection.ids).toEqual(["ink"]);
+    tap(50, 60);
+    expect(selection.ids).toEqual([]);
+    zoom = 0.5; // 8 screen px = 16 world units
+    tap(50, 64);
+    expect(selection.ids).toEqual(["ink"]);
+  });
+
+  it("wide strokes are hit within half their drawn width", () => {
+    scene.remove("img");
+    scene.update("ink", { size: 40 });
+    tap(50, 68);
+    expect(selection.ids).toEqual(["ink"]);
+  });
+
+  it("movement under 6 screen px is still a tap; more is a lasso", () => {
+    tap(50, 80, 5);
+    expect(selection.ids).toEqual(["img"]);
+    tool.down([300, 300, 0.5], mouse);
+    tool.move([[310, 300, 0.5]], mouse);
+    tool.up();
+    expect(selection.ids).toEqual([]);
+  });
+
+  it("a tap on empty space clears the selection and reports the spot", () => {
+    tap(50, 80);
+    tap(300, 300);
+    expect(selection.ids).toEqual([]);
+    expect(empty).toEqual([[300, 300]]);
+  });
+
+  it("a lasso that selects nothing reports its bounds centre", () => {
+    tool.down([200, 200, 0.5], mouse);
+    tool.move([[300, 200, 0.5], [300, 260, 0.5], [200, 260, 0.5]], mouse);
+    tool.up();
+    expect(selection.ids).toEqual([]);
+    expect(empty).toEqual([[250, 230]]);
+  });
+
+  it("a tap inside the current selection picks the element under it", () => {
+    selection.set(["img", "ink"]);
+    tap(50, 80);
+    expect(selection.ids).toEqual(["img"]);
+  });
+
+  it("a cancelled tap (a second finger arriving) selects nothing", () => {
+    tool.down([50, 80, 0.5], mouse);
+    tool.cancel();
+    expect(selection.ids).toEqual([]);
+    expect(empty).toEqual([]);
   });
 });

@@ -244,6 +244,36 @@ describe("Renderer", () => {
     expect(ctx.roundRect).toHaveBeenCalledTimes(2); // card shell + badge
   });
 
+  describe("text styles", () => {
+    const base = { id: "t", z: 1, updatedAt: 1, type: "text", x: 0, y: 0, w: 400, text: "ab\ncd", fontSize: 16, color: "#000" } as const;
+    const drawWith = (el: CanvasElement) => {
+      scene.add(el);
+      const used: string[] = [];
+      let current = "";
+      Object.defineProperty(ctx, "font", { get: () => current, set: (v: string) => { current = v; used.push(v); }, configurable: true });
+      const r = make();
+      r.resize(400, 400, 1);
+      flush();
+      return used;
+    };
+
+    it("a legacy text element is drawn in exactly the old font, with no underline", () => {
+      const used = drawWith(base);
+      expect(used).toContain("16px sans-serif");
+      expect(ctx.fillRect.mock.calls.length).toBe(1); // only the background fill, no underline
+    });
+
+    it("builds the font from font, bold and italic", () => {
+      const used = drawWith({ ...base, font: "serif", bold: true, italic: true });
+      expect(used).toContain("italic bold 16px Lora, serif");
+    });
+
+    it("underline draws one line under each non-empty wrapped line", () => {
+      drawWith({ ...base, underline: true });
+      expect(ctx.fillRect.mock.calls.length).toBe(1 + 2);
+    });
+  });
+
   describe("images", () => {
     const photo = { id: "p", z: 1, updatedAt: 1, type: "image", x: 10, y: 20, w: 200, h: 100, assetPath: "o/p/a.jpg" } as const;
     const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -265,6 +295,33 @@ describe("Renderer", () => {
       expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, 10, 20, 200, 100);
       r.requestFrame(); flush();
       expect(load).toHaveBeenCalledTimes(1);
+    });
+
+    it("a cropped photo draws only its source sub-rect into its rectangle (9-argument form)", async () => {
+      scene.add({ ...photo, w: 100, h: 100, crop: { x: 0.5, y: 0, w: 0.25, h: 0.5 } });
+      const r = makeWith(async () => bitmap);
+      r.resize(400, 400, 1);
+      flush(); await settle(); flush();
+      expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, 200, 0, 100, 100, 10, 20, 100, 100);
+    });
+
+    it("a photo with a malformed crop is drawn whole, as without one", async () => {
+      scene.add({ ...photo, crop: { x: 2, y: 0, w: 9, h: 0 } });
+      const r = makeWith(async () => bitmap);
+      r.resize(400, 400, 1);
+      flush(); await settle(); flush();
+      expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, 10, 20, 200, 100);
+    });
+
+    it("an image preview draws the whole source at the preview rectangle", async () => {
+      scene.add({ ...photo, w: 100, h: 100, crop: { x: 0.5, y: 0, w: 0.25, h: 0.5 } });
+      const r = makeWith(async () => bitmap);
+      r.resize(400, 400, 1);
+      flush(); await settle(); flush();
+      ctx.drawImage.mockClear();
+      r.setImagePreview({ id: "p", x: -90, y: 20, w: 400, h: 200 });
+      flush();
+      expect(ctx.drawImage).toHaveBeenCalledWith(bitmap, -90, 20, 400, 200);
     });
 
     it("a failed load keeps the placeholder with a broken-image mark and never retries per frame", async () => {

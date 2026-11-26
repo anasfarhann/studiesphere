@@ -24,6 +24,13 @@ export interface PhotoInserterContext {
   compress?: (file: File) => Promise<CompressedImage>;
   newId?: () => string;
   now?: () => number;
+  /**
+   * Called with the new photo's id once it is on the page. `autoSelect` is true only when the insert
+   * finished from the original pick and `stamp()` is unchanged since: a late retry never grabs the editor.
+   */
+  onInserted?: (id: string, autoSelect: boolean) => void;
+  /** A counter that changes when the user switches tool or selection (the editor's interactionStamp). */
+  stamp?: () => number;
 }
 
 type Pending = { image: CompressedImage; at: [number, number] };
@@ -37,6 +44,8 @@ export class PhotoInserter {
   private listeners = new Set<(s: PhotoStatus) => void>();
   private pending: Pending | null = null;
   private busy = false;
+  private startStamp: number | undefined;
+  private fromRetry = false;
   private disposed = false;
 
   constructor(private ctx: PhotoInserterContext) {}
@@ -73,6 +82,8 @@ export class PhotoInserter {
       return;
     }
     this.busy = true;
+    this.fromRetry = false;
+    this.startStamp = this.ctx.stamp?.();
     this.setStatus({ kind: "uploading" });
     try {
       const compress = this.ctx.compress ?? ((f: File) => compressImageWithSize(f));
@@ -89,6 +100,7 @@ export class PhotoInserter {
   async retry(): Promise<void> {
     if (this.busy || this.disposed || !this.pending || this._status.kind !== "error" || !this._status.retryable) return;
     this.busy = true;
+    this.fromRetry = true;
     this.setStatus({ kind: "uploading" });
     await this.send();
   }
@@ -135,6 +147,8 @@ export class PhotoInserter {
     };
     scene.add(el);
     history.push({ before: [], after: [el] });
+    const auto = !this.fromRetry && (this.ctx.stamp === undefined || this.ctx.stamp() === this.startStamp);
+    this.ctx.onInserted?.(el.id, auto);
   }
 
   private setStatus(s: PhotoStatus): void {

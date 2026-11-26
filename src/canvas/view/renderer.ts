@@ -4,9 +4,11 @@ import { AUDIO_ICON_R, AUDIO_ICON_X, boundsOf, CARD_H, CARD_W, FILE_ICON_SIZE, F
 import { ellipsize, FILE_BADGE, fileKind, formatBytes, type FileKind } from "../model/file-card";
 import { formatDuration } from "../model/format-duration";
 import { HIGHLIGHTER_ALPHA } from "../model/stroke-style";
+import { cssFont, whenFontReady } from "../model/text-style";
 import { approxMeasure, wrapText, type Measure } from "../model/wrap-text";
 import type { Camera } from "./camera";
 import { HANDLE_DRAW_PX } from "../tools/image-resize";
+import { validCrop } from "../tools/image-crop";
 import { outlineToPath, strokeOutline, type PathFactory } from "./stroke-path";
 
 export interface RendererOptions {
@@ -68,6 +70,8 @@ export class Renderer {
   private selection: string[] = [];
   private lasso: [number, number][] | null = null;
   private hidden: string | null = null;
+  /** A photo drawn at another rectangle, whole (crop mode shows the full source). */
+  private imagePreview: { id: string; x: number; y: number; w: number; h: number } | null = null;
   private cache = new Map<string, { updatedAt: number; path: Path2D }>();
   private maybeRemoved = false;
   private unsubscribe: () => void;
@@ -159,6 +163,12 @@ export class Renderer {
   /** An element not to draw (the text box being edited in the overlay), or null. */
   setHidden(id: string | null): void {
     this.hidden = id;
+    this.requestFrame();
+  }
+
+  /** Draws photo `p.id` whole at p's rectangle (crop mode), or as it is with null. Scene untouched. */
+  setImagePreview(p: { id: string; x: number; y: number; w: number; h: number } | null): void {
+    this.imagePreview = p;
     this.requestFrame();
   }
 
@@ -356,21 +366,43 @@ export class Renderer {
     }
   }
 
+  /** Fonts already asked for: a face still loading is drawn in its fallback, then redrawn once it arrives. */
+  private fontsAsked = new Set<string>();
+
+  private awaitFont(font: string): void {
+    if (this.fontsAsked.has(font)) return;
+    this.fontsAsked.add(font);
+    whenFontReady(font, () => this.requestFrame());
+  }
+
   private drawElement(el: CanvasElement): void {
     const { ctx } = this;
     if (el.type === "stroke") {
       this.drawStroke(el, this.cachedPath(el));
     } else if (el.type === "text") {
       ctx.fillStyle = el.color;
-      ctx.font = `${el.fontSize}px sans-serif`;
+      const font = cssFont(el, el.fontSize);
+      ctx.font = font;
+      this.awaitFont(font);
       ctx.textBaseline = "alphabetic";
       const measure: Measure = typeof ctx.measureText === "function" ? (str) => ctx.measureText(str).width : approxMeasure;
       const lines = wrapText(measure, el.text, el.w, el.fontSize);
-      lines.forEach((line, i) => ctx.fillText(line, el.x, el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1)));
+      lines.forEach((line, i) => {
+        const baseline = el.y + el.fontSize * TEXT_LINE_HEIGHT * (i + 1);
+        ctx.fillText(line, el.x, baseline);
+        if (el.underline && line !== "") ctx.fillRect(el.x, baseline + el.fontSize * 0.1, measure(line, el.fontSize), Math.max(1, el.fontSize / 16));
+      });
     } else if (el.type === "image") {
       const entry = this.imageFor(el.assetPath);
-      if (entry.state === "ready") ctx.drawImage(entry.img, el.x, el.y, el.w, el.h);
-      else this.drawPlaceholder(el, entry.state === "error");
+      const pv = this.imagePreview && this.imagePreview.id === el.id ? this.imagePreview : null;
+      const crop = pv ? null : validCrop(el.crop);
+      if (entry.state !== "ready") this.drawPlaceholder(el, entry.state === "error");
+      else if (pv) ctx.drawImage(entry.img, pv.x, pv.y, pv.w, pv.h);
+      else if (crop) {
+        const iw = entry.img.width;
+        const ih = entry.img.height;
+        ctx.drawImage(entry.img, crop.x * iw, crop.y * ih, crop.w * iw, crop.h * ih, el.x, el.y, el.w, el.h);
+      } else ctx.drawImage(entry.img, el.x, el.y, el.w, el.h);
     } else if (el.type === "audio") {
       this.drawAudioCard(el);
     } else if (el.type === "file") {

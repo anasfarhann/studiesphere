@@ -1,6 +1,6 @@
 import { strokeWidth } from "./stroke-style";
 import type { CanvasElement, Rect } from "./types";
-import { approxMeasure, wrapText } from "./wrap-text";
+import { approxMeasureFor, wrapText } from "./wrap-text";
 
 /** Fixed card size (world units) for audio and file elements. */
 export const CARD_W = 240;
@@ -34,7 +34,7 @@ export function boundsOf(el: CanvasElement): Rect {
     }
     case "text": {
       // No canvas context here: approximate widths (a touch wide, so boxes err on the tall side).
-      const lines = wrapText(approxMeasure, el.text, el.w, el.fontSize).length;
+      const lines = wrapText(approxMeasureFor(el), el.text, el.w, el.fontSize).length;
       return { minX: el.x, minY: el.y, maxX: el.x + el.w, maxY: el.y + el.fontSize * TEXT_LINE_HEIGHT * lines };
     }
     case "image":

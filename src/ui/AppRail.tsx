@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
 import { NewPageForm } from "@/features/library/NewPageForm";
+import { clearDeviceClipboard } from "@/canvas/clipboard";
 import { t } from "@/i18n/en";
 import { Icon, type IconName } from "./icons";
 
@@ -98,7 +99,7 @@ export function AppRail({ active, account }: { active: "home" | "subjects"; acco
             {account ? (
               <>
                 <span className="truncate text-sm text-muted">{account.email}</span>
-                <form action={account.signOut}>
+                <form action={account.signOut} onSubmit={() => clearDeviceClipboard()}>
                   <button type="submit" className="h-11 w-full cursor-pointer rounded-full bg-ink px-4 text-sm font-medium text-white">
                     {t("signOut")}
                   </button>

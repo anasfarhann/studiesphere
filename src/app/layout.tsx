@@ -1,5 +1,17 @@
 import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/dm-sans";
+// Text-tool fonts: latin only, regular and bold (plus italics where the family has them). The browser
+// downloads a face only when a note uses it.
+import "@fontsource/lora/latin-400.css";
+import "@fontsource/lora/latin-400-italic.css";
+import "@fontsource/lora/latin-700.css";
+import "@fontsource/lora/latin-700-italic.css";
+import "@fontsource/caveat/latin-400.css";
+import "@fontsource/caveat/latin-700.css";
+import "@fontsource/jetbrains-mono/latin-400.css";
+import "@fontsource/jetbrains-mono/latin-400-italic.css";
+import "@fontsource/jetbrains-mono/latin-700.css";
+import "@fontsource/jetbrains-mono/latin-700-italic.css";
 import "./globals.css";
 import { t } from "@/i18n/en";
 

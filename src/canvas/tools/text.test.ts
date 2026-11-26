@@ -46,7 +46,7 @@ describe("TextEditing", () => {
     scene = new Scene();
     history = new History();
     n = 0;
-    editing = new TextEditing({ scene, history, color: () => "#2563eb", newId: () => `t${++n}`, now: () => 1000 });
+    editing = new TextEditing({ scene, history, style: () => ({ color: "#2563eb" }), newId: () => `t${++n}`, now: () => 1000 });
   });
 
   it("commit creates one TextEl with the typed text as one history step", () => {
@@ -113,11 +113,49 @@ describe("TextEditing", () => {
   });
 });
 
+describe("TextEditing styles", () => {
+  const make = () => {
+    const scene = new Scene();
+    const history = new History();
+    let n = 0;
+    const editing = new TextEditing({
+      scene, history, style: () => ({ color: "#dc2626", size: 30, font: "serif", bold: true, italic: false, underline: true }),
+      newId: () => `t${++n}`, now: () => 1,
+    });
+    return { scene, history, editing };
+  };
+
+  it("a new box takes font, size, colour and styles from the settings seams", () => {
+    const { scene, editing } = make();
+    editing.beginAt(0, 0);
+    editing.commit("hello");
+    expect(scene.get("t1")).toMatchObject({ fontSize: 30, color: "#dc2626", font: "serif", bold: true, underline: true });
+    expect((scene.get("t1") as TextEl).italic).toBeFalsy();
+  });
+
+  it("restyling the session of a new box changes what is created", () => {
+    const { scene, editing } = make();
+    editing.beginAt(0, 0);
+    editing.restyle({ font: "mono", italic: true, fontSize: 40 });
+    editing.commit("x");
+    expect(scene.get("t1")).toMatchObject({ font: "mono", italic: true, bold: true, fontSize: 40 });
+  });
+
+  it("beginEdit carries the box's style into the session; a legacy box has none", () => {
+    const { scene, editing } = make();
+    scene.add({ id: "old", z: 0, updatedAt: 1, type: "text", x: 0, y: 0, w: 100, text: "o", fontSize: 18, color: "#000" });
+    editing.beginEdit("old");
+    expect(editing.session).toMatchObject({ fontSize: 18 });
+    expect(editing.session?.font).toBeUndefined();
+    expect(editing.session?.bold).toBeFalsy();
+  });
+});
+
 describe("TextTool", () => {
   it("a tap on empty canvas begins a new box on pointer up; a tap on a text box edits it", () => {
     const scene = new Scene();
     const history = new History();
-    const editing = new TextEditing({ scene, history, color: () => "#000", newId: () => "a", now: () => 1 });
+    const editing = new TextEditing({ scene, history, style: () => ({ color: "#000" }), newId: () => "a", now: () => 1 });
     const tool = new TextTool({ scene, editing, slop: () => 5 });
     tool.down([10, 10, 0.5], mouse);
     expect(editing.session).toBeNull(); // focus must happen on up (iOS keyboard gesture)
@@ -131,7 +169,7 @@ describe("TextTool", () => {
 
   it("a drag does not start a box", () => {
     const scene = new Scene();
-    const editing = new TextEditing({ scene, history: new History(), color: () => "#000" });
+    const editing = new TextEditing({ scene, history: new History(), style: () => ({ color: "#000" }) });
     const tool = new TextTool({ scene, editing, slop: () => 5 });
     tool.down([0, 0, 0.5], mouse);
     tool.move([[50, 0, 0.5]], mouse);

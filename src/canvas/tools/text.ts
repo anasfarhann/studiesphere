@@ -1,14 +1,16 @@
 import { boundsOf } from "../model/bounds";
 import type { History } from "../model/history";
 import type { Scene } from "../model/scene";
+import type { TextStyleFields } from "../model/text-style";
 import type { TextEl } from "../model/types";
 import type { PointerInfo, Tool, WorldPoint } from "./tool";
 
 export const TEXT_FONT_SIZE = 18;
+export const TEXT_COLOR = "#1B1A1F";
 export const TEXT_WIDTH = 320;
 
 /** What the text box being edited looks like; `id` is null for a box not yet created. */
-export type TextSession = {
+export type TextSession = TextStyleFields & {
   id: string | null;
   x: number;
   y: number;
@@ -17,6 +19,19 @@ export type TextSession = {
   color: string;
   text: string;
 };
+
+/** What can be changed on a text box after it exists. */
+export type TextStylePatch = TextStyleFields & { fontSize?: number; color?: string };
+
+/** Only the style fields that differ from the plain default, so unstyled boxes stay small. */
+function styleOf(s: TextStyleFields): TextStyleFields {
+  const out: TextStyleFields = {};
+  if (s.font) out.font = s.font;
+  if (s.bold) out.bold = true;
+  if (s.italic) out.italic = true;
+  if (s.underline) out.underline = true;
+  return out;
+}
 
 /** The overlay textarea, as the controller sees it. */
 export interface TextInput {
@@ -28,10 +43,8 @@ export interface TextInput {
 export interface TextEditingContext {
   scene: Scene;
   history: History;
-  /** Colour for new boxes. */
-  color: () => string;
-  /** Font size for new boxes; defaults to TEXT_FONT_SIZE. */
-  fontSize?: () => number;
+  /** Size, colour, font and styles for new boxes; anything missing means the default (plain box). */
+  style?: () => TextStyleFields & { size?: number; color?: string };
   newId?: () => string;
   now?: () => number;
 }
@@ -101,14 +114,25 @@ export class TextEditing {
 
   beginAt(x: number, y: number): void {
     this.commit();
-    this.open({ id: null, x, y, w: TEXT_WIDTH, fontSize: this.ctx.fontSize?.() ?? TEXT_FONT_SIZE, color: this.ctx.color(), text: "" });
+    const style = this.ctx.style?.() ?? {};
+    this.open({
+      id: null, x, y, w: TEXT_WIDTH, fontSize: style.size ?? TEXT_FONT_SIZE, color: style.color ?? TEXT_COLOR, text: "",
+      ...styleOf(style),
+    });
+  }
+
+  /** Restyles the box being edited (its overlay follows). The element itself is updated by the editor. */
+  restyle(patch: TextStylePatch): void {
+    if (!this._session) return;
+    this._session = { ...this._session, ...patch };
+    this.emit();
   }
 
   beginEdit(id: string): boolean {
     const el = this.ctx.scene.get(id);
     if (!el || el.type !== "text") return false;
     this.commit();
-    this.open({ id, x: el.x, y: el.y, w: el.w, fontSize: el.fontSize, color: el.color, text: el.text });
+    this.open({ id, x: el.x, y: el.y, w: el.w, fontSize: el.fontSize, color: el.color, text: el.text, ...styleOf(el) });
     return true;
   }
 
@@ -125,7 +149,7 @@ export class TextEditing {
         const id = this.newId();
         scene.add({
           id, z: scene.nextZ(), updatedAt: this.now(), type: "text",
-          x: s.x, y: s.y, w: s.w, text: value, fontSize: s.fontSize, color: s.color,
+          x: s.x, y: s.y, w: s.w, text: value, fontSize: s.fontSize, color: s.color, ...styleOf(s),
         });
         const after = scene.get(id);
         if (after) history.push({ before: [], after: [after] });

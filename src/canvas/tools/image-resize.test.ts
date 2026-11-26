@@ -71,3 +71,21 @@ describe("image corner resize", () => {
     expect(scene.get("i")).toMatchObject({ w: 200, x: 150 });
   });
 });
+
+describe("resizing a cropped image", () => {
+  it("keeps the crop and the visible aspect ratio", () => {
+    const crop = { x: 0.5, y: 0, w: 0.5, h: 1 };
+    const el: ImageEl = { ...img, w: 100, h: 100, crop };
+    const scene = new Scene([el]);
+    const selection = new Selection(scene);
+    selection.set(["i"]);
+    const lasso = new LassoTool({ scene, history: new History(), selection, setLasso: () => {}, zoom: () => 1 });
+    lasso.down([200, 200, 0.5], info);
+    lasso.move([[300, 300, 0.5]], info);
+    lasso.up();
+    const out = scene.get("i") as ImageEl;
+    expect(out.crop).toEqual(crop);
+    expect(out.w).toBeCloseTo(200);
+    expect(out.h / out.w).toBeCloseTo(1);
+  });
+});

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { History } from "./history";
 import { Scene } from "./scene";
-import type { StrokeEl } from "./types";
+import type { CanvasElement, StrokeEl } from "./types";
 
 const s = (id: string, updatedAt = 1): StrokeEl => ({
   id, z: 0, updatedAt, type: "stroke", tool: "pen", color: "#000", size: 2, points: [[0, 0, 0.5]], simulatePressure: true,
@@ -88,5 +88,25 @@ describe("History", () => {
     h.redo(scene);
     expect(fn).toHaveBeenCalledTimes(2);
     expect(scene.all()).toHaveLength(3);
+  });
+});
+
+describe("History removes fields the target lacks", () => {
+  const text = (extra: object = {}) =>
+    ({ id: "t", z: 0, updatedAt: 1, type: "text", x: 0, y: 0, w: 100, text: "hi", fontSize: 20, color: "#000", ...extra }) as unknown as CanvasElement;
+
+  it("undo of bold removes the key and redo re-adds it", () => {
+    const scene = new Scene([text()]);
+    const h = new History();
+    const before = scene.get("t")!;
+    scene.update("t", { bold: true } as Partial<CanvasElement>);
+    h.push({ before: [before], after: [scene.get("t")!] });
+    h.undo(scene);
+    expect("bold" in scene.get("t")!).toBe(false);
+    h.redo(scene);
+    expect((scene.get("t") as unknown as { bold?: boolean }).bold).toBe(true);
+    h.undo(scene);
+    expect("bold" in scene.get("t")!).toBe(false);
+    expect(scene.get("t")!.id).toBe("t");
   });
 });

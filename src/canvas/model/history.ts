@@ -6,10 +6,15 @@ export type Change = { before: CanvasElement[]; after: CanvasElement[] };
 
 export const HISTORY_LIMIT = 200;
 
-function withoutStamp(el: CanvasElement): Partial<CanvasElement> {
-  const patch: Partial<CanvasElement> = { ...el };
+/**
+ * Patch that makes `live` become `target`: target's fields, plus an explicit undefined for every field
+ * the live element has and the target lacks (Scene.update deletes those). Identity and stamp are left out.
+ */
+export function patchToward(live: CanvasElement, target: CanvasElement): Partial<CanvasElement> {
+  const patch: Record<string, unknown> = { ...target };
   delete patch.updatedAt;
-  return patch;
+  for (const k of Object.keys(live)) if (k !== "id" && k !== "type" && k !== "updatedAt" && !(k in target)) patch[k] = undefined;
+  return patch as Partial<CanvasElement>;
 }
 
 /** Undo/redo stack. Restores always carry a fresh updatedAt so last-write-wins accepts them. */
@@ -49,7 +54,8 @@ export class History {
     scene.batch(() => {
       for (const el of from) if (!toIds.has(el.id)) scene.remove(el.id);
       for (const el of to) {
-        if (fromIds.has(el.id) && scene.get(el.id)) scene.update(el.id, withoutStamp(el));
+        const live = scene.get(el.id);
+        if (fromIds.has(el.id) && live) scene.update(el.id, patchToward(live, el));
         else scene.add({ ...el, updatedAt: this.stamp(el.updatedAt) });
       }
     });

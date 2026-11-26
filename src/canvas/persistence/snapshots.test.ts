@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { History } from "../model/history";
 import { Scene } from "../model/scene";
-import type { StrokeEl } from "../model/types";
+import type { CanvasElement, StrokeEl } from "../model/types";
 import { MemoryElementStore } from "./memory-store";
 import { MemorySnapshotStore } from "./memory-snapshot-store";
 import { maybeSnapshot, restoreSnapshot, SnapshotScheduler, SNAPSHOT_INTERVAL_MS } from "./snapshots";
@@ -231,5 +231,60 @@ describe("SnapshotScheduler", () => {
     expect(await store.list(PAGE)).toHaveLength(2);
     vi.useRealTimers();
     warn.mockRestore();
+  });
+});
+
+describe("restore removes fields added after the snapshot", () => {
+  const photo = (extra: object = {}) =>
+    ({ id: "p", z: 0, updatedAt: 1000, type: "image", x: 100, y: 100, w: 200, h: 100, assetPath: "a", ...extra }) as unknown as CanvasElement;
+  const textBox = (extra: object = {}) =>
+    ({ id: "t", z: 1, updatedAt: 1000, type: "text", x: 0, y: 0, w: 100, text: "hi", fontSize: 20, color: "#000", ...extra }) as unknown as CanvasElement;
+
+  it("a pre-crop snapshot restores the original frame with no crop key; undo and redo agree", async () => {
+    const store = new MemorySnapshotStore();
+    const scene = new Scene([photo()]);
+    await store.create(PAGE, scene.all(), 1);
+    scene.update("p", { x: 150, y: 120, w: 100, h: 50, crop: { x: 0.25, y: 0.2, w: 0.5, h: 0.5 } } as Partial<CanvasElement>);
+    const [snap] = (await store.list(PAGE)).slice(-1);
+    const history = new History();
+    await restoreSnapshot(store, PAGE, snap.id, scene, history, { now: 5000 });
+    const el = scene.get("p")!;
+    expect("crop" in el).toBe(false);
+    expect(el).toMatchObject({ x: 100, y: 100, w: 200, h: 100 });
+    history.undo(scene);
+    expect(scene.get("p")).toMatchObject({ x: 150, w: 100, crop: { x: 0.25 } });
+    history.redo(scene);
+    expect("crop" in scene.get("p")!).toBe(false);
+    expect(scene.get("p")).toMatchObject({ x: 100, w: 200 });
+  });
+
+  it("a pre-bold snapshot removes bold; undo re-adds, redo of the restore removes again", async () => {
+    const store = new MemorySnapshotStore();
+    const scene = new Scene([textBox()]);
+    await store.create(PAGE, scene.all(), 1);
+    const [snap] = await store.list(PAGE);
+    scene.update("t", { bold: true } as Partial<CanvasElement>);
+    const history = new History();
+    await restoreSnapshot(store, PAGE, snap.id, scene, history, { now: 5000 });
+    expect("bold" in scene.get("t")!).toBe(false);
+    history.undo(scene);
+    expect((scene.get("t") as unknown as { bold?: boolean }).bold).toBe(true);
+    history.redo(scene);
+    expect("bold" in scene.get("t")!).toBe(false);
+  });
+
+  it("autosave persists the removal: the saved row lacks the field", async () => {
+    const store = new MemorySnapshotStore();
+    const elements = new MemoryElementStore();
+    const scene = new Scene([textBox({ bold: true })]);
+    await elements.save(PAGE, scene.all(), []);
+    const orig = textBox();
+    await store.create(PAGE, [orig], 1);
+    const [snap] = await store.list(PAGE);
+    await restoreSnapshot(store, PAGE, snap.id, scene, new History(), { now: Date.now() + 10_000 });
+    const d = scene.takeDirty();
+    await elements.save(PAGE, d.upserts, d.deletes);
+    const [saved] = await elements.load(PAGE);
+    expect("bold" in saved).toBe(false);
   });
 });

@@ -587,6 +587,82 @@ describe("Editor history and eraser", () => {
     });
   });
 
+  describe("text styles", () => {
+    const addText = (id: string, x: number) => {
+      editor.scene.add({ id, z: editor.scene.nextZ(), updatedAt: 1, type: "text", x, y: 0, w: 100, text: id, fontSize: 18, color: "#000" });
+    };
+
+    it("a new box uses the text settings", () => {
+      editor.updateSettings((s) => ({ ...s, text: { ...s.text, size: 40, color: "#2563EB", font: "serif", bold: true, italic: true, underline: true } }));
+      editor.setTool("text");
+      fire(canvas, "pointerdown", 1, "mouse", 30, 40);
+      fire(canvas, "pointerup", 1, "mouse", 30, 40, { buttons: 0 });
+      editor.text.commit("hi");
+      expect(editor.scene.all()[0]).toMatchObject({ fontSize: 40, color: "#2563EB", font: "serif", bold: true, italic: true, underline: true });
+    });
+
+    it("restyling the selected box is one undo step and leaves other boxes alone", () => {
+      addText("a", 0);
+      addText("b", 200);
+      editor.selection.set(["a"]);
+      expect(editor.restyleText({ font: "mono" })).toBe(true);
+      expect(editor.restyleText({ bold: true })).toBe(true);
+      expect(editor.scene.get("a")).toMatchObject({ font: "mono", bold: true });
+      expect((editor.scene.get("b") as { font?: string }).font).toBeUndefined();
+      editor.undo();
+      expect((editor.scene.get("a") as { bold?: boolean }).bold).toBeFalsy();
+      expect(editor.scene.get("a")).toMatchObject({ font: "mono" });
+      editor.undo();
+      expect((editor.scene.get("a") as { font?: string }).font).toBeUndefined();
+      expect(editor.canUndo()).toBe(false);
+    });
+
+    it("a live size drag is one undo step once committed", () => {
+      addText("a", 0);
+      editor.selection.set(["a"]);
+      editor.restyleText({ fontSize: 24 }, { live: true });
+      editor.restyleText({ fontSize: 30 }, { live: true });
+      editor.commitTextStyle();
+      expect((editor.scene.get("a") as { fontSize: number }).fontSize).toBe(30);
+      editor.undo();
+      expect((editor.scene.get("a") as { fontSize: number }).fontSize).toBe(18);
+      expect(editor.canUndo()).toBe(false);
+    });
+
+    it("with several elements selected, or none, restyle does nothing", () => {
+      addText("a", 0);
+      addText("b", 200);
+      expect(editor.restyleText({ bold: true })).toBe(false);
+      editor.selection.set(["a", "b"]);
+      expect(editor.restyleText({ bold: true })).toBe(false);
+      expect(editor.canUndo()).toBe(false);
+    });
+
+    it("while editing an existing box a style change is its own step, then the text edit another", () => {
+      addText("a", 0);
+      editor.text.beginEdit("a");
+      editor.restyleText({ italic: true });
+      expect(editor.textStyle()).toMatchObject({ italic: true, fontSize: 18 });
+      editor.text.commit("a2");
+      expect(editor.scene.get("a")).toMatchObject({ italic: true, text: "a2" });
+      editor.undo();
+      expect(editor.scene.get("a")).toMatchObject({ italic: true, text: "a" });
+      editor.undo();
+      expect((editor.scene.get("a") as { italic?: boolean }).italic).toBeFalsy();
+    });
+
+    it("while typing in a new box the change styles the pending box", () => {
+      editor.setTool("text");
+      editor.text.beginAt(5, 5);
+      expect(editor.restyleText({ font: "hand", fontSize: 50 })).toBe(true);
+      editor.text.commit("new");
+      expect(editor.scene.all()[0]).toMatchObject({ font: "hand", fontSize: 50 });
+      expect(editor.canUndo()).toBe(true);
+      editor.undo();
+      expect(editor.scene.all()).toHaveLength(0);
+    });
+  });
+
   describe("text tool", () => {
     it("tap with the text tool opens a session on pointer up; typed text commits on the next canvas press", () => {
       editor.setTool("text");
@@ -691,5 +767,234 @@ describe("Editor history and eraser", () => {
       expect(editor.scene.all()).toHaveLength(1);
       ta.remove();
     });
+  });
+});
+
+describe("Editor lasso: tap to select, copy and paste, recolour", () => {
+  let canvas: HTMLCanvasElement;
+  let editor: Editor;
+  const img = { id: "img", type: "image" as const, x: 0, y: 0, w: 100, h: 100, assetPath: "o/p/i.png", z: 0, updatedAt: 1 };
+  const ink = (id: string, y: number): StrokeEl => ({
+    id, type: "stroke", tool: "pen", color: "#1B1A1F", size: 3, z: 1, updatedAt: 1, simulatePressure: true,
+    points: [[200, y, 0.5], [300, y, 0.5]],
+  });
+  const tap = (id: number, kind: Kind, x: number, y: number) => {
+    fire(canvas, "pointerdown", id, kind, x, y);
+    fire(canvas, "pointerup", id, kind, x, y, { buttons: 0 });
+  };
+
+  beforeEach(() => {
+    localStorage.clear();
+    frames = [];
+    canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [img, ink("a", 200), ink("b", 220)],
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+    editor.setTool("lasso");
+  });
+
+  afterEach(() => {
+    editor.destroy();
+    canvas.remove();
+  });
+
+  it("a tap selects the element under it; a tap on empty space offers Paste only with a clipboard", () => {
+    tap(1, "mouse", 50, 50);
+    expect(editor.selection.ids).toEqual(["img"]);
+    tap(1, "mouse", 600, 600);
+    expect(editor.selection.ids).toEqual([]);
+    expect(editor.getPasteAnchor()).toBeNull();
+    tap(1, "mouse", 50, 50);
+    editor.copySelection();
+    tap(1, "mouse", 600, 600);
+    expect(editor.getPasteAnchor()).toEqual([600, 600]);
+    const ids = editor.paste();
+    expect(editor.getPasteAnchor()).toBeNull();
+    expect(ids).toHaveLength(1);
+    expect(ids[0]).not.toBe("img");
+    expect(editor.scene.get(ids[0])).toMatchObject({ type: "image", x: 550, y: 550, assetPath: "o/p/i.png" });
+    expect(editor.selection.ids).toEqual(ids);
+    editor.undo();
+    expect(editor.scene.all()).toHaveLength(3);
+  });
+
+  it("palm touches neither select nor offer or withdraw Paste while the Pencil is active", () => {
+    tap(1, "pen", 50, 50);
+    editor.copySelection();
+    tap(1, "pen", 600, 600);
+    expect(editor.getPasteAnchor()).toEqual([600, 600]);
+    tap(2, "touch", 50, 50); // a palm on the image
+    expect(editor.selection.ids).toEqual([]);
+    expect(editor.getPasteAnchor()).toEqual([600, 600]);
+    // A palm resting while the Pencil taps empty space.
+    fire(canvas, "pointerdown", 3, "touch", 50, 50);
+    tap(4, "pen", 700, 700);
+    fire(canvas, "pointerup", 3, "touch", 50, 50, { buttons: 0 });
+    expect(editor.selection.ids).toEqual([]);
+    expect(editor.getPasteAnchor()).toEqual([700, 700]);
+  });
+
+  it("recolouring selected strokes is one undo step, including a live wheel drag", () => {
+    editor.selection.set(["a", "b", "img"]);
+    editor.recolorSelection("#2563EB");
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#2563EB");
+    expect((editor.scene.get("b") as StrokeEl).color).toBe("#2563EB");
+    editor.recolorSelection("#111111", { live: true });
+    editor.recolorSelection("#222222", { live: true });
+    editor.commitRecolor();
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#222222");
+    editor.undo();
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#2563EB");
+    editor.undo();
+    expect((editor.scene.get("a") as StrokeEl).color).toBe("#1B1A1F");
+    expect((editor.scene.get("b") as StrokeEl).color).toBe("#1B1A1F");
+    expect(editor.canUndo()).toBe(false);
+  });
+
+  it("a single selected image resizes from its corner handle straight away", () => {
+    tap(1, "mouse", 50, 50);
+    expect(editor.selection.ids).toEqual(["img"]);
+    fire(canvas, "pointerdown", 1, "mouse", 100, 100);
+    fire(canvas, "pointermove", 1, "mouse", 200, 200);
+    fire(canvas, "pointerup", 1, "mouse", 200, 200, { buttons: 0 });
+    expect(editor.scene.get("img")).toMatchObject({ x: 0, y: 0, w: 200, h: 200 });
+  });
+});
+
+describe("Editor image select and crop", () => {
+  let editor: Editor;
+  const photo = { id: "p", type: "image", x: 100, y: 100, w: 200, h: 100, assetPath: "a", z: 1, updatedAt: 1 } as const;
+  beforeEach(() => {
+    localStorage.clear();
+    frames = [];
+    const canvas = document.createElement("canvas");
+    canvas.getContext = (() => fakeCtx()) as unknown as HTMLCanvasElement["getContext"];
+    document.body.appendChild(canvas);
+    editor = new Editor(canvas, {
+      elements: [photo],
+      renderer: { raf: (cb: () => void) => frames.push(cb), caf: () => {}, createPath: () => new FakePath() as unknown as Path2D },
+    });
+  });
+  afterEach(() => editor.destroy());
+
+  it("selectInserted switches to lasso with the photo selected and reports the tool change", () => {
+    const tools: string[] = [];
+    editor.onToolChange((t) => tools.push(t));
+    editor.setTool("pen");
+    editor.selectInserted("p");
+    expect(editor.tool).toBe("lasso");
+    expect(editor.selection.ids).toEqual(["p"]);
+    expect(tools).toEqual(["pen", "lasso"]);
+  });
+
+  it("selectInserted waits for a stroke in progress instead of cutting it", () => {
+    const c = document.querySelector("canvas:last-of-type") as HTMLCanvasElement;
+    fire(c, "pointerdown", 1, "mouse", 600, 600);
+    editor.selectInserted("p");
+    expect(editor.tool).toBe("pen");
+    fire(c, "pointerup", 1, "mouse", 600, 600);
+    expect(editor.tool).toBe("lasso");
+    expect(editor.selection.ids).toEqual(["p"]);
+  });
+
+  function crop() {
+    editor.setTool("lasso");
+    editor.selection.set(["p"]);
+    expect(editor.beginCrop()).toBe(true);
+  }
+
+  it("Done commits one undo step; undo/redo restore", () => {
+    crop();
+    expect(editor.cropDragBegin("e", 1, "mouse", 300, 150)).toBe(true);
+    editor.cropDragMove(1, 200, 150);
+    editor.cropDragEnd(1);
+    editor.crop.done();
+    expect(editor.scene.get("p")).toMatchObject({ w: 100, crop: { x: 0, y: 0, w: 0.5, h: 1 } });
+    editor.undo();
+    expect((editor.scene.get("p") as { crop?: unknown }).crop).toBeUndefined();
+    expect(editor.scene.get("p")).toMatchObject({ w: 200 });
+    editor.redo();
+    expect(editor.scene.get("p")).toMatchObject({ w: 100 });
+  });
+
+  it("beforeRestore abandons an open crop", () => {
+    crop();
+    editor.beforeRestore();
+    expect(editor.crop.active).toBe(false);
+    expect(editor.scene.get("p")).toEqual(photo);
+  });
+
+  it("Cancel, switching tools, and undo during crop all abandon it unchanged", () => {
+    crop();
+    editor.crop.cancel();
+    expect(editor.scene.get("p")).toEqual(photo);
+    crop();
+    editor.setTool("pen");
+    expect(editor.crop.active).toBe(false);
+    crop();
+    editor.undo();
+    expect(editor.crop.active).toBe(false);
+    expect(editor.scene.get("p")).toEqual(photo);
+    expect(editor.canUndo()).toBe(false);
+  });
+
+  it("with the Pencil in use a finger cannot drag a crop handle; the Pencil can, one pointer at a time", () => {
+    crop();
+    editor.router.penSeen = true;
+    expect(editor.cropDragBegin("e", 7, "touch", 300, 150)).toBe(false);
+    expect(editor.cropDragBegin("e", 8, "pen", 300, 150)).toBe(true);
+    expect(editor.cropDragBegin("w", 9, "pen", 100, 150)).toBe(false);
+    editor.cropDragEnd(8);
+  });
+
+  it("the canvas does not draw while cropping", () => {
+    crop();
+    const c = document.querySelector("canvas:last-of-type") as HTMLCanvasElement;
+    fire(c, "pointerdown", 1, "mouse", 600, 600);
+    fire(c, "pointermove", 1, "mouse", 650, 650);
+    fire(c, "pointerup", 1, "mouse", 650, 650);
+    expect(editor.scene.all().filter((e) => e.type === "stroke")).toHaveLength(0);
+  });
+
+  it("a photo removed during crop ends it", () => {
+    crop();
+    editor.scene.remove("p");
+    expect(editor.crop.active).toBe(false);
+  });
+
+  it("a late selectInserted does not cancel a crop in progress or touch the tool", () => {
+    editor.setTool("lasso");
+    editor.selection.set(["p"]);
+    editor.beginCrop();
+    editor.selectInserted("p");
+    expect(editor.crop.active).toBe(true);
+    expect(editor.tool).toBe("lasso");
+  });
+
+  it("interactionStamp changes on tool and selection changes; a pending select is dropped by a tool switch", () => {
+    const a = editor.interactionStamp();
+    editor.setTool("highlighter");
+    const b = editor.interactionStamp();
+    expect(b).not.toBe(a);
+    editor.setTool("lasso");
+    editor.selection.set(["p"]);
+    expect(editor.interactionStamp()).not.toBe(b);
+    const c = document.querySelector("canvas:last-of-type") as HTMLCanvasElement;
+    editor.setTool("pen");
+    fire(c, "pointerdown", 1, "mouse", 600, 600);
+    editor.selectInserted("p");
+    editor.setTool("highlighter");
+    fire(c, "pointerup", 1, "mouse", 600, 600);
+    expect(editor.tool).toBe("highlighter");
+  });
+
+  it("undoing a crop that removed the crop key deletes it (no undefined left behind)", () => {
+    crop();
+    editor.crop.reset();
+    editor.crop.done();
+    expect("crop" in (editor.scene.get("p") as object)).toBe(false);
   });
 });

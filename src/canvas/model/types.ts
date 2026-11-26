@@ -1,3 +1,4 @@
+import type { TextFont } from "../settings/tool-settings";
 export type Point = [x: number, y: number, pressure: number];
 export type Base = { id: string; z: number; updatedAt: number };
 export type StrokeEl = Base & {
@@ -18,6 +19,11 @@ export type TextEl = Base & {
   text: string;
   fontSize: number;
   color: string;
+  /** Style fields are optional: a box without them is sans, regular weight, no underline (as before they existed). */
+  font?: TextFont;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
 };
 export type ImageEl = Base & {
   type: "image";
@@ -26,6 +32,8 @@ export type ImageEl = Base & {
   w: number;
   h: number;
   assetPath: string;
+  /** Visible part of the source image, in source fractions 0-1. Absent: the whole image. */
+  crop?: { x: number; y: number; w: number; h: number };
 };
 export type AudioEl = Base & {
   type: "audio";

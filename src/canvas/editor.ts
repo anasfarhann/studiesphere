@@ -1,3 +1,4 @@
+import { Clipboard, pasteInto } from "./clipboard";
 import { DoubleTap } from "./input/double-tap";
 import { pinchUpdate } from "./input/pinch";
 import { InputRouter, type InputKind } from "./input/router";
@@ -5,15 +6,17 @@ import { wheelAction } from "./input/wheel";
 import { History } from "./model/history";
 import { Scene } from "./model/scene";
 import type { Change } from "./model/history";
-import type { CanvasElement, StrokeEl } from "./model/types";
+import type { CanvasElement, StrokeEl, TextEl } from "./model/types";
 import { EraserTool } from "./tools/eraser";
 import { HighlighterTool } from "./tools/highlighter";
+import { ImageCrop, type CropHandle, type CropState } from "./tools/image-crop";
+import { singleSelectedImage } from "./tools/image-resize";
 import { LassoTool } from "./tools/lasso";
 import { PenTool } from "./tools/pen";
-import { TextEditing, TextTool, textAt } from "./tools/text";
+import { TextEditing, TextTool, textAt, type TextStylePatch } from "./tools/text";
 import type { PointerInfo, Tool, ToolId, WorldPoint } from "./tools/tool";
 import { Selection } from "./selection";
-import { loadSettings, normalizeSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
+import { clampSize, loadSettings, normalizeSettings, saveSettings, type StrokeToolId, type ToolSettings } from "./settings/tool-settings";
 import type { Rect } from "./model/types";
 import { Camera } from "./view/camera";
 import { Renderer, type ImageLoader, type RendererOptions } from "./view/renderer";
@@ -26,6 +29,10 @@ export interface EditorOptions {
   loadImage?: ImageLoader;
   /** Drops cached signed URLs for an asset before its image load is retried. */
   forgetImage?: (assetPath: string) => void;
+  /** The signed-in user id: scopes the device clipboard to this account. Without it, copies stay in memory. */
+  owner?: string;
+  /** Test seam; defaults to the device clipboard (localStorage) scoped to `owner`. */
+  clipboard?: Clipboard;
 }
 
 type Active = { kind: InputKind; mode: "draw" | "pan" | "ignore"; lastX: number; lastY: number };
@@ -60,6 +67,16 @@ export class Editor {
   readonly history = new History();
   readonly selection: Selection;
   readonly text: TextEditing;
+  /** Crop mode of the selected photo (a DOM overlay drives it). */
+  readonly crop: ImageCrop;
+  readonly clipboard: Clipboard;
+  /** Where a Paste offer is anchored (world), after a tap on empty space or an empty lasso. */
+  private pasteAnchor: [number, number] | null = null;
+  /** A colour-wheel drag on the selection in progress: the strokes as they were before it. */
+  private recolorBefore: Change["before"] | null = null;
+  /** The text box as it was when a live restyle (size slider drag) began; null when none is in progress. */
+  private textStyleBefore: TextEl | null = null;
+  private selectionKey = "";
   /** Two quick taps on a text box edit it, whatever tool is selected. */
   private doubleTap = new DoubleTap();
   /** A second tap that landed on a text box: edit it when that pointer lifts. */
@@ -79,6 +96,11 @@ export class Editor {
   private drawing: { id: number; kind: InputKind; tool: Tool } | null = null;
   private tap: Tap | null = null;
   private selectionListeners = new Set<() => void>();
+  private toolListeners = new Set<(id: ToolId) => void>();
+  /** A freshly inserted photo to select once the pointer in use lifts. */
+  private pendingSelect: string | null = null;
+  /** Bumps on every tool or selection change: lets an async insert tell whether the user moved on. */
+  private interaction = 0;
   private selectionFrame: number | null = null;
   private raf: (cb: () => void) => number;
   private caf: (id: number) => void;
@@ -96,17 +118,45 @@ export class Editor {
     this.caf = opts.renderer?.caf ?? ((id) => window.cancelAnimationFrame(id));
     this.renderer = new Renderer(canvas, this.scene, this.camera, { loadImage: opts.loadImage, forgetImage: opts.forgetImage, ...opts.renderer });
     this.selection = new Selection(this.scene);
-    this.text = new TextEditing({ scene: this.scene, history: this.history, color: () => this.current.text.color, fontSize: () => this.current.text.size });
+    this.crop = new ImageCrop({
+      scene: this.scene,
+      history: this.history,
+      preview: (p) => {
+        this.renderer.setImagePreview(p);
+        this.renderer.setSelection(p ? [] : this.selection.ids);
+      },
+      onChange: () => this.notifySelection(),
+    });
+    this.clipboard = opts.clipboard ?? new Clipboard({ owner: opts.owner });
+    this.text = new TextEditing({
+      scene: this.scene,
+      history: this.history,
+      style: () => this.current.text,
+    });
     this.text.onChange(() => {
+      if (!this.text.session) this.commitTextStyle();
       this.renderer.setHidden(this.text.hiddenId);
       this.notifySelection();
     });
     this.selection.onChange(() => {
-      this.renderer.setSelection(this.selection.ids);
+      const key = this.selection.ids.join(",");
+      if (key !== this.selectionKey) {
+        this.selectionKey = key;
+        this.interaction++;
+        this.commitRecolor();
+        this.commitTextStyle();
+        if (this.selection.ids.length > 0) this.pasteAnchor = null;
+      }
+      // Crop mode of another element (or none selected) ends it.
+      if (this.crop.active && this.crop.id !== this.selection.ids[0]) this.crop.cancel();
+      this.renderer.setSelection(this.crop.active ? [] : this.selection.ids);
       this.notifySelection();
     });
     // Elements removed elsewhere (eraser, undo, sync) drop out of the selection.
-    this.scene.onChange(() => this.selection.prune());
+    this.scene.onChange(() => {
+      this.selection.prune();
+      if (this.crop.active && this.crop.id && !this.scene.get(this.crop.id)) this.crop.cancel();
+    });
     const stroke = (tool: StrokeToolId) => ({
       scene: this.scene,
       style: () => ({ color: this.current[tool].color, size: this.current[tool].size }),
@@ -134,6 +184,11 @@ export class Editor {
         selection: this.selection,
         setLasso: (pts) => this.renderer.setLasso(pts),
         zoom: () => this.camera.zoom,
+        onEmpty: (at) => {
+          if (this.clipboard.isEmpty) return;
+          this.pasteAnchor = at;
+          this.notifySelection();
+        },
       }),
       text: new TextTool({ scene: this.scene, editing: this.text, slop: () => 6 / this.camera.zoom }),
       // Hand has no stroke of its own: while it is selected, drags pan (see onDown).
@@ -159,10 +214,221 @@ export class Editor {
 
   setTool(id: ToolId): void {
     if (!this.tools[id]) return;
+    this.crop.cancel();
+    this.pendingSelect = null;
+    this.interaction++;
     this.cancelStroke();
     this.text.commit();
     if (id !== "lasso") this.selection.clear();
+    this.setPasteAnchor(null);
     this.toolId = id;
+    for (const fn of [...this.toolListeners]) fn(id);
+  }
+
+  /** Fires after every tool switch (also those the editor makes itself). Returns an unsubscribe. */
+  onToolChange(fn: (id: ToolId) => void): () => void {
+    this.toolListeners.add(fn);
+    return () => {
+      this.toolListeners.delete(fn);
+    };
+  }
+
+  /**
+   * Switches to the lasso with the just-inserted element selected, so a photo's resize handles show.
+   * Waits for a pen or finger in use (an upload can finish mid-stroke) rather than cutting its stroke.
+   */
+  selectInserted(id: string): void {
+    if (this.destroyed) return;
+    // Never interrupt a crop or typing in progress.
+    if (this.crop.active || this.text.session) {
+      this.pendingSelect = null;
+      return;
+    }
+    if (this.drawing) {
+      this.pendingSelect = id;
+      return;
+    }
+    this.pendingSelect = null;
+    this.setTool("lasso");
+    this.selection.set([id]);
+  }
+
+  /** Changes whenever the tool or selection does. */
+  interactionStamp(): number {
+    return this.interaction;
+  }
+
+  /** The canvas size in CSS px. */
+  viewSize(): [number, number] {
+    return [this.viewW, this.viewH];
+  }
+
+  private flushPendingSelect(): void {
+    const id = this.pendingSelect;
+    if (id && !this.drawing) this.selectInserted(id);
+  }
+
+  /** Opens crop mode on the single selected photo. */
+  beginCrop(): boolean {
+    if (this.drawing) return false;
+    const el = singleSelectedImage(this.scene, this.selection);
+    return el ? this.crop.begin(el.id) : false;
+  }
+
+  cropState(): CropState | null {
+    return this.crop.state();
+  }
+
+  /**
+   * Starts dragging a crop handle at canvas-relative screen point (sx, sy). Follows the palm rules: with the
+   * Pencil in use a finger never drags, and only one pointer drags at a time.
+   */
+  cropDragBegin(handle: CropHandle, pointerId: number, kind: string, sx: number, sy: number): boolean {
+    if (!isInputKind(kind) || !this.crop.active) return false;
+    if (this.crop.dragging) return false;
+    const touches = kind === "touch" ? 1 : 0;
+    if (this.router.classify({ pointerType: kind, activeTouches: touches }).kind !== "draw") return false;
+    const [x, y] = this.camera.screenToWorld(sx, sy);
+    return this.crop.beginDrag(handle, pointerId, x, y);
+  }
+
+  cropDragMove(pointerId: number, sx: number, sy: number): void {
+    const [x, y] = this.camera.screenToWorld(sx, sy);
+    this.crop.moveDrag(pointerId, x, y);
+  }
+
+  cropDragEnd(pointerId: number): void {
+    this.crop.endDrag(pointerId);
+  }
+
+  /** Where the Paste offer is anchored (world), or null when there is none. */
+  getPasteAnchor(): [number, number] | null {
+    return this.pasteAnchor;
+  }
+
+  private setPasteAnchor(at: [number, number] | null): void {
+    if (this.pasteAnchor === at) return;
+    this.pasteAnchor = at;
+    this.notifySelection();
+  }
+
+  /** Copies the selection to the clipboard (memory and device storage). */
+  copySelection(): void {
+    const els = this.selection.elements();
+    if (els.length > 0) this.clipboard.copy(els);
+  }
+
+  /** Pastes the clipboard centred at `at` (default: the Paste anchor, else the view centre) as one undo step. */
+  paste(at?: [number, number]): string[] {
+    if (this.drawing || this.crop.active) return [];
+    this.text.commit();
+    const spot = at ?? this.pasteAnchor ?? this.viewportCenter();
+    this.setPasteAnchor(null);
+    return pasteInto({ scene: this.scene, history: this.history, selection: this.selection }, this.clipboard, spot);
+  }
+
+  /**
+   * Recolours the selected strokes. Each call is one undo step, except `live` calls (colour-wheel
+   * drags), which preview until {@link commitRecolor} makes the whole drag one step.
+   */
+  recolorSelection(color: string, opts?: { live?: boolean }): void {
+    if (this.drawing) return;
+    const c = this.selection.recolor(color);
+    if (opts?.live) {
+      if (this.recolorBefore === null) this.recolorBefore = c.before;
+      else {
+        const seen = new Set(this.recolorBefore.map((e) => e.id));
+        for (const el of c.before) if (!seen.has(el.id)) this.recolorBefore.push(el);
+      }
+      return;
+    }
+    this.commitRecolor();
+    if (c.before.length > 0) this.history.push(c);
+  }
+
+  /** Ends a live recolour: pushes it as one undo step. Safe to call when none is in progress. */
+  commitRecolor(): void {
+    const before = this.recolorBefore;
+    this.recolorBefore = null;
+    if (!before || before.length === 0) return;
+    const after = before.map((el) => this.scene.get(el.id)).filter((el): el is CanvasElement => el !== undefined);
+    this.history.push({ before, after });
+  }
+
+  /** The text element the style options act on: the box being edited, else the one selected text box. */
+  private styleTargetId(): string | null {
+    const sess = this.text.session;
+    if (sess) return sess.id;
+    const ids = this.selection.ids;
+    return ids.length === 1 && this.scene.get(ids[0])?.type === "text" ? ids[0] : null;
+  }
+
+  /** Size, colour and style of the box the options act on, or null when there is none. */
+  textStyle(): (TextStylePatch & { fontSize: number; color: string }) | null {
+    const sess = this.text.session;
+    if (sess) return { fontSize: sess.fontSize, color: sess.color, font: sess.font, bold: sess.bold, italic: sess.italic, underline: sess.underline };
+    const id = this.styleTargetId();
+    const el = id ? this.scene.get(id) : undefined;
+    if (!el || el.type !== "text") return null;
+    return { fontSize: el.fontSize, color: el.color, font: el.font, bold: el.bold, italic: el.italic, underline: el.underline };
+  }
+
+  /**
+   * Restyles the text box being typed in, edited, or (when it is the only selection) selected; other boxes are
+   * untouched. Each call is one undo step, except `live` calls (size slider drags), which preview until
+   * {@link commitTextStyle}. Returns false when there is no such box.
+   */
+  restyleText(patch: TextStylePatch, opts?: { live?: boolean }): boolean {
+    if (this.drawing) return false;
+    const sess = this.text.session;
+    if (sess && sess.id === null) {
+      this.text.restyle(patch);
+      return true;
+    }
+    const id = this.styleTargetId();
+    const current = id ? this.scene.get(id) : undefined;
+    if (!id || !current || current.type !== "text") return false;
+    const next: TextStylePatch = { ...patch };
+    // Undo merges `before` over the live element, so a style the box did not have must be named (as undefined).
+    const before: TextEl = { ...current };
+    for (const k of Object.keys(next) as (keyof TextStylePatch)[]) if (!(k in before)) Object.assign(before, { [k]: undefined });
+    if (next.fontSize !== undefined) next.fontSize = clampSize("text", next.fontSize);
+    const changed = (Object.keys(next) as (keyof TextStylePatch)[]).some((k) => (before[k] ?? false) !== (next[k] ?? false));
+    if (!changed) return true;
+    if (opts?.live) {
+      if (this.textStyleBefore === null || this.textStyleBefore.id !== id) {
+        this.commitTextStyle();
+        this.textStyleBefore = before;
+      }
+    } else {
+      this.commitTextStyle();
+    }
+    this.scene.update(id, next satisfies Partial<TextEl>);
+    if (!opts?.live) {
+      const after = this.scene.get(id);
+      if (after) this.history.push({ before: [before], after: [after] });
+    }
+    if (sess) this.text.restyle(next);
+    this.notifySelection();
+    return true;
+  }
+
+  /** Ends a live restyle: pushes it as one undo step. Safe to call when none is in progress. */
+  commitTextStyle(): void {
+    const before = this.textStyleBefore;
+    this.textStyleBefore = null;
+    if (!before) return;
+    const after = this.scene.get(before.id);
+    if (after) this.history.push({ before: [before], after: [after] });
+  }
+
+  /** Opens the single selected text box in the text editor. */
+  editSelectedText(): boolean {
+    const ids = this.selection.ids;
+    if (ids.length !== 1 || this.scene.get(ids[0])?.type !== "text") return false;
+    const id = ids[0];
+    this.selection.clear();
+    return this.text.beginEdit(id);
   }
 
   /** Bounds of the current selection in world coordinates, or null. */
@@ -180,7 +446,7 @@ export class Editor {
 
   /** Deletes the selection as one undo step. */
   deleteSelection(): void {
-    if (this.drawing || this.selection.ids.length === 0) return;
+    if (this.drawing || this.crop.active || this.selection.ids.length === 0) return;
     const c = this.selection.deleteAll();
     if (c.before.length > 0) this.history.push(c);
   }
@@ -242,16 +508,38 @@ export class Editor {
    */
   undo(): void {
     if (this.drawing) return;
+    // Undo while cropping only abandons the crop.
+    if (this.crop.active) {
+      this.crop.cancel();
+      return;
+    }
     this.text.commit();
+    this.commitRecolor();
+    this.commitTextStyle();
     this.selection.clear();
     this.history.undo(this.scene);
   }
 
   redo(): void {
     if (this.drawing) return;
+    if (this.crop.active) {
+      this.crop.cancel();
+      return;
+    }
     this.text.commit();
+    this.commitRecolor();
+    this.commitTextStyle();
     this.selection.clear();
     this.history.redo(this.scene);
+  }
+
+  /**
+   * Call before replacing the page from a saved version: abandons an open crop (it would otherwise keep
+   * previewing a photo that is about to change) and commits open text.
+   */
+  beforeRestore(): void {
+    this.crop.cancel();
+    this.text.commit();
   }
 
   canUndo(): boolean {
@@ -289,7 +577,10 @@ export class Editor {
     if (this.destroyed) return;
     this.destroyed = true;
     this.flushSettings();
+    this.commitRecolor();
+    this.crop.cancel();
     this.settingsListeners.clear();
+    this.toolListeners.clear();
     if (this.selectionFrame !== null) this.caf(this.selectionFrame);
     this.selectionFrame = null;
     this.cancelStroke();
@@ -389,6 +680,9 @@ export class Editor {
       // Space held or hand tool: a mouse/pen drag pans. Resting palms must not join in.
       for (const p of this.pointers.values()) if (p.kind === "touch") p.mode = "ignore";
       this.pointers.set(e.pointerId, { kind, mode: "pan", lastX: sx, lastY: sy });
+    } else if (gesture.kind === "draw" && this.crop.active) {
+      // Crop mode: the canvas does not draw or select. A finger still pans; the overlay owns the handles.
+      this.pointers.set(e.pointerId, { kind, mode: isTouch ? "pan" : "ignore", lastX: sx, lastY: sy });
     } else if (gesture.kind === "draw") {
       this.cancelStroke();
       // Pencil eraser end / barrel button erases for this stroke whatever tool is selected.
@@ -400,6 +694,9 @@ export class Editor {
         for (const p of this.pointers.values()) if (p.kind === "touch") p.mode = "ignore";
       }
       this.pointers.set(e.pointerId, { kind, mode: "draw", lastX: sx, lastY: sy });
+      this.commitRecolor();
+      // A new press (never a palm: those are ignored or pan above) withdraws any Paste offer.
+      this.setPasteAnchor(null);
       this.drawing = { id: e.pointerId, kind, tool };
       tool.down(this.worldPoint(e, kind), this.info(e, kind));
     } else if (gesture.kind === "pan" || gesture.kind === "pinch") {
@@ -494,8 +791,12 @@ export class Editor {
       else this.undo();
       return;
     }
+    if (e.type === "keydown" && e.key === "Escape" && this.crop.active) {
+      this.crop.cancel();
+      return;
+    }
     if (e.type === "keydown" && (e.key === "Delete" || e.key === "Backspace") && !isEditable(e.target)) {
-      if (this.selection.ids.length === 0) return;
+      if (this.selection.ids.length === 0 || this.crop.active) return;
       e.preventDefault();
       this.deleteSelection();
       return;
@@ -524,6 +825,7 @@ export class Editor {
       tool.up();
     }
     this.trackTapUp(e);
+    this.flushPendingSelect();
   };
 
   /** Remembers short, still taps (for double-tap) and starts a pending double-tap edit. */
@@ -547,6 +849,7 @@ export class Editor {
     this.pointers.delete(e.pointerId);
     this.tap = null;
     if (this.drawing?.id === e.pointerId) this.cancelStroke();
+    this.flushPendingSelect();
   };
 
   private trackTapDown(e: PointerEvent, kind: InputKind, touches: number, gesture: string): void {

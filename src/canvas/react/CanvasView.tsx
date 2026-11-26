@@ -20,6 +20,7 @@ import { RecordingBar } from "./RecordingBar";
 import { TextEditorOverlay } from "./TextEditorOverlay";
 import { HistoryPanel } from "./HistoryPanel";
 import type { SnapshotStore } from "../persistence/snapshot-store";
+import { CropOverlay } from "./CropOverlay";
 import { SelectionMenu } from "./SelectionMenu";
 import { Toolbar } from "./Toolbar";
 import { hasOptions, ToolOptions } from "./ToolOptions";
@@ -70,6 +71,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
   const editorRef = useRef<Editor | null>(null);
   const [editor, setEditor] = useState<Editor | null>(null);
   const [tool, setTool] = useState<ToolId>("pen");
+  const [cropping, setCropping] = useState(false);
   const [hist, setHist] = useState({ canUndo: false, canRedo: false });
   // Elements seed the editor once; later prop changes are not re-applied (persistence owns that, Task 12).
   const [initial] = useState(elements);
@@ -89,6 +91,8 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     if (!box || !canvas) return;
     const editor = new Editor(canvas, {
       elements: initial,
+      // The page's signed-in user: copies never reach another account on this device.
+      owner: files?.ownerId,
       forgetImage: files ? (path) => files.service.forgetSignedUrl(path) : undefined,
       loadImage: files ? createImageLoader((path) => files.service.signedUrl(path)) : undefined,
     });
@@ -104,6 +108,10 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
         pageId: files.pageId,
         center: () => editor.viewportCenter(),
         upload: (blob, o) => files.service.uploadAttachment(blob, o),
+        stamp: () => editor.interactionStamp(),
+        onInserted: (id, auto) => {
+          if (auto) editor.selectInserted(id);
+        },
       });
       photosRef.current = photos;
       offPhoto = photos.onStatus(setPhotoState);
@@ -134,6 +142,8 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
     if (process.env.NODE_ENV !== "production") window.__editor = editor;
     const syncHist = () => setHist({ canUndo: editor.canUndo(), canRedo: editor.canRedo() });
     const offHist = editor.onHistoryChange(syncHist);
+    const offTool = editor.onToolChange(setTool);
+    const offCrop = editor.onSelectionChange(() => setCropping(editor.crop.active));
     const detach = attach?.(editor);
 
     const fit = () => {
@@ -188,6 +198,8 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
       audioRef.current?.dispose();
       audioRef.current = null;
       offHist();
+      offTool();
+      offCrop();
       detach?.();
       editor.destroy();
       if (window.__editor === editor) delete window.__editor;
@@ -241,8 +253,8 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
           }}
         />
         <Toolbar barRef={barRef} left={topLeft} status={status} tool={tool} onTool={pickTool} renderOptions={(id) => (editor && hasOptions(id) ? <ToolOptions editor={editor} tool={id} /> : null)}
-          canUndo={hist.canUndo}
-          canRedo={hist.canRedo}
+          canUndo={hist.canUndo && !cropping}
+          canRedo={hist.canRedo && !cropping}
           onUndo={() => editorRef.current?.undo()}
           onRedo={() => editorRef.current?.redo()}
           onPhoto={files ? (file) => void photosRef.current?.insert(file) : undefined}
@@ -293,6 +305,7 @@ export function CanvasView({ elements, attachments, onEditor, snapshots, topLeft
         ) : null}
         {editor ? <TextEditorOverlay editor={editor} /> : null}
         {editor ? <SelectionMenu editor={editor} /> : null}
+        {editor ? <CropOverlay editor={editor} /> : null}
         {editor && snapshots && historyOpen ? (
           <HistoryPanel store={snapshots.store} pageId={snapshots.pageId} editor={editor} onClose={() => setHistoryOpen(false)} top={barBottom + 8} />
         ) : null}

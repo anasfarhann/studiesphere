@@ -1,6 +1,5 @@
-import type { History, Change } from "../model/history";
+import { patchToward, type History, type Change } from "../model/history";
 import type { Scene } from "../model/scene";
-import type { CanvasElement } from "../model/types";
 import type { SnapshotStore } from "./snapshot-store";
 
 export const SNAPSHOT_INTERVAL_MS = 60 * 60 * 1000;
@@ -21,12 +20,6 @@ export async function maybeSnapshot(
   if (lastSnapshotAt !== null && now - lastSnapshotAt < SNAPSHOT_INTERVAL_MS) return null;
   await store.create(pageId, scene.all(), now);
   return now;
-}
-
-function withoutStamp(el: CanvasElement): Partial<CanvasElement> {
-  const patch: Partial<CanvasElement> = { ...el };
-  delete patch.updatedAt;
-  return patch;
 }
 
 export interface RestoreOptions {
@@ -67,7 +60,7 @@ export async function restoreSnapshot(
     // Scene does not know, so it must be newer than any earlier real-time delete.
     for (const el of target) {
       const cur = scene.get(el.id);
-      if (cur) scene.update(el.id, { ...withoutStamp(el), updatedAt: Math.max(now, cur.updatedAt + 1) });
+      if (cur) scene.update(el.id, { ...patchToward(cur, el), updatedAt: Math.max(now, cur.updatedAt + 1) });
       else scene.add({ ...el, updatedAt: Math.max(el.updatedAt, now) });
     }
   });
