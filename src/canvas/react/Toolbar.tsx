@@ -24,7 +24,7 @@ export interface ToolbarProps {
   recordDisabled?: boolean;
   /** Shows the Page history button when set. */
   onHistory?: () => void;
-  /** Left of the bar: the title pill (back link, page title, subject and notebook). */
+  /** Left of the bar: the title pill (back link, page title and folder). */
   left?: ReactNode;
   /** Right of the bar, after undo/redo/history: the save status pill. */
   status?: ReactNode;

@@ -1,69 +1,109 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { NotebookView, SubjectView } from "./views";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { FolderView } from "./views";
 import { SUBJECT_COLORS } from "./colors";
 import { PASTELS } from "@/ui/pastel";
 
 afterEach(cleanup);
 
+const m = vi.hoisted(() => ({ rename: vi.fn(), del: vi.fn(), folderPage: vi.fn() }));
 vi.mock("next/link", () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>{children}</a>
   ),
 }));
 vi.mock("./actions", () => ({
-  createSubjectAction: async () => null,
-  createNotebookAction: async () => null,
-  createPageAction: async () => null,
+  createFolderAction: async () => null,
+  createQuickPageAction: async () => null,
+  createFolderPageAction: m.folderPage,
+  renameFolderAction: m.rename,
+  deleteFolderAction: m.del,
 }));
-
-const long = "L".repeat(60);
-
-describe("NotebookView", () => {
-  const subject = { id: "s1", name: "Biology", color: "#dc2626" };
-  const notebook = { id: "n1", title: "Cells" };
-  const pages = [
-    { id: "p1", title: "Cell structure" },
-    { id: "p2", title: "Organelles" },
-  ];
-
-  it("shows the Recording badge only for pages with audio", () => {
-    render(<NotebookView subject={subject} notebook={notebook} pages={pages} audioPageIds={new Set(["p1"])} />);
-    expect(screen.getAllByText("Recording")).toHaveLength(1);
-    const tile = screen.getByRole("link", { name: /Cell structure/ });
-    expect(tile.textContent).toContain("Recording");
-    expect(screen.getByRole("link", { name: /Organelles/ }).textContent).not.toContain("Recording");
-  });
-
-  it("links back to the subject by name", () => {
-    render(<NotebookView subject={subject} notebook={notebook} pages={pages} audioPageIds={new Set()} />);
-    const back = screen.getByRole("link", { name: "Back to Biology" });
-    expect(back.getAttribute("href")).toBe("/app/s/s1");
-    expect(screen.getByRole("button", { name: "New page" })).toBeTruthy();
-  });
-
-  it("truncates long titles", () => {
-    render(<NotebookView subject={{ ...subject, name: long }} notebook={notebook} pages={[{ id: "p", title: long }]} audioPageIds={new Set()} />);
-    expect(screen.getAllByText(long).every((el) => el.className.includes("truncate"))).toBe(true);
-  });
+beforeEach(() => {
+  vi.clearAllMocks();
+  m.rename.mockResolvedValue(null);
+  m.del.mockResolvedValue(null);
+  m.folderPage.mockResolvedValue(null);
 });
 
-describe("SubjectView", () => {
-  const subject = { id: "s1", name: "Biology", color: "#2563eb" };
-  const notebooks = [{ id: "n1", title: "Cells", pages: 8 }];
+const long = "L".repeat(60);
+const folder = { id: "f1", name: "Biology", color: "#dc2626" };
+// An older folder: pages came from two notebooks ("Cells" and the hidden "Pages"), already merged newest first.
+const pages = [
+  { id: "p3", title: "Organelles" },
+  { id: "p2", title: "Cell structure" },
+  { id: "p1", title: "Photosynthesis" },
+];
 
-  it("links home, shows counts, notebooks and the new-notebook actions", () => {
-    render(<SubjectView subject={subject} notebooks={notebooks} />);
+describe("FolderView", () => {
+  it("links home, names the folder, counts and lists every page in order", () => {
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} />);
     expect(screen.getByRole("link", { name: "Home" }).getAttribute("href")).toBe("/app");
     expect(screen.getByRole("heading", { level: 1, name: "Biology" })).toBeTruthy();
-    expect(screen.getByText("1 notebook")).toBeTruthy();
-    expect(screen.getAllByText("8 pages").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: /Cells/ }).getAttribute("href")).toBe("/app/n/n1");
-    expect(screen.getAllByRole("button", { name: "New notebook" })).toHaveLength(2);
+    expect(screen.getByText("3 pages")).toBeTruthy();
+    const tiles = screen.getAllByRole("link").filter((a) => a.getAttribute("href")?.startsWith("/app/p/"));
+    expect(tiles.map((a) => a.getAttribute("href"))).toEqual(["/app/p/p3", "/app/p/p2", "/app/p/p1"]);
+    expect(document.body.textContent).not.toMatch(/notebook|subject/i);
+  });
+
+  it("New page creates a page in this folder", async () => {
+    render(<FolderView folder={folder} pages={[]} audioPageIds={new Set()} />);
+    expect(screen.getByText("No pages in this folder yet.")).toBeTruthy();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "New page" }));
+    });
+    expect(m.folderPage).toHaveBeenCalledTimes(1);
+    expect(m.folderPage.mock.calls[0][0]).toBe("f1");
+  });
+
+  it("shows the Recording badge only for pages with audio", () => {
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set(["p2"])} />);
+    expect(screen.getAllByText("Recording")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /Cell structure/ }).textContent).toContain("Recording");
+  });
+
+  it("renames the folder from a dialog that closes on success", async () => {
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Rename" }));
+    const input = screen.getByLabelText("Folder name") as HTMLInputElement;
+    expect(input.value).toBe("Biology");
+    fireEvent.change(input, { target: { value: "Chemistry" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    });
+    expect(m.rename).toHaveBeenCalledTimes(1);
+    expect(m.rename.mock.calls[0][0]).toBe("f1");
+    expect((m.rename.mock.calls[0][2] as FormData).get("name")).toBe("Chemistry");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("refuses to delete a folder that has pages, with no delete button", () => {
+    render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete folder" });
+    expect(dialog.textContent).toContain("This folder still has pages. Delete or move them first.");
+    expect(screen.queryByRole("button", { name: "Delete folder" })).toBeNull();
+  });
+
+  it("confirms before deleting an empty folder, naming it, and shows a server refusal", async () => {
+    m.del.mockResolvedValue({ error: "This folder still has pages. Delete or move them first." });
+    render(<FolderView folder={folder} pages={[]} audioPageIds={new Set()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByRole("dialog").textContent).toContain("Delete “Biology”? This can't be undone.");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete folder" }));
+    });
+    expect(m.del.mock.calls[0][0]).toBe("f1");
+    expect(screen.getByRole("alert").textContent).toBe("This folder still has pages. Delete or move them first.");
+  });
+
+  it("truncates long names", () => {
+    render(<FolderView folder={{ ...folder, name: long }} pages={[{ id: "p", title: long }]} audioPageIds={new Set()} />);
+    expect(screen.getAllByText(long).every((el) => el.className.includes("truncate"))).toBe(true);
   });
 
   it("renders a legacy colour as its pastel", () => {
-    render(<SubjectView subject={subject} notebooks={[]} />);
+    render(<FolderView folder={{ ...folder, color: "#2563eb" }} pages={[]} audioPageIds={new Set()} />);
     const banner = screen.getByRole("heading", { level: 1 }).closest("section") as HTMLElement;
     expect(banner.style.background.toLowerCase()).toMatch(/#cfe3f7|rgb\(207, 227, 247\)/);
   });

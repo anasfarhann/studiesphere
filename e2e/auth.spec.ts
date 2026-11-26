@@ -14,7 +14,7 @@ test("signing up with email and password lands on /app", async ({ page }) => {
   await page.getByRole("button", { name: "Sign up" }).click();
   // Email confirmation is ON in production: either a session (/app) or the confirm notice.
   await expect(
-    page.getByText("Check your email to confirm your account").or(page.getByRole("heading", { name: "Your notebooks" })),
+    page.getByText("Check your email to confirm your account").or(page.getByRole("heading", { name: "Your folders" })),
   ).toBeVisible({ timeout: 15_000 });
 });
 

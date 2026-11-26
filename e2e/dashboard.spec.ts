@@ -38,10 +38,10 @@ test("phone: stacked, bottom bar, no overflow", async ({ page }) => {
 test("long names truncate and keep cards inside their column", async ({ page }) => {
   await page.setViewportSize({ width: 834, height: 1194 });
   await page.goto("/dev/dashboard");
-  const card = page.getByRole("link", { name: /A very long subject name/ }).last();
+  const card = page.getByRole("link", { name: /A very long folder name/ }).last();
   const box = await card.boundingBox();
   expect(box!.width).toBeLessThanOrEqual(834);
-  const title = card.locator("span.truncate", { hasText: "A very long subject name" }).first();
+  const title = card.locator("span.truncate", { hasText: "A very long folder name" }).first();
   expect(await title.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
   expect(await noOverflow(page)).toBe(true);
 });
@@ -54,6 +54,18 @@ test("New page button in the header is at least 44 px and fits on a small phone"
     expect(b!.width).toBeGreaterThanOrEqual(44);
     expect(b!.height).toBeGreaterThanOrEqual(44);
     expect(b!.x + b!.width).toBeLessThanOrEqual(w);
+    expect(await noOverflow(page)).toBe(true);
+  }
+});
+
+test("Your folders: cards show page counts, no notebook wording, no overflow", async ({ page }) => {
+  for (const w of [320, 390, 834, 1280]) {
+    await page.setViewportSize({ width: w, height: 900 });
+    await page.goto("/dev/dashboard");
+    await expect(page.getByRole("heading", { name: "Your folders" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "New folder" })).toBeVisible();
+    await expect(page.getByRole("link", { name: /Biology.*12 pages|12 pages.*Biology/ })).toBeVisible();
+    expect(await page.locator("body").innerText()).not.toMatch(/notebook|subject/i);
     expect(await noOverflow(page)).toBe(true);
   }
 });

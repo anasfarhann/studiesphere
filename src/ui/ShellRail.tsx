@@ -3,9 +3,9 @@
 import { usePathname } from "next/navigation";
 import { AppRail, type RailAccount } from "./AppRail";
 
-/** Picks the active rail item from the URL (Subjects for /app/s/* and /app/n/*, otherwise Home). */
+/** Picks the active rail item from the URL (Folders for /app/s/* and /app/n/*, otherwise Home). */
 export function ShellRail({ account }: { account?: RailAccount }) {
   const path = usePathname();
-  const active = path.startsWith("/app/s/") || path.startsWith("/app/n/") ? "subjects" : "home";
+  const active = path.startsWith("/app/s/") || path.startsWith("/app/n/") ? "folders" : "home";
   return <AppRail active={active} account={account} />;
 }

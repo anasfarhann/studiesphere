@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { describe, expect, it } from "vitest";
 import type { Database } from "@/lib/supabase/types";
-import { ensureQuickNotebook, quickPageTitle } from "./quick-notes";
+import { ensureFolderNotebook, ensureQuickNotebook, quickPageTitle } from "./quick-notes";
 
 type Row = Record<string, string | number>;
 
@@ -119,6 +119,61 @@ describe("ensureQuickNotebook", () => {
     await ensureQuickNotebook(db, "u1");
     await ensureQuickNotebook(db, "u1");
     expect(deletes()).toBe(0);
+  });
+});
+
+describe("ensureFolderNotebook", () => {
+  const folder = (id: string): Row => ({ id, owner_id: "u1", name: "Biology", color: "#F6CFCF", created_at: iso(MIN) });
+
+  it("creates the hidden Pages notebook in the folder when missing", async () => {
+    const { db, tables } = fakeDb();
+    tables().subjects.push(folder("f1"));
+    const id = await ensureFolderNotebook(db, "u1", "f1");
+    expect(tables().notebooks).toHaveLength(1);
+    expect(tables().notebooks[0]).toMatchObject({ id, subject_id: "f1", title: "Pages" });
+  });
+
+  it("reuses the existing Pages notebook", async () => {
+    const { db, tables } = fakeDb();
+    tables().subjects.push(folder("f1"));
+    const a = await ensureFolderNotebook(db, "u1", "f1");
+    expect(await ensureFolderNotebook(db, "u1", "f1")).toBe(a);
+    expect(tables().notebooks).toHaveLength(1);
+  });
+
+  it("only reuses a Pages notebook of this folder and owner, never an older user notebook or another folder's", async () => {
+    const { db, tables } = fakeDb();
+    const t = tables();
+    t.subjects.push(folder("f1"), folder("f2"));
+    t.notebooks.push(
+      { id: "cells", owner_id: "u1", subject_id: "f1", title: "Cells", created_at: iso(20 * MIN) },
+      nb("other-folder", "f2", 20 * MIN),
+      { ...nb("other-owner", "f1", 30 * MIN), owner_id: "u2" },
+    );
+    const id = await ensureFolderNotebook(db, "u1", "f1");
+    expect(["cells", "other-folder", "other-owner"]).not.toContain(id);
+    expect(tables().notebooks.find((n) => n.id === id)).toMatchObject({ subject_id: "f1", title: "Pages" });
+  });
+
+  it("converges on the oldest (created_at, id) duplicate and never deletes", async () => {
+    const { db, tables, deletes } = fakeDb((table, calls, t) => {
+      // Another tab's older Pages notebook appears after our insert.
+      if (table === "notebooks" && calls === 2) t.notebooks.unshift(nb("older", "f1", 5_000));
+    });
+    tables().subjects.push(folder("f1"));
+    await ensureFolderNotebook(db, "u1", "f1");
+    const second = await ensureFolderNotebook(db, "u1", "f1");
+    expect(second).toBe("older");
+    expect(await ensureFolderNotebook(db, "u1", "f1")).toBe("older");
+    expect(tables().notebooks).toHaveLength(2);
+    expect(deletes()).toBe(0);
+  });
+
+  it("ties on created_at break by id", async () => {
+    const { db, tables } = fakeDb();
+    tables().subjects.push(folder("f1"));
+    tables().notebooks.push(nb("b", "f1", MIN), nb("a", "f1", MIN));
+    expect(await ensureFolderNotebook(db, "u1", "f1")).toBe("a");
   });
 });
 

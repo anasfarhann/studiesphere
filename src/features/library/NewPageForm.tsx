@@ -5,7 +5,7 @@ import { useFormStatus } from "react-dom";
 import { t } from "@/i18n/en";
 import { PillButton } from "@/ui/Button";
 import { Icon } from "@/ui/icons";
-import { createQuickPageAction } from "./actions";
+import { createFolderPageAction, createQuickPageAction } from "./actions";
 import type { FormState } from "./form-error";
 
 function Submit({ variant, className }: { variant: "pill" | "rail"; className?: string }) {
@@ -31,10 +31,11 @@ const serverZone = () => "";
 /**
  * One-tap "New page". The button disables while the action runs, so a double tap submits once. A failure is
  * shown inline (pill: on its own line in the row; rail: a small dismissible popover beside the button).
+ * With `folderId` the page goes into that folder, otherwise into Quick notes.
  */
-export function NewPageForm({ variant, className }: { variant: "pill" | "rail"; className?: string }) {
+export function NewPageForm({ variant, className, folderId }: { variant: "pill" | "rail"; className?: string; folderId?: string }) {
   const tz = useSyncExternalStore(noSubscribe, browserZone, serverZone);
-  const [state, action] = useActionState(createQuickPageAction, null);
+  const [state, action] = useActionState(folderId ? createFolderPageAction.bind(null, folderId) : createQuickPageAction, null);
   // Each failed submit returns a fresh object, so dismissing hides only that one.
   const [dismissed, setDismissed] = useState<FormState>(null);
   const error = state && state !== dismissed ? t("quickPageError") : null;

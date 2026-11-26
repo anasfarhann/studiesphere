@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { createNotebookAction, createPageAction, createSubjectAction } from "./actions";
+import { createFolderAction, deleteFolderAction, renameFolderAction } from "./actions";
 import { SUBJECT_COLORS } from "./colors";
 import type { FormState } from "./form-error";
 import { t } from "@/i18n/en";
@@ -19,17 +19,17 @@ function ErrorText({ state }: { state: FormState }) {
 }
 
 /** `bare` drops the heading, border and top margin so the form can sit inside a dialog that supplies its own title. */
-export function SubjectForm({ bare = false }: { bare?: boolean }) {
-  const [state, action, pending] = useActionState(createSubjectAction, null);
+export function FolderForm({ bare = false }: { bare?: boolean }) {
+  const [state, action, pending] = useActionState(createFolderAction, null);
   return (
     <form action={action} className={bare ? "flex flex-col gap-4" : "mt-6 flex flex-col gap-4 rounded-lg border p-4"}>
-      {!bare && <h2 className="font-medium">{t("newSubject")}</h2>}
+      {!bare && <h2 className="font-medium">{t("newFolder")}</h2>}
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium">{t("subjectName")}</span>
+        <span className="text-sm font-medium">{t("folderName")}</span>
         <input name="name" required className={inputClass} />
       </label>
       <fieldset className="flex flex-wrap items-center gap-2">
-        <legend className="mb-1 text-sm">{t("subjectColor")}</legend>
+        <legend className="mb-1 text-sm">{t("folderColor")}</legend>
         {SUBJECT_COLORS.map((c, i) => (
           <label key={c.hex} className="relative inline-flex size-11 cursor-pointer items-center justify-center">
             <input
@@ -49,37 +49,47 @@ export function SubjectForm({ bare = false }: { bare?: boolean }) {
       </fieldset>
       <ErrorText state={state} />
       <PillButton type="submit" disabled={pending} className="self-start">
-        {t("createSubject")}
+        {t("createFolder")}
       </PillButton>
     </form>
   );
 }
 
-/** `bare` drops the border and top margin so the form can sit inside a dialog. */
-export function NotebookForm({ subjectId, bare = false }: { subjectId: string; bare?: boolean }) {
-  const [state, action, pending] = useActionState(createNotebookAction.bind(null, subjectId), null);
+/** Rename form for a dialog; calls `onDone` after a successful save. */
+export function RenameFolderForm({ folderId, name, onDone }: { folderId: string; name: string; onDone: () => void }) {
+  const [state, action, pending] = useActionState(async (prev: FormState, form: FormData) => {
+    const result = await renameFolderAction(folderId, prev, form);
+    if (!result) onDone();
+    return result;
+  }, null);
   return (
-    <form action={action} className={bare ? "flex flex-col gap-4" : "mt-6 flex flex-col gap-3 rounded-lg border p-4"}>
+    <form action={action} className="flex flex-col gap-4">
       <label className="flex flex-col gap-1">
-        <span className="text-sm font-medium">{t("notebookTitle")}</span>
-        <input name="title" required className={inputClass} />
+        <span className="text-sm font-medium">{t("folderName")}</span>
+        <input name="name" required defaultValue={name} className={inputClass} />
       </label>
       <ErrorText state={state} />
       <PillButton type="submit" disabled={pending} className="self-start">
-        {t("createNotebook")}
+        {t("saveName")}
       </PillButton>
     </form>
   );
 }
 
-export function NewPageButton({ notebookId }: { notebookId: string }) {
-  const [state, action, pending] = useActionState(createPageAction.bind(null, notebookId), null);
+/** Confirm-delete form for a dialog. The server refuses (and this shows why) if the folder has pages. */
+export function DeleteFolderForm({ folderId, onCancel }: { folderId: string; onCancel: () => void }) {
+  const [state, action, pending] = useActionState(deleteFolderAction.bind(null, folderId), null);
   return (
-    <form action={action} className="flex flex-col items-end gap-2">
+    <form action={action} className="flex flex-col gap-4">
       <ErrorText state={state} />
-      <PillButton type="submit" icon="plus" disabled={pending} className="h-12 px-[22px] text-[15px]">
-        {t("newPage")}
-      </PillButton>
+      <div className="flex flex-wrap gap-3">
+        <PillButton type="submit" disabled={pending}>
+          {t("deleteFolderButton")}
+        </PillButton>
+        <PillButton variant="light" className="bg-ground" onClick={onCancel}>
+          {t("cancel")}
+        </PillButton>
+      </div>
     </form>
   );
 }

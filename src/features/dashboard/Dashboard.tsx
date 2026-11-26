@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useSyncExternalStore } from "react";
-import { SubjectForm } from "@/features/library/forms";
+import { FolderForm } from "@/features/library/forms";
 import { NewPageForm } from "@/features/library/NewPageForm";
 import { t } from "@/i18n/en";
 import { PillButton } from "@/ui/Button";
@@ -12,7 +12,7 @@ import { Icon } from "@/ui/icons";
 import { PASTELS } from "@/ui/pastel";
 import { formatEdited, formatLongDate } from "./dates";
 import { MonthCalendar } from "./MonthCalendar";
-import type { RecentPage, SubjectSummary } from "./queries";
+import type { FolderSummary, RecentPage } from "./queries";
 
 const localDay = () => {
   const d = new Date();
@@ -36,7 +36,6 @@ function useLocalToday(override?: Date): Date | null {
 const count = (n: number, one: string, many: string) => (n === 1 ? t(one as "dashPageOne") : t(many as "dashPageMany").replace("{n}", String(n)));
 
 function RecentCard({ page, today }: { page: RecentPage; today: Date | null }) {
-  const meta = [page.subjectName, page.notebookTitle].filter(Boolean).join(" · ");
   return (
     <Link href={`/app/p/${page.id}`} className="flex min-w-0 flex-col gap-3 rounded-3xl bg-card p-3.5 text-ink no-underline">
       <div className="relative h-[104px] overflow-hidden rounded-2xl" style={{ background: page.tint }}>
@@ -49,14 +48,14 @@ function RecentCard({ page, today }: { page: RecentPage; today: Date | null }) {
       </div>
       <div className="flex min-w-0 flex-col gap-1 px-1 pb-1">
         <span className="truncate text-[17px] font-semibold">{page.title || t("untitledPage")}</span>
-        <span className="truncate text-[13px] text-muted">{meta}</span>
+        <span className="truncate text-[13px] text-muted">{page.folderName}</span>
         {today && <span className="truncate text-[13px] text-muted">{formatEdited(page.editedAt, today)}</span>}
       </div>
     </Link>
   );
 }
 
-function SubjectCard({ s }: { s: SubjectSummary }) {
+function FolderCard({ s }: { s: FolderSummary }) {
   return (
     <Link
       href={`/app/s/${s.id}`}
@@ -65,43 +64,40 @@ function SubjectCard({ s }: { s: SubjectSummary }) {
     >
       <div className="flex items-center justify-between gap-2">
         <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-card">
-          <Icon name="book" size={20} />
+          <Icon name="folder" size={20} />
         </span>
         <span className="shrink-0 rounded-full bg-white/70 px-3 py-1.5 text-[13px] font-medium">{count(s.pages, "dashPageOne", "dashPageMany")}</span>
       </div>
-      <div className="flex min-w-0 flex-col gap-1.5">
-        <span className="truncate text-[26px] font-medium tracking-[-0.4px]">{s.name}</span>
-        <span className="truncate text-[13px] text-[#3D3943]">{count(s.notebooks, "dashNotebookOne", "dashNotebookMany")}</span>
-      </div>
+      <span className="truncate text-[26px] font-medium tracking-[-0.4px]">{s.name}</span>
     </Link>
   );
 }
 
 export function Dashboard({
   name,
-  subjects,
+  folders,
   recent,
   today: todayOverride,
 }: {
   name: string;
-  subjects: SubjectSummary[];
+  folders: FolderSummary[];
   recent: RecentPage[];
   /** Test/fixture override; normally the user's local date, read on the client. */
   today?: Date;
 }) {
   const today = useLocalToday(todayOverride);
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null); // subject id
+  const [selected, setSelected] = useState<string | null>(null); // folder id
   const [creating, setCreating] = useState(false);
 
   const q = query.trim().toLowerCase();
-  const shownSubjects = subjects.filter((s) => (!selected || s.id === selected) && s.name.toLowerCase().includes(q));
+  const shownFolders = folders.filter((s) => (!selected || s.id === selected) && s.name.toLowerCase().includes(q));
   const shownRecent = recent.filter(
     (p) =>
-      (!selected || p.subjectId === selected) &&
-      [p.title, p.subjectName, p.notebookTitle].some((v) => v.toLowerCase().includes(q)),
+      (!selected || p.folderId === selected) &&
+      [p.title, p.folderName].some((v) => v.toLowerCase().includes(q)),
   );
-  const empty = subjects.length === 0;
+  const empty = folders.length === 0;
   const dotFor = (tint: string) => PASTELS.find((p) => p.hex === tint)?.dot ?? PASTELS[0].dot;
 
   return (
@@ -131,11 +127,11 @@ export function Dashboard({
         </header>
 
         {!empty && (
-          <div role="group" aria-label={t("dashFilterSubjects")} className="flex flex-wrap gap-2.5">
+          <div role="group" aria-label={t("dashFilterFolders")} className="flex flex-wrap gap-2.5">
             <Chip dot="#1B1A1F" selected={selected === null} onClick={() => setSelected(null)}>
-              {t("dashAllSubjects")}
+              {t("dashAllFolders")}
             </Chip>
-            {subjects.map((s) => (
+            {folders.map((s) => (
               <Chip key={s.id} dot={dotFor(s.tint)} selected={selected === s.id} onClick={() => setSelected(selected === s.id ? null : s.id)}>
                 {s.name}
               </Chip>
@@ -160,34 +156,34 @@ export function Dashboard({
           </section>
         )}
 
-        <section aria-labelledby="subjects-h" className="flex flex-col gap-3.5">
+        <section aria-labelledby="folders-h" className="flex flex-col gap-3.5">
           <div className="flex items-center justify-between gap-3">
-            <h2 id="subjects-h" className="text-[15px] font-medium text-muted">
-              {t("dashYourSubjects")}
+            <h2 id="folders-h" className="text-[15px] font-medium text-muted">
+              {t("dashYourFolders")}
             </h2>
             {!empty && (
               <PillButton icon="plus" className="h-11" onClick={() => setCreating(true)}>
-                {t("newSubject")}
+                {t("newFolder")}
               </PillButton>
             )}
           </div>
           {empty ? (
             <div className="flex flex-col items-start gap-4 rounded-[28px] bg-card p-6">
               <span className="flex size-11 items-center justify-center rounded-full bg-lavender">
-                <Icon name="book" size={20} />
+                <Icon name="folder" size={20} />
               </span>
               <div className="flex flex-col gap-1.5">
                 <h3 className="text-xl font-medium">{t("dashEmptyTitle")}</h3>
                 <p className="text-[15px] text-muted">{t("dashEmptyBody")}</p>
               </div>
               <PillButton icon="plus" onClick={() => setCreating(true)}>
-                {t("newSubject")}
+                {t("newFolder")}
               </PillButton>
             </div>
-          ) : shownSubjects.length > 0 ? (
+          ) : shownFolders.length > 0 ? (
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(240px,100%),1fr))] gap-4">
-              {shownSubjects.map((s) => (
-                <SubjectCard key={s.id} s={s} />
+              {shownFolders.map((s) => (
+                <FolderCard key={s.id} s={s} />
               ))}
             </div>
           ) : (
@@ -216,8 +212,8 @@ export function Dashboard({
       </aside>
 
       {creating && (
-        <Dialog title={t("newSubject")} onClose={() => setCreating(false)}>
-          <SubjectForm bare />
+        <Dialog title={t("newFolder")} onClose={() => setCreating(false)}>
+          <FolderForm bare />
         </Dialog>
       )}
     </div>
