@@ -70,24 +70,67 @@ test("Your folders: cards show page counts, no notebook wording, no overflow", a
   }
 });
 
-test("page actions menu opens from the card and its items are at least 44 px at 390", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/dev/dashboard");
-  const trigger = page.getByRole("button", { name: "Actions for Cell walls and membranes" });
+async function expectMenuInsideViewport(page: import("@playwright/test").Page, triggerName: RegExp | string, width: number, height: number) {
+  const trigger = page.getByRole("button", { name: triggerName });
+  await trigger.scrollIntoViewIfNeeded();
   const tb = await trigger.boundingBox();
   expect(tb!.width).toBeGreaterThanOrEqual(44);
   expect(tb!.height).toBeGreaterThanOrEqual(44);
   await trigger.click();
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  const mb = await menu.boundingBox();
+  expect(mb!.x).toBeGreaterThanOrEqual(0);
+  expect(mb!.y).toBeGreaterThanOrEqual(0);
+  expect(mb!.x + mb!.width).toBeLessThanOrEqual(width);
+  expect(mb!.y + mb!.height).toBeLessThanOrEqual(height);
   const items = page.getByRole("menuitem");
   await expect(items).toHaveCount(5);
-  for (let i = 0; i < 5; i++) {
-    const b = await items.nth(i).boundingBox();
-    expect(b!.height).toBeGreaterThanOrEqual(44);
-    expect(b!.x).toBeGreaterThanOrEqual(0);
-    expect(b!.x + b!.width).toBeLessThanOrEqual(390);
-  }
+  for (let i = 0; i < 5; i++) expect((await items.nth(i).boundingBox())!.height).toBeGreaterThanOrEqual(44);
   expect(await noOverflow(page)).toBe(true);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);
   await expect(trigger).toBeFocused();
+}
+
+for (const [w, h] of [[320, 700], [390, 844]]) {
+  test(`dashboard page menu sits at the card's bottom-right and opens inside the viewport at ${w}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto("/dev/dashboard");
+    const card = page.getByRole("link", { name: /Cell walls and membranes/ }).locator("..");
+    const cb = await card.boundingBox();
+    const tb = await page.getByRole("button", { name: "Actions for Cell walls and membranes" }).boundingBox();
+    expect(tb!.x + tb!.width).toBeGreaterThan(cb!.x + cb!.width - 24);
+    expect(tb!.y + tb!.height).toBeGreaterThan(cb!.y + cb!.height - 24);
+    await expectMenuInsideViewport(page, "Actions for Cell walls and membranes", w, h);
+  });
+}
+
+test("Rename opened from a card is a viewport-covering dialog at 390", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/dev/dashboard");
+  await page.getByRole("button", { name: "Actions for Cell walls and membranes" }).click();
+  await page.getByRole("menuitem", { name: "Rename" }).click();
+  const dlg = page.getByRole("dialog", { name: "Rename page" });
+  await expect(dlg).toBeVisible();
+  const db = await dlg.boundingBox();
+  expect(db!.x).toBeGreaterThanOrEqual(0);
+  expect(db!.x + db!.width).toBeLessThanOrEqual(390);
+  expect(db!.y).toBeGreaterThanOrEqual(0);
+  expect(db!.y + db!.height).toBeLessThanOrEqual(844);
+  const overlay = await dlg.locator("..").boundingBox();
+  expect(overlay).toMatchObject({ x: 0, y: 0, width: 390, height: 844 });
+  await page.keyboard.press("Escape");
+  await expect(dlg).toHaveCount(0);
 });
+
+for (const [w, h] of [[320, 700], [390, 844]]) {
+  test(`folder view page menu stays inside the viewport at ${w}`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: h });
+    await page.goto("/dev/folder");
+    await expectMenuInsideViewport(page, /Actions for Cell walls/, w, h);
+    // A tile near the bottom of the screen flips the popover upward.
+    await page.setViewportSize({ width: w, height: 620 });
+    await expectMenuInsideViewport(page, /Actions for Mitosis/, w, 620);
+  });
+}

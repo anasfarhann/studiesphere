@@ -48,7 +48,7 @@ function RecentCard({ page, today, folders }: { page: RecentPage; today: Date | 
             <circle cx="190" cy="56" r="22" strokeOpacity="0.35" />
           </svg>
         </div>
-        <div className="flex min-w-0 flex-col gap-1 px-1 pb-1">
+        <div className="flex min-w-0 flex-col gap-1 px-1 pr-12 pb-1">
           <span className="truncate text-[17px] font-semibold">{page.title || t("untitledPage")}</span>
           <span className="truncate text-[13px] text-muted">{page.folderName}</span>
           {today && <span className="truncate text-[13px] text-muted">{formatEdited(page.editedAt, today)}</span>}
@@ -57,7 +57,7 @@ function RecentCard({ page, today, folders }: { page: RecentPage; today: Date | 
       <PageActionsMenu
         page={{ id: page.id, title: page.title, folderId: page.folderId }}
         folders={folders.map((f) => ({ id: f.id, name: f.name }))}
-        className="absolute top-[22px] right-[22px]"
+        className="absolute right-3.5 bottom-3.5"
       />
     </div>
   );

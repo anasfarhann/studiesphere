@@ -41,6 +41,9 @@ export async function deletePage(db: Client, ownerId: string, pageId: string): P
  * running it twice (a retry, a refresh) leaves one page in the target and none duplicated.
  */
 export async function movePage(db: Client, ownerId: string, pageId: string, folderId: string): Promise<void> {
+  const { data: folder, error: folderErr } = await db.from("subjects").select("id").eq("id", folderId).eq("owner_id", ownerId);
+  if (folderErr) throw new Error(folderErr.message);
+  if (!folder?.length) throw new Error("Folder not found");
   const notebookId = await ensureFolderNotebook(db, ownerId, folderId);
   const { data, error } = await db.from("pages").update({ notebook_id: notebookId }).eq("id", pageId).eq("owner_id", ownerId).select("id");
   if (error) throw new Error(error.message);
@@ -54,18 +57,19 @@ function isRecord(v: Json): v is { [key: string]: Json | undefined } {
 /**
  * Copies a page into the same notebook as "<title> (copy)". Live canvas elements are copied with fresh ids
  * (the element's own id inside `data` is rewritten to match its row id); asset paths inside `data` are kept,
- * so the copy shares the uploaded files. If copying fails, the half-made copy is removed.
+ * so the copy shares the uploaded files. Each row keeps its source `updated_at` unchanged: save_elements
+ * resolves conflicts by client-stamped time, so a server-clock stamp could make a slow device clock lose
+ * its first edits on the copy. If copying fails, the half-made copy is removed.
  */
 export async function duplicatePage(db: Client, ownerId: string, pageId: string): Promise<Page> {
   const { data: src, error: srcErr } = await db.from("pages").select("*").eq("id", pageId).eq("owner_id", ownerId).single();
   if (srcErr || !src) throw new Error(srcErr?.message ?? "Page not found");
   const copy = await new SupabaseLibraryRepo(db).createPage(src.notebook_id, t("pageCopyTitle", { title: src.title || t("untitledPage") }));
   try {
-    const now = new Date().toISOString();
     for (let from = 0; ; from += READ_SIZE) {
       const { data: rows, error } = await db
         .from("canvas_elements")
-        .select("id, type, data, z")
+        .select("id, type, data, z, updated_at")
         .eq("page_id", pageId)
         .eq("owner_id", ownerId)
         .eq("deleted", false)
@@ -75,7 +79,7 @@ export async function duplicatePage(db: Client, ownerId: string, pageId: string)
       if (error) throw new Error(error.message);
       const copies = rows.map((r) => {
         const id = crypto.randomUUID();
-        return { id, owner_id: ownerId, page_id: copy.id, type: r.type, z: r.z, deleted: false, updated_at: now, data: isRecord(r.data) ? { ...r.data, id } : r.data };
+        return { id, owner_id: ownerId, page_id: copy.id, type: r.type, z: r.z, deleted: false, updated_at: r.updated_at, data: isRecord(r.data) ? { ...r.data, id } : r.data };
       });
       for (let i = 0; i < copies.length; i += WRITE_SIZE) {
         const { error: insErr } = await db.from("canvas_elements").insert(copies.slice(i, i + WRITE_SIZE));
@@ -84,7 +88,8 @@ export async function duplicatePage(db: Client, ownerId: string, pageId: string)
       if (rows.length < READ_SIZE) break;
     }
   } catch (e) {
-    await db.from("pages").delete().eq("id", copy.id).eq("owner_id", ownerId);
+    const { error: cleanupErr } = await db.from("pages").delete().eq("id", copy.id).eq("owner_id", ownerId);
+    if (cleanupErr) console.error("duplicatePage: could not remove the partial copy", copy.id, cleanupErr.message);
     throw e;
   }
   return copy;

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { t } from "@/i18n/en";
 import { IconButton, PillButton } from "@/ui/Button";
 import { Dialog } from "@/ui/Dialog";
@@ -12,7 +12,7 @@ type PageRef = { id: string; title: string; folderId: string };
 type FolderRef = { id: string; name: string };
 
 const itemClass =
-  "flex h-11 w-full cursor-pointer items-center rounded-2xl px-3.5 text-left text-[15px] font-medium text-ink no-underline hover:bg-panel focus-visible:bg-panel focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-50";
+  "flex h-11 w-full cursor-pointer items-center rounded-2xl px-3.5 text-left text-[15px] font-medium text-ink no-underline hover:bg-panel focus-visible:bg-panel focus-visible:outline-2 focus-visible:outline-ink disabled:opacity-50 aria-disabled:opacity-50";
 const inputClass =
   "h-[52px] w-full rounded-2xl border-0 bg-ground px-[18px] text-[15px] text-ink placeholder:text-muted focus-visible:outline-2 focus-visible:outline-ink";
 
@@ -100,11 +100,23 @@ function DeletePageForm({ page, onDone, onCancel }: { page: PageRef; onDone: () 
  * Escape or a press outside closes it and focus returns to the button; arrow keys move between items.
  * Share as PDF is added with the PDF feature.
  */
-export function PageActionsMenu({ page, folders, className }: { page: PageRef; folders: FolderRef[]; className?: string }) {
+export function PageActionsMenu({
+  page,
+  folders,
+  className,
+  direction = "up",
+}: {
+  page: PageRef;
+  folders: FolderRef[];
+  className?: string;
+  /** Which side of the button the popover prefers; it flips to the other side when it would leave the viewport. */
+  direction?: "up" | "down";
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<"rename" | "move" | "delete" | null>(null);
   const [error, setError] = useState<FormState>(null);
   const [busy, setBusy] = useState(false);
+  const [flipped, setFlipped] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -113,9 +125,32 @@ export function PageActionsMenu({ page, folders, className }: { page: PageRef; f
 
   const closeMenu = (restoreFocus: boolean) => {
     setMenuOpen(false);
+    setFlipped(false);
     setError(null);
     if (restoreFocus) triggerRef.current?.focus();
   };
+
+  // Keep the popover inside the viewport: flip to the other side once, then nudge sideways.
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!menuOpen || !el) return;
+    el.style.transform = "";
+    const r = el.getBoundingClientRect();
+    const margin = 8;
+    const goesUp = direction === "up" !== flipped;
+    const overflows = goesUp ? r.top < margin : r.bottom > innerHeight - margin;
+    if (!flipped && overflows) {
+      // Flip only when the other side actually has room; otherwise stay put (the page can scroll).
+      const t = triggerRef.current!.getBoundingClientRect();
+      const room = goesUp ? innerHeight - t.bottom : t.top;
+      if (room >= r.height + 2 * margin) {
+        setFlipped(true);
+        return;
+      }
+    }
+    const dx = r.left < margin ? margin - r.left : r.right > innerWidth - margin ? innerWidth - margin - r.right : 0;
+    if (dx) el.style.transform = `translateX(${dx}px)`;
+  }, [menuOpen, flipped, direction]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -123,6 +158,7 @@ export function PageActionsMenu({ page, folders, className }: { page: PageRef; f
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setMenuOpen(false);
+        setFlipped(false);
         setError(null);
         triggerRef.current?.focus();
       }
@@ -130,6 +166,7 @@ export function PageActionsMenu({ page, folders, className }: { page: PageRef; f
     const onPress = (e: Event) => {
       if (!root.current?.contains(e.target as Node)) {
         setMenuOpen(false);
+        setFlipped(false);
         setError(null);
       }
     };
@@ -159,10 +196,12 @@ export function PageActionsMenu({ page, folders, className }: { page: PageRef; f
   const openDialog = (d: "rename" | "move" | "delete") => {
     triggerRef.current?.focus();
     setMenuOpen(false);
+    setFlipped(false);
     setDialog(d);
   };
 
   const duplicate = async () => {
+    if (busy) return;
     setBusy(true);
     setError(null);
     try {
@@ -187,7 +226,7 @@ export function PageActionsMenu({ page, folders, className }: { page: PageRef; f
         tone="panel"
         aria-haspopup="menu"
         aria-expanded={menuOpen}
-        onClick={() => (menuOpen ? closeMenu(true) : setMenuOpen(true))}
+        onClick={() => (menuOpen ? closeMenu(true) : (setFlipped(false), setMenuOpen(true)))}
       />
       {menuOpen && (
         <div
@@ -195,12 +234,12 @@ export function PageActionsMenu({ page, folders, className }: { page: PageRef; f
           role="menu"
           aria-label={t("pageActionsMenu")}
           onKeyDown={onMenuKey}
-          className="absolute top-full right-0 z-30 mt-2 flex w-56 max-w-[calc(100vw-2rem)] flex-col gap-0.5 rounded-3xl bg-card p-2 shadow-[0_8px_28px_rgba(27,26,31,0.12)]"
+          className={`absolute right-0 z-30 flex w-56 max-w-[calc(100vw-2rem)] flex-col gap-0.5 rounded-3xl bg-card p-2 shadow-[0_8px_28px_rgba(27,26,31,0.12)] ${direction === "up" !== flipped ? "bottom-full mb-2" : "top-full mt-2"}`}
         >
           <Link role="menuitem" href={`/app/p/${page.id}`} className={itemClass}>
             {t("pageOpen")}
           </Link>
-          <button type="button" role="menuitem" disabled={busy} onClick={duplicate} className={itemClass}>
+          <button type="button" role="menuitem" aria-disabled={busy} onClick={duplicate} className={itemClass}>
             {t("pageDuplicate")}
           </button>
           <button type="button" role="menuitem" onClick={() => openDialog("rename")} className={itemClass}>

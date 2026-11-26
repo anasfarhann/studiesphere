@@ -90,9 +90,9 @@ export function FolderView({
                   </span>
                 )}
               </div>
-              <span className="truncate px-1.5 text-base font-semibold">{p.title || t("untitledPage")}</span>
+              <span className="flex min-h-11 items-center px-1.5 pr-12"><span className="truncate text-base font-semibold">{p.title || t("untitledPage")}</span></span>
             </Link>
-            <PageActionsMenu page={{ id: p.id, title: p.title, folderId: folder.id }} folders={folders} className="absolute top-2.5 right-2.5" />
+            <PageActionsMenu page={{ id: p.id, title: p.title, folderId: folder.id }} folders={folders} className="absolute right-0 bottom-0" direction="down" />
             </div>
           ))}
         </section>

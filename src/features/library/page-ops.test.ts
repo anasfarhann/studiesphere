@@ -81,8 +81,8 @@ const base = () => ({
     { id: "px", owner_id: "u2", notebook_id: "nbx", title: "Theirs", sort_order: 0 },
   ],
   canvas_elements: [
-    { id: "e1", owner_id: "u1", page_id: "p1", type: "stroke", z: 1, deleted: false, data: { id: "e1", type: "stroke", z: 1, updatedAt: 5 } },
-    { id: "e2", owner_id: "u1", page_id: "p1", type: "image", z: 2, deleted: false, data: { id: "e2", type: "image", path: "u1/p1/a.png", z: 2, updatedAt: 6 } },
+    { id: "e1", owner_id: "u1", page_id: "p1", type: "stroke", z: 1, updated_at: "2020-01-01T00:00:00.000Z", deleted: false, data: { id: "e1", type: "stroke", z: 1, updatedAt: 5 } },
+    { id: "e2", owner_id: "u1", page_id: "p1", type: "image", z: 2, updated_at: "2020-02-02T00:00:00.000Z", deleted: false, data: { id: "e2", type: "image", path: "u1/p1/a.png", z: 2, updatedAt: 6 } },
     { id: "e3", owner_id: "u1", page_id: "p1", type: "stroke", z: 3, deleted: true, data: { id: "e3", type: "stroke" } },
   ],
 });
@@ -131,6 +131,11 @@ describe("movePage", () => {
     expect(f.tables().notebooks.filter((n) => n.subject_id === "f2")).toHaveLength(1);
     expect(f.tables().pages.filter((p) => p.id === "p1")).toHaveLength(1);
   });
+  it("refuses a folder that is not the owner's", async () => {
+    const f = fakeDb(base());
+    await expect(movePage(f.db, "u1", "p1", "fx")).rejects.toThrow("Folder not found");
+    expect(f.tables().pages[0].notebook_id).toBe("nb1");
+  });
   it("refuses another owner's page", async () => {
     const f = fakeDb(base());
     await expect(movePage(f.db, "u1", "px", "f2")).rejects.toThrow();
@@ -157,6 +162,12 @@ describe("duplicatePage", () => {
     expect(f.tables().canvas_elements.filter((e) => e.page_id === "p1")).toHaveLength(3);
     expect((els.find((e) => e.type === "image")!.data as { path: string }).path).toBe("u1/p1/a.png");
     expect(els.map((e) => e.z).sort()).toEqual([1, 2]);
+  });
+  it("keeps each element's source updated_at so client-stamped LWW still accepts the copy's first edits", async () => {
+    const f = fakeDb(base());
+    const copy = await duplicatePage(f.db, "u1", "p1");
+    const els = f.tables().canvas_elements.filter((e) => e.page_id === copy.id);
+    expect(els.map((e) => e.updated_at).sort()).toEqual(["2020-01-01T00:00:00.000Z", "2020-02-02T00:00:00.000Z"]);
   });
   it("copies more elements than one chunk", async () => {
     const seed = base();
