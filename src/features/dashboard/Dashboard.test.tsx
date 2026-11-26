@@ -168,4 +168,20 @@ describe("Dashboard", () => {
       expect(el.className).toMatch(/truncate/);
     }
   });
+
+  it("a recent card shows the page's real preview when it has one, the placeholder otherwise or when it fails", () => {
+    const withPreview = [{ ...recent[0], previewUrl: "https://s/p1.jpg?v=1" }, recent[1]];
+    render(<Dashboard name="Anas" folders={folders} recent={withPreview} today={today} />);
+    const card = (id: string) => document.querySelector(`a[href="/app/p/${id}"]`)!;
+    const img = card("p1").querySelector("img")!;
+    expect(img.getAttribute("src")).toBe("https://s/p1.jpg?v=1");
+    expect(img.getAttribute("alt")).toBe("");
+    expect(img.className).toMatch(/object-cover/);
+    expect(card("p1").querySelector("svg")).toBeNull();
+    expect(card("p2").querySelector("img")).toBeNull();
+    expect(card("p2").querySelector("svg")).toBeTruthy();
+    fireEvent.error(img);
+    expect(card("p1").querySelector("img")).toBeNull();
+    expect(card("p1").querySelector("svg")).toBeTruthy();
+  });
 });

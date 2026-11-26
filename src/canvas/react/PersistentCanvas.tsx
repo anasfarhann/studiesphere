@@ -18,6 +18,7 @@ import { MemoryRecordingOutbox, type OutboxEntry, type RecordingOutbox } from ".
 import type { SnapshotStore } from "../persistence/snapshot-store";
 import { SnapshotScheduler } from "../persistence/snapshots";
 import { recoverRecordings } from "../tools/recover-recordings";
+import { PagePreviews, type PreviewSink } from "../preview/preview-scheduler";
 import { CanvasView, type AttachmentConfig } from "./CanvasView";
 import { OversizeRecordings } from "./OversizeRecordings";
 import { SaveStatus } from "./SaveStatus";
@@ -40,6 +41,8 @@ export interface PersistentCanvasProps {
   header?: ReactNode;
   /** Extra notices for the bottom stack (dev demos). */
   extraNotices?: ReactNode;
+  /** Where the page's card preview goes; omit for no previews. */
+  preview?: PreviewSink;
 }
 
 /**
@@ -47,7 +50,7 @@ export interface PersistentCanvasProps {
  * canvas with autosave. The editor is never shown before the load finished, so an empty canvas
  * always means an empty page.
  */
-export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox, snapshots, header, extraNotices }: PersistentCanvasProps) {
+export function PersistentCanvas({ pageId, store, queue, attachments: attachmentProps, outbox, snapshots, header, extraNotices, preview }: PersistentCanvasProps) {
   const [attachments] = useState<AttachmentConfig | undefined>(() =>
     attachmentProps ? { ...attachmentProps, store, outbox: outbox ?? new MemoryRecordingOutbox() } : undefined,
   );
@@ -108,6 +111,26 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
         document.addEventListener("visibilitychange", onHide);
         window.addEventListener("pagehide", onHide);
       }
+      // Card preview: drawn off the input path, throttled; one more on leave (tab hidden or unmount) when dirty.
+      let previews: PagePreviews | null = null;
+      const onHidePreview = () => {
+        if (document.visibilityState === "hidden") previews?.flush();
+      };
+      const onPageHidePreview = () => previews?.flush();
+      if (preview) {
+        previews = new PagePreviews({
+          target: {
+            elements: () => editor.scene.all(),
+            drawSnapshot: (ctx, camera, w, h) => editor.drawSnapshot(ctx, camera, w, h),
+            preloadImages: () => editor.preloadImages(),
+          },
+          sink: preview,
+          onChange: (fn) => editor.scene.onChange(fn),
+        });
+        previews.start();
+        document.addEventListener("visibilitychange", onHidePreview);
+        window.addEventListener("pagehide", onPageHidePreview);
+      }
       if (attachments?.outbox) {
         const { service, ownerId, outbox: box } = attachments;
         void recoverRecordings({
@@ -131,12 +154,16 @@ export function PersistentCanvas({ pageId, store, queue, attachments: attachment
         document.removeEventListener("visibilitychange", onHide);
         window.removeEventListener("pagehide", onHide);
         scheduler?.dispose();
+        document.removeEventListener("visibilitychange", onHidePreview);
+        window.removeEventListener("pagehide", onPageHidePreview);
+        // Draws synchronously while the editor still exists; encoding and upload finish in the background.
+        previews?.dispose();
         off();
         // Final flush; whatever cannot be saved now stays queued for the next visit.
         void autosave.dispose();
       };
     },
-    [store, pageId, queue, attachments, snapshots],
+    [store, pageId, queue, attachments, snapshots, preview],
   );
 
   // While loading or after a failure there is no canvas bar yet: keep the way back reachable.

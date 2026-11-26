@@ -167,3 +167,73 @@ describe("PersistentCanvas recording recovery", () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe("PersistentCanvas page previews", () => {
+  beforeEach(() => {
+    const noop = () => {};
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(
+      () =>
+        ({
+          setTransform: noop, fillRect: noop, fill: noop, fillText: noop, strokeRect: noop, setLineDash: noop,
+          beginPath: noop, roundRect: noop, stroke: noop, save: noop, restore: noop, clearRect: noop, moveTo: noop, lineTo: noop, arc: noop,
+        }) as unknown as CanvasRenderingContext2D,
+    );
+    vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
+    vi.stubGlobal("matchMedia", () => ({ addEventListener() {}, removeEventListener() {} }));
+    vi.stubGlobal("Path2D", class { moveTo() {} lineTo() {} quadraticCurveTo() {} closePath() {} });
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const sink = () => ({
+    save: vi.fn<(b: Blob, o: { touch: boolean }) => Promise<void>>(async () => {}),
+    remove: vi.fn(async () => {}),
+    exists: vi.fn(async () => true),
+  });
+  beforeEach(() => {
+    vi.spyOn(HTMLCanvasElement.prototype, "toBlob").mockImplementation(function (cb: BlobCallback) {
+      cb(new Blob(["j"], { type: "image/jpeg" }));
+    });
+  });
+
+  it("an edited page uploads a preview when the canvas unmounts (leaving within the app)", async () => {
+    const store = new MemoryElementStore();
+    const preview = sink();
+    const { unmount } = render(<PersistentCanvas pageId="p" store={store} queue={new MemoryOfflineQueue("p")} preview={preview} />);
+    await screen.findByTestId("canvas");
+    const editor = (window as unknown as { __editor: Editor }).__editor;
+    act(() => editor.scene.add(stroke("new", 5000)));
+    expect(preview.save).not.toHaveBeenCalled();
+    unmount();
+    await waitFor(() => expect(preview.save).toHaveBeenCalledTimes(1));
+    expect(preview.save.mock.calls[0][1]).toEqual({ touch: true });
+    expect(preview.save.mock.calls[0][0].type).toBe("image/jpeg");
+  });
+
+  it("a page only looked at uploads nothing", async () => {
+    const store = new MemoryElementStore();
+    await store.save("p", [stroke("s", 1)], []);
+    const preview = sink();
+    const { unmount } = render(<PersistentCanvas pageId="p" store={store} queue={new MemoryOfflineQueue("p")} preview={preview} />);
+    await screen.findByTestId("canvas");
+    unmount();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(preview.save).not.toHaveBeenCalled();
+  });
+
+  it("a failing preview upload is silent: the page still saves", async () => {
+    const store = new MemoryElementStore();
+    const preview = { ...sink(), save: vi.fn(async () => { throw new Error("offline"); }) };
+    const { unmount } = render(<PersistentCanvas pageId="p" store={store} queue={new MemoryOfflineQueue("p")} preview={preview} />);
+    await screen.findByTestId("canvas");
+    const editor = (window as unknown as { __editor: Editor }).__editor;
+    act(() => editor.scene.add(stroke("new", 5000)));
+    unmount();
+    await waitFor(() => expect(preview.save).toHaveBeenCalled());
+    await waitFor(async () => expect((await store.load("p")).map((e) => e.id)).toEqual(["new"]));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+});

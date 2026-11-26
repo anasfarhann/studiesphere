@@ -19,8 +19,15 @@ export class AttachmentError extends Error {
 
 /** The slice of a Supabase storage bucket we use; tests and the dev route inject fakes. */
 export interface AttachmentStorage {
-  upload(path: string, body: Blob, opts: { contentType?: string }): Promise<{ error: { message: string } | null }>;
+  /** `upsert` replaces an existing object (page previews only; attachments are never overwritten). */
+  upload(path: string, body: Blob, opts: { contentType?: string; upsert?: boolean }): Promise<{ error: { message: string } | null }>;
   createSignedUrl(path: string, expiresInS: number): Promise<{ url: string | null; error: { message: string } | null }>;
+  remove?(paths: string[]): Promise<{ error: { message: string } | null }>;
+}
+
+/** A page's card preview: one fixed, upserted object per page beside its attachments. */
+export function previewPath(ownerId: string, pageId: string): string {
+  return `${ownerId}/${pageId}/preview.jpg`;
 }
 
 export interface UploadOptions {
@@ -59,6 +66,29 @@ export class AttachmentService {
     return { assetPath };
   }
 
+  /** Upserts the page's card preview at `{owner}/{page}/preview.jpg`. Rejects on failure. */
+  async uploadPreview(jpeg: Blob, opts: { ownerId: string; pageId: string }): Promise<void> {
+    const { error } = await this.storage.upload(previewPath(opts.ownerId, opts.pageId), jpeg, { contentType: "image/jpeg", upsert: true });
+    if (error) throw new AttachmentError("upload_failed", error.message);
+  }
+
+  /** Whether the page has a preview (a missing object cannot be signed). Never cached, never rejects. */
+  async previewExists(opts: { ownerId: string; pageId: string }): Promise<boolean> {
+    try {
+      const { url, error } = await this.storage.createSignedUrl(previewPath(opts.ownerId, opts.pageId), 60);
+      return !error && !!url;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Drops the page's preview (the page was emptied). Rejects on failure. */
+  async removePreview(opts: { ownerId: string; pageId: string }): Promise<void> {
+    if (!this.storage.remove) return;
+    const { error } = await this.storage.remove([previewPath(opts.ownerId, opts.pageId)]);
+    if (error) throw new Error(error.message);
+  }
+
   /** Drops the cached URL so the next signedUrl() asks the server again. */
   forgetSignedUrl(assetPath: string): void {
     this.urls.delete(assetPath);
@@ -81,12 +111,17 @@ export function supabaseAttachmentStorage(client: {
     from(bucket: string): {
       upload(path: string, body: Blob, opts: { contentType?: string; upsert?: boolean }): Promise<{ error: { message: string } | null }>;
       createSignedUrl(path: string, expiresIn: number): Promise<{ data: { signedUrl: string } | null; error: { message: string } | null }>;
+      remove(paths: string[]): Promise<{ error: { message: string } | null }>;
     };
   };
 }): AttachmentStorage {
   const bucket = () => client.storage.from("attachments");
   return {
-    upload: (path, body, opts) => bucket().upload(path, body, { ...opts, upsert: false }),
+    upload: (path, body, opts) => bucket().upload(path, body, { ...opts, upsert: opts.upsert === true }),
+    remove: async (paths) => {
+      const { error } = await bucket().remove(paths);
+      return { error };
+    },
     createSignedUrl: async (path, expiresIn) => {
       const { data, error } = await bucket().createSignedUrl(path, expiresIn);
       return { url: data?.signedUrl ?? null, error };

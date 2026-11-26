@@ -570,4 +570,74 @@ describe("Renderer", () => {
     expect(ctx.fillText).toHaveBeenCalledWith("2:05", expect.any(Number), expect.any(Number));
     r.destroy();
   });
+  describe("drawSnapshot (page previews)", () => {
+    const photo = { id: "p", z: 2, updatedAt: 1, type: "image", x: 10, y: 20, w: 200, h: 100, assetPath: "o/p/a.jpg" } as const;
+    const bitmap = { width: 400, height: 200 } as unknown as ImageBitmap;
+
+    it("draws the scene onto another context through another camera, without selection or live ink", () => {
+      scene.add(stroke("a", 0));
+      const r = make();
+      r.resize(100, 100, 2);
+      flush();
+      r.setSelection(["a"]);
+      r.setLive(stroke("live", 500));
+      flush();
+      const other = fakeCtx();
+      const made0 = made;
+      const ok = r.drawSnapshot(other as unknown as CanvasRenderingContext2D, new Camera(-10, -10, 0.5), 240, 180);
+      expect(ok).toBe(true);
+      // Ground over the whole target, then the world transform of the snapshot camera at dpr 1.
+      expect(other.fillRect.mock.calls[0]).toEqual([0, 0, 240, 180]);
+      expect(other.setTransform.mock.calls[1]).toEqual([0.5, 0, 0, 0.5, 5, 5]);
+      expect(other.fill).toHaveBeenCalled();
+      expect(other.strokeRect).not.toHaveBeenCalled(); // no selection box
+      // The cached stroke path is reused: no new path for "a"; the live stroke is not drawn.
+      expect(made).toBe(made0);
+      expect(frames).toHaveLength(0);
+      // The live canvas still draws with its own context and camera afterwards.
+      ctx.setTransform.mockClear();
+      r.requestFrame();
+      flush();
+      expect(ctx.setTransform.mock.calls[1]).toEqual([2, 0, 0, 2, -0, -0]);
+      r.destroy();
+    });
+
+    it("draws nothing and returns false once destroyed", () => {
+      scene.add(stroke("a", 0));
+      const r = make();
+      r.destroy();
+      const other = fakeCtx();
+      expect(r.drawSnapshot(other as unknown as CanvasRenderingContext2D, new Camera(), 10, 10)).toBe(false);
+      expect(other.fillRect).not.toHaveBeenCalled();
+    });
+
+    it("preloadImages waits for the page's photos, so the snapshot draws them", async () => {
+      scene.add(photo);
+      let resolve!: (b: ImageBitmap) => void;
+      const load = vi.fn(() => new Promise<ImageBitmap>((res) => { resolve = res; }));
+      const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: load });
+      const done = r.preloadImages(1_000);
+      expect(load).toHaveBeenCalledWith("o/p/a.jpg");
+      resolve(bitmap);
+      await done;
+      const other = fakeCtx();
+      r.drawSnapshot(other as unknown as CanvasRenderingContext2D, new Camera(), 300, 300);
+      expect(other.drawImage).toHaveBeenCalledWith(bitmap, 10, 20, 200, 100);
+      r.destroy();
+    });
+
+    it("preloadImages gives up after its timeout", async () => {
+      vi.useFakeTimers();
+      try {
+        scene.add(photo);
+        const r = new Renderer(canvas, scene, camera, { raf, caf, loadImage: () => new Promise<ImageBitmap>(() => {}) });
+        const done = r.preloadImages(500);
+        await vi.advanceTimersByTimeAsync(500);
+        await expect(done).resolves.toBeUndefined();
+        r.destroy();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
 });

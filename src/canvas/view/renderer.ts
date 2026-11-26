@@ -83,6 +83,8 @@ export class Renderer {
   private loadImage: ImageLoader | undefined;
   /** Decoded photos by assetPath, so each is fetched and decoded once. */
   private images = new Map<string, ImageEntry>();
+  /** Settles when the load in flight for an assetPath finishes (either way); see preloadImages. */
+  private loads = new Map<string, Promise<void>>();
   private frameNo = 0;
   private retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private destroyed = false;
@@ -209,6 +211,7 @@ export class Renderer {
     this.textCache.clear();
     this.fontListeners.clear();
     this.releaseImages(() => true);
+    this.loads.clear();
     window.removeEventListener("online", this.onWake);
     document.removeEventListener("visibilitychange", this.onWake);
     for (const id of this.retryTimers.values()) clearTimeout(id);
@@ -246,7 +249,7 @@ export class Renderer {
     const failures = hit?.failures ?? 0;
     const loading: ImageEntry = { state: "loading", failures };
     this.images.set(assetPath, loading);
-    load(assetPath).then(
+    const settled = load(assetPath).then(
       (img) => {
         const bytes = Math.max(1, img.width * img.height * 4);
         this.settleImage(assetPath, loading, { state: "ready", img, bytes, lastUsed: this.frameNo });
@@ -260,6 +263,10 @@ export class Renderer {
         this.scheduleRetry(assetPath, delay);
       },
     );
+    const done = settled.finally(() => {
+      if (this.loads.get(assetPath) === done) this.loads.delete(assetPath);
+    });
+    this.loads.set(assetPath, done);
     return loading;
   }
 
@@ -301,27 +308,81 @@ export class Renderer {
     }
   }
 
+  /**
+   * Draws the scene (ground, dots and elements; no selection, live ink or other overlays) onto another context
+   * through another camera, at w x h px and dpr 1, with this renderer's drawing code and its caches (stroke paths,
+   * wrapped text, decoded photos). Synchronous; returns false once destroyed. Used for page previews.
+   */
+  drawSnapshot(ctx: CanvasRenderingContext2D, camera: Camera, w: number, h: number): boolean {
+    if (this.destroyed) return false;
+    const saved = { ctx: this.ctx, camera: this.camera, cssW: this.cssW, cssH: this.cssH, dpr: this.dpr };
+    this.ctx = ctx;
+    this.camera = camera;
+    this.cssW = w;
+    this.cssH = h;
+    this.dpr = 1;
+    try {
+      this.drawScene(w, h, false);
+    } finally {
+      this.ctx = saved.ctx;
+      this.camera = saved.camera;
+      this.cssW = saved.cssW;
+      this.cssH = saved.cssH;
+      this.dpr = saved.dpr;
+    }
+    return true;
+  }
+
+  /**
+   * Starts loading every photo on the page (not only the visible ones) and resolves once none is still loading,
+   * or after `timeoutMs`. Never rejects.
+   */
+  async preloadImages(timeoutMs: number): Promise<void> {
+    if (this.destroyed || !this.loadImage) return;
+    const waits: Promise<void>[] = [];
+    for (const el of this.scene.all()) {
+      if (el.type !== "image") continue;
+      const entry = this.imageFor(el.assetPath);
+      const p = this.loads.get(el.assetPath);
+      if (entry.state === "loading" && p) waits.push(p);
+    }
+    if (waits.length === 0) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      Promise.all(waits),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    clearTimeout(timer);
+  }
+
   private draw(): void {
     if (this.destroyed) return;
     this.frameNo++;
-    const { ctx, camera, dpr } = this;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = GROUND_COLOR;
-    ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
-
-    const k = dpr * camera.zoom;
-    ctx.setTransform(k, 0, 0, k, -camera.x * k, -camera.y * k);
-    this.drawDotGrid();
-
-    for (const el of this.scene.getVisible(camera.viewRect(this.cssW, this.cssH))) {
-      if (el.id !== this.hidden) this.drawElement(el);
-    }
+    this.drawScene(this.canvas.width, this.canvas.height, true);
     if (this.live) this.drawStroke(this.live, this.createStrokePath(this.live));
     this.drawGhost();
     this.drawSelection();
     this.drawLasso();
     this.prune();
     this.evictImages();
+  }
+
+  /** Ground, dot grid and the elements in view; `live` skips the element being edited in the text overlay. */
+  private drawScene(pxW: number, pxH: number, live: boolean): void {
+    const { ctx, camera, dpr } = this;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = GROUND_COLOR;
+    ctx.fillRect(0, 0, pxW, pxH);
+
+    const k = dpr * camera.zoom;
+    ctx.setTransform(k, 0, 0, k, -camera.x * k, -camera.y * k);
+    this.drawDotGrid();
+
+    for (const el of this.scene.getVisible(camera.viewRect(this.cssW, this.cssH))) {
+      if (!live || el.id !== this.hidden) this.drawElement(el, live);
+    }
   }
 
   /** Dot grid on the ground: one path, only the visible rect, skipped when zoomed far out. */
@@ -424,7 +485,7 @@ export class Renderer {
     });
   }
 
-  private drawElement(el: CanvasElement): void {
+  private drawElement(el: CanvasElement, live = true): void {
     const { ctx } = this;
     if (el.type === "stroke") {
       this.drawStroke(el, this.cachedPath(el));
@@ -446,7 +507,7 @@ export class Renderer {
       });
     } else if (el.type === "image") {
       const entry = this.imageFor(el.assetPath);
-      const pv = this.imagePreview && this.imagePreview.id === el.id ? this.imagePreview : null;
+      const pv = live && this.imagePreview && this.imagePreview.id === el.id ? this.imagePreview : null;
       const crop = pv ? null : validCrop(el.crop);
       if (entry.state !== "ready") this.drawPlaceholder(el, entry.state === "error");
       else if (pv) ctx.drawImage(entry.img, pv.x, pv.y, pv.w, pv.h);

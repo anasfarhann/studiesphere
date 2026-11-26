@@ -1,11 +1,21 @@
 import { describe, expect, it, vi } from "vitest";
 
 type Rows = Record<string, Record<string, unknown>[]>;
-const m = vi.hoisted(() => ({ rows: {} as Rows }));
+const m = vi.hoisted(() => ({ rows: {} as Rows, previews: new Set<string>() }));
 vi.mock("@/lib/auth", () => ({ getUser: async () => ({ id: "u1" }) }));
 /** Minimal PostgREST stand-in: select / eq / in / order (desc) / limit over in-memory rows. */
 vi.mock("@/lib/supabase/server", () => ({
   createServerClient: async () => ({
+    storage: {
+      from: () => ({
+        createSignedUrls: async (paths: string[]) => ({
+          data: paths.map((path) =>
+            m.previews.has(path) ? { path, signedUrl: `https://s/${path}?token=t`, error: null } : { path, signedUrl: null, error: "not found" },
+          ),
+          error: null,
+        }),
+      }),
+    },
     from(table: string) {
       let rows = [...(m.rows[table] ?? [])];
       const q = {
@@ -63,6 +73,25 @@ describe("getRecentPages", () => {
     const recent = await getRecentPages(3);
     expect(recent.map((p) => p.id)).toEqual(["blank", "p1", "p2"]);
     expect(recent[0]).toMatchObject({ title: "Page · 25 Nov", folderId: "s", folderName: "Quick notes", editedAt: "2026-11-25T10:00:00.000+00:00" });
+  });
+
+  it("gives a page with a preview its signed URL, cache-busted by pages.updated_at", async () => {
+    m.rows = {
+      canvas_elements: [{ page_id: "p1", updated_at: "2026-11-25T09:00:00.000+00:00" }],
+      pages: [
+        { id: "p1", owner_id: "u1", title: "One", notebook_id: "nb", updated_at: "2026-11-25T09:00:05.000+00:00" },
+        { id: "p2", owner_id: "u1", title: "Two", notebook_id: "nb", updated_at: "2026-11-01T00:00:00.000+00:00" },
+      ],
+      notebooks: [{ id: "nb", title: "Pages", subject_id: "s" }],
+      subjects: [{ id: "s", name: "Bio", color: "#F4D35E" }],
+    };
+    m.previews = new Set(["u1/p1/preview.jpg"]);
+    const recent = await getRecentPages(3);
+    expect(recent.map((p) => [p.id, p.previewUrl])).toEqual([
+      ["p1", "https://s/u1/p1/preview.jpg?token=t&v=2026-11-25T09%3A00%3A05.000%2B00%3A00"],
+      ["p2", undefined],
+    ]);
+    m.previews = new Set();
   });
 });
 

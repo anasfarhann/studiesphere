@@ -5,6 +5,7 @@ import { useState, useSyncExternalStore } from "react";
 import { FolderForm } from "@/features/library/forms";
 import { NewPageForm } from "@/features/library/NewPageForm";
 import { PageActionsMenu } from "@/features/library/PageActionsMenu";
+import { PagePreview } from "@/features/library/PagePreview";
 import { t } from "@/i18n/en";
 import { PillButton } from "@/ui/Button";
 import { Dialog } from "@/ui/Dialog";
@@ -41,12 +42,17 @@ function RecentCard({ page, today, folders }: { page: RecentPage; today: Date | 
     <div className="relative flex min-w-0 flex-col rounded-3xl bg-card p-3.5 text-ink">
       <Link href={`/app/p/${page.id}`} className="flex min-w-0 flex-col gap-3 text-ink no-underline">
         <div className="relative h-[104px] overflow-hidden rounded-2xl" style={{ background: page.tint }}>
-          <svg width="100%" height="104" viewBox="0 0 240 104" preserveAspectRatio="none" fill="none" stroke="#1B1A1F" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-            <path d="M18 30c14-8 22 6 34-2s18-6 30 0 20-4 32 2" />
-            <path d="M18 52c20-6 30 4 46-1s24 3 40-2" />
-            <path d="M18 74c10-5 18 3 28 0" />
-            <circle cx="190" cy="56" r="22" strokeOpacity="0.35" />
-          </svg>
+          <PagePreview
+            src={page.previewUrl}
+            fallback={
+              <svg width="100%" height="104" viewBox="0 0 240 104" preserveAspectRatio="none" fill="none" stroke="#1B1A1F" strokeOpacity="0.55" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M18 30c14-8 22 6 34-2s18-6 30 0 20-4 32 2" />
+                <path d="M18 52c20-6 30 4 46-1s24 3 40-2" />
+                <path d="M18 74c10-5 18 3 28 0" />
+                <circle cx="190" cy="56" r="22" strokeOpacity="0.35" />
+              </svg>
+            }
+          />
         </div>
         <div className="flex min-w-0 flex-col gap-1 px-1 pr-12 pb-1">
           <span className="truncate text-[17px] font-semibold">{page.title || t("untitledPage")}</span>

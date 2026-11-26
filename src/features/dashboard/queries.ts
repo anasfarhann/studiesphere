@@ -2,6 +2,7 @@ import { getUser } from "@/lib/auth";
 import { createServerClient } from "@/lib/supabase/server";
 import { t } from "@/i18n/en";
 import { toPastel } from "@/ui/pastel";
+import { signPreviewUrls } from "@/features/library/previews";
 
 export type RecentPage = {
   id: string;
@@ -10,6 +11,8 @@ export type RecentPage = {
   folderName: string;
   tint: string;
   editedAt: string;
+  /** Signed, cache-busted URL of the page's preview; absent when it has none (the card shows the placeholder). */
+  previewUrl?: string;
 };
 /** A folder (a `subjects` row) with the number of pages across all its notebooks. */
 export type FolderSummary = { id: string; name: string; tint: string; pages: number };
@@ -78,7 +81,10 @@ export async function getRecentPages(limit = 3): Promise<RecentPage[]> {
   const pageRows = mergeRecent(picked, [...editedRows.data, ...newest.data], limit);
   if (pageRows.length === 0) return [];
 
-  const nbs = await db.from("notebooks").select("id, subject_id").in("id", [...new Set(pageRows.map((p) => p.notebook_id))]);
+  const [nbs, previews] = await Promise.all([
+    db.from("notebooks").select("id, subject_id").in("id", [...new Set(pageRows.map((p) => p.notebook_id))]),
+    signPreviewUrls(db, user.id, pageRows),
+  ]);
   if (nbs.error) throw new Error(nbs.error.message);
   const subs = await db.from("subjects").select("id, name, color").in("id", [...new Set(nbs.data.map((n) => n.subject_id))]);
   if (subs.error) throw new Error(subs.error.message);
@@ -95,6 +101,7 @@ export async function getRecentPages(limit = 3): Promise<RecentPage[]> {
       folderName: sub?.name ?? "",
       tint: toPastel(sub?.color ?? ""),
       editedAt: p.editedAt,
+      ...(previews[p.id] ? { previewUrl: previews[p.id] } : {}),
     };
   });
 }

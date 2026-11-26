@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { FolderView } from "@/features/library/views";
 import { AppRail } from "@/ui/AppRail";
+import { DEV_PREVIEW_URL } from "../preview-fixture";
 
 const folders = [
   { id: "f1", name: "Biology" },
@@ -19,7 +20,7 @@ export default function DevFolderPage() {
     <div className="flex flex-1 flex-col gap-5 p-5 pb-28 md:flex-row md:pb-5">
       <AppRail active="home" />
       <div className="flex min-w-0 flex-1 flex-col">
-        <FolderView folder={{ id: "f1", name: "Biology", color: "#dc2626" }} pages={pages} audioPageIds={new Set()} folders={folders} />
+        <FolderView folder={{ id: "f1", name: "Biology", color: "#dc2626" }} pages={pages} audioPageIds={new Set()} folders={folders} previewUrls={{ p2: DEV_PREVIEW_URL }} />
       </div>
     </div>
   );
