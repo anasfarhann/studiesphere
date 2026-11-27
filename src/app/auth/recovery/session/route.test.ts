@@ -73,6 +73,28 @@ describe("POST /auth/recovery/session", () => {
     expect(setSession).not.toHaveBeenCalled();
   });
 
+  it("refuses bodies over 16 KB with 413 before parsing", async () => {
+    const big = JSON.stringify({ access_token: "a".repeat(17 * 1024), refresh_token: "rt" });
+    expect((await POST(req(big, { "content-length": String(big.length) }))).status).toBe(413);
+    expect((await POST(req("{}", { "content-length": "999999" }))).status).toBe(413);
+    // No content-length header (e.g. chunked): the read text is capped too.
+    const chunked = new NextRequest(URL_, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: ORIGIN },
+      body: new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode(big));
+          c.close();
+        },
+      }),
+      duplex: "half",
+      // Node's fetch needs duplex for a stream body; NextRequest's init type does not list it.
+    } as unknown as ConstructorParameters<typeof NextRequest>[1]);
+    expect(chunked.headers.get("content-length")).toBeNull();
+    expect((await POST(chunked)).status).toBe(413);
+    expect(setSession).not.toHaveBeenCalled();
+  });
+
   it("sets the session and recovery cookies for a fresh recovery token", async () => {
     const res = await POST(req(tokens));
     expect(res.status).toBe(204);

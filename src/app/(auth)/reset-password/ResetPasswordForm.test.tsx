@@ -68,6 +68,31 @@ describe("ResetPasswordForm", () => {
     expect(push).toHaveBeenCalledWith("/app?notice=password-updated");
   });
 
+  it("lets someone on the wrong account sign out: local sign-out, end recovery, go to /login", async () => {
+    render(<ResetPasswordForm email="someone@else.com" />);
+    const notYou = screen.getByRole("button", { name: en.notYouSignOut });
+    expect(notYou).toHaveAttribute("type", "button");
+    expect(notYou.className).toMatch(/min-h-11/);
+    await userEvent.click(notYou);
+    expect(signOut).toHaveBeenCalledWith({ scope: "local" });
+    expect(updateUser).not.toHaveBeenCalled();
+    expect(calls).toEqual(["signOut", "clear", "push"]);
+    expect(push).toHaveBeenCalledWith("/login");
+  });
+
+  it("still leaves for /login when the sign-out request fails", async () => {
+    signOut.mockRejectedValue(new Error("offline"));
+    render(<ResetPasswordForm email="someone@else.com" />);
+    await userEvent.click(screen.getByRole("button", { name: en.notYouSignOut }));
+    expect(clearRecoveryCookie).toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith("/login");
+  });
+
+  it("has no 'Not you?' without an email", () => {
+    render(<ResetPasswordForm />);
+    expect(screen.queryByRole("button", { name: en.notYouSignOut })).toBeNull();
+  });
+
   it("uses helpful placeholders", () => {
     render(<ResetPasswordForm />);
     expect(screen.getByLabelText(en.newPassword, { selector: "input" })).toHaveAttribute("placeholder", en.newPasswordPlaceholder);

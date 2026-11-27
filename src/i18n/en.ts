@@ -70,6 +70,8 @@ export const en = {
   resetSubtitle: "Use at least 8 characters.",
   resetForAccount: "Choosing a new password for {email}",
   checkingLink: "Checking your link…",
+  noscriptRecovery: "This page needs JavaScript to finish resetting your password. Turn it on, or ask for a new link.",
+  notYouSignOut: "Not you? Sign out",
   newPassword: "New password",
   confirmPassword: "Confirm password",
   newPasswordPlaceholder: "At least 8 characters",

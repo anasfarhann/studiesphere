@@ -1,5 +1,6 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
 
@@ -64,6 +65,33 @@ describe("RecoveryLanding", () => {
     expect(url).toBe("/auth/recovery/session");
     expect(init).toMatchObject({ method: "POST", headers: { "content-type": "application/json" } });
     expect(JSON.parse(init.body)).toEqual({ access_token: "at", refresh_token: "rt" });
+  });
+
+  it("gives up after 15 s so a hung request still ends on /reset-password", async () => {
+    const controller = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, "timeout").mockReturnValue(controller.signal);
+    fetchMock.mockImplementation(
+      (_url: string, init: RequestInit) =>
+        new Promise((_, reject) =>
+          init.signal?.addEventListener("abort", () => reject(new DOMException("timed out", "TimeoutError"))),
+        ),
+    );
+    land("#access_token=at&refresh_token=rt&type=recovery");
+    expect(timeout).toHaveBeenCalledWith(15_000);
+    expect(fetchMock.mock.calls[0][1].signal).toBe(controller.signal);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(replace).not.toHaveBeenCalled();
+    controller.abort();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/reset-password"));
+    timeout.mockRestore();
+  });
+
+  it("offers a way forward without JavaScript (server markup)", () => {
+    // React leaves <noscript> empty on the client; what matters is the server-rendered HTML.
+    const html = renderToStaticMarkup(<RecoveryLanding />);
+    const noscript = html.match(/<noscript>([\s\S]*)<\/noscript>/)?.[1] ?? "";
+    expect(noscript).toContain('href="/forgot-password"');
+    expect(noscript).toContain(en.noscriptRecovery);
   });
 
   it("still ends on /reset-password (expired state) when the server refuses or the network fails", async () => {

@@ -3,6 +3,9 @@ import { NextResponse, type NextRequest } from "next/server";
 import { isFreshRecovery, setRecoveryCookie } from "@/lib/recovery-cookie";
 import type { Database } from "@/lib/supabase/types";
 
+/** Two JWT-sized tokens fit easily; anything bigger is not a real recovery post. */
+const MAX_BODY_BYTES = 16 * 1024;
+
 type CookieToSet = { name: string; value: string; options?: Parameters<NextResponse["cookies"]["set"]>[2] };
 
 /**
@@ -10,6 +13,7 @@ type CookieToSet = { name: string; value: string; options?: Parameters<NextRespo
  * session plus the `ss_recovery` cookie that unlocks /reset-password.
  *
  * Security:
+ * - Bodies over 16 KB get 413 (by content-length before reading, and by length after reading).
  * - POST + JSON only, and the Origin header must be this origin: a cross-site page cannot post tokens
  *   here (JSON content-type also forces a CORS preflight that we never answer).
  * - setSession checks the tokens with Supabase (getUser, or a refresh for an expired access token).
@@ -25,9 +29,19 @@ export async function POST(request: NextRequest) {
   if (request.headers.get("origin") !== request.nextUrl.origin) return status(403);
   if (!request.headers.get("content-type")?.toLowerCase().startsWith("application/json")) return status(400);
 
+  const declared = request.headers.get("content-length");
+  if (declared !== null && !(Number(declared) <= MAX_BODY_BYTES)) return status(413);
+
+  let text: string;
+  try {
+    text = await request.text();
+  } catch {
+    return status(400);
+  }
+  if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) return status(413);
   let body: unknown;
   try {
-    body = await request.json();
+    body = JSON.parse(text);
   } catch {
     return status(400);
   }
