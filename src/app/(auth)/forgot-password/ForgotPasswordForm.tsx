@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { authErrorMessage, isTransientAuthError } from "@/lib/auth-errors";
+import { siteOrigin } from "@/lib/recovery-forward";
 import { createImplicitFlowClient } from "@/lib/supabase/client";
 import { t } from "@/i18n/en";
 import { AuthShell, formClass } from "../AuthShell";
@@ -27,7 +28,7 @@ export function ForgotPasswordForm() {
     setNotice(null);
     try {
       const { error } = await createImplicitFlowClient().auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/recovery`,
+        redirectTo: `${siteOrigin(window.location.origin)}/auth/recovery`,
       });
       if (error && isTransientAuthError(error)) setError(authErrorMessage(error));
       else setNotice(t("resetLinkSent"));
