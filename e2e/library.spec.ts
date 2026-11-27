@@ -7,7 +7,7 @@ test("create a folder and a page in it, then back to the folder, rename and dele
   test.skip(!email || !password, "needs E2E_USER_EMAIL and E2E_USER_PASSWORD (confirmed user)");
   await page.goto("/login");
   await page.getByLabel("Email").fill(email!);
-  await page.getByLabel("Password").fill(password!);
+  await page.getByLabel("Password", { exact: true }).fill(password!);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/app$/);
 
