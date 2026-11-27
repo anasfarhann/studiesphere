@@ -68,6 +68,8 @@ export const en = {
   rememberedPassword: "Remembered it?",
   resetTitle: "Choose a new password",
   resetSubtitle: "Use at least 8 characters.",
+  resetForAccount: "Choosing a new password for {email}",
+  checkingLink: "Checking your link…",
   newPassword: "New password",
   confirmPassword: "Confirm password",
   newPasswordPlaceholder: "At least 8 characters",

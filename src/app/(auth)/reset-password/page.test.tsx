@@ -1,6 +1,6 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { en } from "@/i18n/en";
+import { en, t } from "@/i18n/en";
 import { RECOVERY_COOKIE, signRecoveryCookie } from "@/lib/recovery-cookie";
 
 const state: { claims: Record<string, unknown> | null; cookie?: string } = { claims: null };
@@ -73,6 +73,19 @@ describe("/reset-password", () => {
     await renderPage();
     expect(form()).not.toBeNull();
     expect(expired()).toBeNull();
+  });
+
+  it("names the account being reset so a wrong account is noticed", async () => {
+    state.claims = { sub: "user-1", email: "anas@school.edu" };
+    state.cookie = signRecoveryCookie("user-1", Date.now(), "s3cret");
+    await renderPage();
+    expect(screen.getByText(t("resetForAccount", { email: "anas@school.edu" }))).toBeInTheDocument();
+  });
+
+  it("does not name an account on the expired state", async () => {
+    state.claims = { sub: "user-1", email: "anas@school.edu" };
+    await renderPage();
+    expect(screen.queryByText(/anas@school\.edu/)).toBeNull();
   });
 
   it("shows the form for a fresh recovery session (amr)", async () => {

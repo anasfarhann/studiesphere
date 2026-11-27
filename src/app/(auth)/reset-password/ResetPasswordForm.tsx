@@ -13,7 +13,7 @@ import { clearRecoveryCookie } from "./actions";
  * New password + confirm for a recovery session. On success: sign out every other session, end the
  * recovery window (cookie), then go to /app with a notice.
  */
-export function ResetPasswordForm() {
+export function ResetPasswordForm({ email = null }: { email?: string | null }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,6 +49,11 @@ export function ResetPasswordForm() {
   return (
     <form onSubmit={onSubmit} className={formClass}>
       <FormHeading title={t("resetTitle")} subtitle={t("resetSubtitle")} />
+      {email && (
+        <p className="m-0 rounded-2xl bg-ground px-4 py-3 text-[15px] break-words text-ink">
+          {t("resetForAccount", { email })}
+        </p>
+      )}
       <PasswordField id="new-password" name="password" label={t("newPassword")} minLength={8} autoComplete="new-password" placeholder={t("newPasswordPlaceholder")} />
       <PasswordField id="confirm-password" name="confirm" label={t("confirmPassword")} minLength={8} autoComplete="new-password" placeholder={t("confirmPasswordPlaceholder")} />
       <FormMessages error={error} notice={null} />

@@ -1,9 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
-import { authRedirect } from "@/lib/auth-routes";
+import { authRedirect, skipsSessionRefresh } from "@/lib/auth-routes";
 
 /** Refreshes the Supabase session cookie and gates /app behind sign-in. */
 export async function proxy(request: NextRequest) {
+  if (skipsSessionRefresh(request.nextUrl.pathname)) return NextResponse.next({ request });
   let response = NextResponse.next({ request });
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

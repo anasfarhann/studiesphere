@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { authErrorMessage, isTransientAuthError } from "@/lib/auth-errors";
-import { createBrowserClient } from "@/lib/supabase/client";
+import { createImplicitFlowClient } from "@/lib/supabase/client";
 import { t } from "@/i18n/en";
 import { AuthShell, formClass } from "../AuthShell";
 import { AltAction, EmailField, FormHeading, FormMessages, SubmitButton } from "../fields";
@@ -10,6 +10,9 @@ import { AltAction, EmailField, FormHeading, FormMessages, SubmitButton } from "
 /**
  * Sends a password-reset email. Whatever Supabase says about the address, the user sees the same
  * neutral message (no account enumeration); only network failures and rate limits are reported.
+ *
+ * Requested in implicit flow so the default email link works on any device: Supabase redirects to
+ * /auth/recovery with the session in the URL fragment (see that page for the security notes).
  */
 export function ForgotPasswordForm() {
   const [error, setError] = useState<string | null>(null);
@@ -23,8 +26,8 @@ export function ForgotPasswordForm() {
     setError(null);
     setNotice(null);
     try {
-      const { error } = await createBrowserClient().auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+      const { error } = await createImplicitFlowClient().auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/recovery`,
       });
       if (error && isTransientAuthError(error)) setError(authErrorMessage(error));
       else setNotice(t("resetLinkSent"));
