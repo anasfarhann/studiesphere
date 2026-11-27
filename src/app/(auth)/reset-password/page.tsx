@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
+import { RECOVERY_COOKIE, recoveryAllowed, recoverySecret } from "@/lib/recovery-cookie";
 import { createServerClient } from "@/lib/supabase/server";
 import { t } from "@/i18n/en";
 import { AuthShell } from "../AuthShell";
@@ -8,11 +10,23 @@ import { ResetPasswordForm } from "./ResetPasswordForm";
 
 export const metadata: Metadata = { title: `${t("resetTitle")} · ${t("appName")}` };
 
-/** Landing page of the recovery email (via /auth/callback). Needs the session that link created. */
-export default async function ResetPasswordPage() {
+async function inRecovery(): Promise<boolean> {
   const supabase = await createServerClient();
-  const { data } = await supabase.auth.getClaims();
-  if (!data?.claims?.sub) {
+  const [{ data }, cookieStore] = await Promise.all([supabase.auth.getClaims(), cookies()]);
+  return recoveryAllowed({
+    claims: data?.claims,
+    cookie: cookieStore.get(RECOVERY_COOKIE)?.value,
+    now: Date.now(),
+    secret: recoverySecret(),
+  });
+}
+
+/**
+ * Landing page of the recovery email (via /auth/confirm or /auth/callback). Being signed in is not enough:
+ * the form needs the server-signed recovery cookie for the same user (or a fresh `recovery` amr).
+ */
+export default async function ResetPasswordPage() {
+  if (!(await inRecovery())) {
     return (
       <AuthShell alt={<AltAction prompt={t("rememberedPassword")} href="/login" label={t("signIn")} />}>
         <div className="flex flex-col gap-4 lg:gap-[18px]">

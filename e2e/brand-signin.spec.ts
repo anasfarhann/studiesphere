@@ -26,9 +26,10 @@ test("show/hide toggles the password field type", async ({ page }) => {
   await expect(field).toHaveAttribute("type", "password");
   await page.getByRole("button", { name: "Show password" }).click();
   await expect(field).toHaveAttribute("type", "text");
-  const hide = page.getByRole("button", { name: "Hide password" });
-  await expect(hide).toHaveAttribute("aria-pressed", "true");
-  await hide.click();
+  const toggle = page.getByRole("button", { name: "Show password" });
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await toggle.click();
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
   await expect(field).toHaveAttribute("type", "password");
   await expect(field).toHaveValue("secret-pass-1");
 });
@@ -39,7 +40,13 @@ test("focused field shows the ink border and lavender ring", async ({ page }) =>
   await email.focus();
   const shell = email.locator("..");
   await expect(shell).toHaveCSS("border-top-color", "rgb(27, 26, 31)");
-  await expect(shell).toHaveCSS("box-shadow", /rgba\(220, 214, 250, 0\.9\) 0px 0px 0px 4px/);
+  await expect(shell).toHaveCSS("border-top-width", "2px");
+  await expect(shell).toHaveCSS("box-shadow", /rgb\(220, 214, 250\) 0px 0px 0px 4px/);
+  // Resting fields: 1.5px border on the warm field fill.
+  const pw = page.getByLabel("Password", { exact: true }).locator("..");
+  // 1.5px; Chrome snaps it to whole device pixels (1px at DPR 1, 1.5px on Retina).
+  await expect(pw).toHaveCSS("border-top-width", /^1(\.5)?px$/);
+  await expect(pw).toHaveCSS("background-color", "rgb(252, 250, 248)");
 });
 
 test("sign-up mode uses its own wording", async ({ page }) => {
@@ -101,4 +108,12 @@ test("auth callback rejects off-site next targets", async ({ request }) => {
   expect(res.status()).toBeGreaterThanOrEqual(300);
   expect(res.status()).toBeLessThan(400);
   expect(new URL(res.headers()["location"]).host).toBe("localhost:3100");
+});
+
+test("auth confirm refuses unknown link types and sends a tokenless recovery link to the expired state", async ({ request, page }) => {
+  const bad = await request.get("/auth/confirm?token_hash=x&type=magiclink&next=/app", { maxRedirects: 0 });
+  expect(new URL(bad.headers()["location"]).pathname).toBe("/login");
+  await page.goto("/auth/confirm?type=recovery&next=//evil.example");
+  await expect(page).toHaveURL(/localhost:3100\/reset-password$/);
+  await expect(page.getByRole("heading", { name: "This link has expired", level: 1 })).toBeVisible();
 });

@@ -5,9 +5,12 @@ import { useState, type ReactNode } from "react";
 import { t } from "@/i18n/en";
 import { Icon, type IconName } from "@/ui/icons";
 
-/** Bordered field with a leading icon; the focused field gets the 2px ink border and lavender ring. */
+/**
+ * Bordered field with a leading icon. Resting: 1.5px border (3:1 against the field) on the warm field
+ * fill; focused: the 2px ink border, white fill and 4px lavender ring from the mockup.
+ */
 const shell =
-  "flex h-[52px] items-center gap-2.5 rounded-2xl border-2 border-field-line bg-card pl-3.5 text-muted transition-[box-shadow,border-color] focus-within:border-ink focus-within:text-ink focus-within:shadow-[0_0_0_4px_rgb(220_214_250/0.9)] lg:h-[54px] lg:pl-4";
+  "flex h-[52px] items-center gap-2.5 rounded-2xl border-[1.5px] border-field-line bg-field pl-3.5 text-muted transition-[box-shadow,border-color] focus-within:border-2 focus-within:border-ink focus-within:bg-card focus-within:text-ink focus-within:ring-4 focus-within:ring-lavender lg:h-[54px] lg:pl-4";
 const input =
   "h-full min-w-0 flex-1 border-0 bg-transparent text-base text-ink outline-none placeholder:text-muted lg:text-[15px]";
 
@@ -45,6 +48,7 @@ export function PasswordField({
   label,
   autoComplete,
   minLength,
+  placeholder = t("passwordPlaceholder"),
   aside,
 }: {
   id: string;
@@ -52,6 +56,7 @@ export function PasswordField({
   label: string;
   autoComplete: "current-password" | "new-password";
   minLength?: number;
+  placeholder?: string;
   /** Shown at the end of the label row (e.g. the "Forgot password?" link). */
   aside?: ReactNode;
 }) {
@@ -72,13 +77,14 @@ export function PasswordField({
           required
           minLength={minLength}
           autoComplete={autoComplete}
-          placeholder={t("passwordPlaceholder")}
+          placeholder={placeholder}
           className={input}
         />
         <button
           type="button"
           onClick={() => setShown((s) => !s)}
-          aria-label={t(shown ? "hidePassword" : "showPassword")}
+          // A toggle button keeps one name; aria-pressed carries the state.
+          aria-label={t("showPassword")}
           aria-pressed={shown}
           aria-controls={id}
           className="flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-xl text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-ink"

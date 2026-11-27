@@ -37,7 +37,8 @@ function NotesPreview() {
           <ellipse cx="62" cy="22" rx="56" ry="17" stroke="var(--color-ink)" strokeWidth="1.8" />
           <path d="M24 22c9-8 18 8 27 0s18 8 27 0 18 8 22 0" stroke="var(--color-now)" strokeWidth="1.8" />
         </svg>
-        <span className="absolute top-3 right-3.5 h-[52px] w-[70px] rotate-[5deg] rounded-[10px] border-[3px] border-card bg-sky shadow-[0_4px_12px_rgb(27_26_31/0.12)]" />
+        {/* Pinned photo: bottom-right above the Lecture chip, clear of the handwriting. */}
+        <span className="absolute right-3 bottom-12 h-8 w-11 lg:right-5 lg:h-[40px] lg:w-[54px] rotate-[5deg] rounded-[9px] border-[3px] border-card bg-sky shadow-[0_4px_12px_rgb(27_26_31/0.12)]" />
         <span className="absolute right-[18px] bottom-3 flex items-center gap-1.5 rounded-full bg-card py-1 pr-2.5 pl-1.5 font-sans text-[11px] font-medium shadow-[0_2px_8px_rgb(27_26_31/0.08)]">
           <span className="flex size-[18px] items-center justify-center rounded-full bg-lavender">
             <Icon name="mic" size={10} />

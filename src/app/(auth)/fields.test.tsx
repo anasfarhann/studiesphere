@@ -14,7 +14,7 @@ describe("PasswordField", () => {
     expect(toggle).toHaveAttribute("aria-pressed", "false");
     await userEvent.click(toggle);
     expect(input).toHaveAttribute("type", "text");
-    expect(toggle).toHaveAccessibleName("Hide password");
+    expect(toggle).toHaveAccessibleName("Show password");
     expect(toggle).toHaveAttribute("aria-pressed", "true");
     await userEvent.click(toggle);
     expect(input).toHaveAttribute("type", "password");

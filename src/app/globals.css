@@ -34,7 +34,9 @@
   /* Sign-in previews and fields */
   --color-paper: #fbf9f7;
   --color-ink-soft: #3d3943;
-  --color-field-line: #e6ded6;
+  /* 3.2:1 against --color-field (WCAG 1.4.11 non-text contrast) */
+  --color-field-line: #948a80;
+  --color-field: #fcfaf8;
   --color-divider: #ede6df;
   --color-dot: #ddd5cd;
   --color-pen-blue: #2563eb;
