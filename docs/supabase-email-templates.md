@@ -30,3 +30,7 @@ If you move to a custom SMTP sender and can edit templates, a token-hash link al
   - **Symptom:** clicking the reset link opens the home page (with `#access_token=…` in the address bar) and nothing happens. There is no reset form and no error. Add the redirect URL and request a new link: the old link has already been used.
 - **Server env:** set `RECOVERY_COOKIE_SECRET` (a long random string) on the server. Without it, the app derives a secret from `SUPABASE_SERVICE_ROLE_KEY`. If neither is set, no recovery cookie is issued and the reset form stays locked (fail closed).
 - **Secure password change:** consider turning on "Secure password change" (Authentication → Providers → Email). The app enforces the `/reset-password` gate, but anyone with a session can still call `updateUser` directly. That setting makes Supabase require a recent sign-in or a recovery before it changes the password.
+
+## Links that land on the home page
+
+If an email was requested from a domain that is not on the Redirect URLs list (for example a team or preview URL), Supabase sends the link to the Site URL root instead. The app now forwards a recovery fragment found on any page to `/auth/recovery`, and auth emails use `NEXT_PUBLIC_SITE_URL` (set to `https://studiesphere.vercel.app` in production) as their origin, so this no longer breaks the reset.

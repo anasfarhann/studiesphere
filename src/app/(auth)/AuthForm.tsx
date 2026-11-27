@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import { authErrorMessage } from "@/lib/auth-errors";
+import { siteOrigin } from "@/lib/recovery-forward";
 import { createBrowserClient } from "@/lib/supabase/client";
 import { t } from "@/i18n/en";
 import { AuthShell, formClass } from "./AuthShell";
@@ -36,7 +37,7 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
-          options: { emailRedirectTo: `${window.location.origin}/auth/callback` },
+          options: { emailRedirectTo: `${siteOrigin(window.location.origin)}/auth/callback` },
         });
         if (error) setError(authErrorMessage(error));
         else if (data.session) {
