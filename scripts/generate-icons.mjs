@@ -3,7 +3,8 @@
 import { Resvg } from "@resvg/resvg-js";
 import { writeFileSync } from "node:fs";
 
-const CREAM = "#F6F2EE";
+/** App-icon tile: midnight violet, so the purple mark reads on any home-screen wallpaper. */
+const TILE = "#17132B";
 const STOPS = [["0", "#D9D2FF"], ["0.5", "#A597F4"], ["1", "#6E5CD8"]];
 const strokeFor = (px) => (px <= 16 ? 15 : px <= 32 ? 13 : px <= 48 ? 12 : 11);
 
@@ -21,10 +22,10 @@ function markGroup(canvas, markPx) {
   </g>`;
 }
 
-/** Cream square (optionally rounded) with the mark at ~62 % (inside the maskable 80 % safe zone). */
+/** Midnight-violet square (optionally rounded) with the mark at ~62 % (inside the maskable 80 % safe zone). */
 function iconSvg(size, { radius = 0, scale = 0.62 } = {}) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" rx="${radius}" fill="${CREAM}"/>
+  <rect width="${size}" height="${size}" rx="${radius}" fill="${TILE}"/>
   ${markGroup(size, Math.round(size * scale))}
 </svg>
 `;
