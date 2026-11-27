@@ -31,6 +31,15 @@
   --color-dashed-line: #cfc6be;
   --color-night: #3a3740;
   --color-night-muted: #b8b3be;
+  /* Sign-in previews and fields */
+  --color-paper: #fbf9f7;
+  --color-ink-soft: #3d3943;
+  --color-field-line: #e6ded6;
+  --color-divider: #ede6df;
+  --color-dot: #ddd5cd;
+  --color-pen-blue: #2563eb;
+  --color-now: #dc2626;
+  --font-hand: "Caveat", cursive;
 }
 
 body {

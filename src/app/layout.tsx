@@ -24,7 +24,7 @@ export const metadata: Metadata = {
 
 // Page zoom stays enabled (accessibility). Safe-area insets are applied on <body> in globals.css.
 export const viewport: Viewport = {
-  themeColor: "#2563eb",
+  themeColor: "#F6F2EE",
   viewportFit: "cover",
   // Light-only for now (dark mode is not designed yet): keeps UA controls light too.
   colorScheme: "light",

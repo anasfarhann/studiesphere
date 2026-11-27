@@ -6,6 +6,7 @@ import { NewPageForm } from "@/features/library/NewPageForm";
 import { clearDeviceClipboard } from "@/canvas/clipboard";
 import { t } from "@/i18n/en";
 import { Icon, type IconName } from "./icons";
+import { LogoMark } from "./Logo";
 
 export type RailAccount = { email: string; signOut: () => void | Promise<void> };
 
@@ -65,9 +66,9 @@ export function AppRail({ active, account }: { active: "home" | "folders"; accou
       <Link
         href="/app"
         aria-label={t("navHomeLogo")}
-        className="hidden size-[52px] items-center justify-center rounded-[18px] bg-ink text-white md:mb-4 md:flex"
+        className="hidden size-[52px] items-center justify-center rounded-[18px] bg-card md:mb-4 md:flex"
       >
-        <Icon name="logo" size={26} />
+        <LogoMark size={32} />
       </Link>
       <NewPageForm variant="rail" className={`${btn} cursor-pointer bg-ink text-white disabled:cursor-not-allowed disabled:opacity-50`} />
       {/* Home and Folders pointed at the same place, so they are one item (keeps six items inside 320 px). */}

@@ -20,7 +20,16 @@ export function authErrorMessage(error: unknown): string {
       return t("userAlreadyExists");
     case "email_address_invalid":
       return t("invalidEmail");
+    case "same_password":
+      return t("samePassword");
   }
   if (/invalid login credentials/i.test(e.message ?? "")) return t("invalidCredentials");
   return t("authGenericError");
+}
+
+/** Network failures and rate limits: the only errors the forgot-password form reveals (anything else could leak whether an account exists). */
+export function isTransientAuthError(error: unknown): boolean {
+  const e: AuthLike = typeof error === "object" && error !== null ? (error as AuthLike) : {};
+  if (error instanceof TypeError || e.name === "AuthRetryableFetchError" || e.status === 0 || e.status === 429) return true;
+  return e.code === "over_request_rate_limit" || e.code === "over_email_send_rate_limit";
 }
