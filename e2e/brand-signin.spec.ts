@@ -75,7 +75,7 @@ test("forgot password sends a reset link and shows the neutral message", async (
   await page.getByRole("button", { name: "Send reset link" }).click();
   await expect(page.getByRole("status")).toHaveText("If an account exists for that email, we've sent a reset link.");
   expect(body).toMatchObject({ email: "someone@example.com" });
-  expect(redirectTo).toMatch(/\/auth\/callback\?next=\/reset-password$/);
+  expect(redirectTo).toMatch(/^http:\/\/localhost:3100\/auth\/recovery$/);
   await expect(page.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
 });
 

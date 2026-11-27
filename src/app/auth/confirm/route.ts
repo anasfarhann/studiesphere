@@ -8,7 +8,8 @@ const CONFIRM_TYPES: EmailOtpType[] = ["email", "signup"];
 
 /**
  * Token-hash email links, which work on any device (unlike PKCE /auth/callback, whose code verifier
- * lives only in the requesting browser). The Supabase "Reset Password" template must link here:
+ * lives only in the requesting browser). Optional: with a custom "Reset Password" template, link here
+ * (the default template goes through /auth/recovery instead):
  *   {{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/reset-password
  * (see docs/supabase-email-templates.md).
  *

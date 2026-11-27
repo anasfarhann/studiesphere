@@ -4,8 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { en } from "@/i18n/en";
 
 const resetPasswordForEmail = vi.fn();
+const pkceResetPasswordForEmail = vi.fn();
 vi.mock("@/lib/supabase/client", () => ({
-  createBrowserClient: () => ({ auth: { resetPasswordForEmail } }),
+  // The default (PKCE) client must not be used: its link only works in this browser.
+  createBrowserClient: () => ({ auth: { resetPasswordForEmail: pkceResetPasswordForEmail } }),
+  createImplicitFlowClient: () => ({ auth: { resetPasswordForEmail } }),
 }));
 
 import { ForgotPasswordForm } from "./ForgotPasswordForm";
@@ -21,12 +24,13 @@ afterEach(cleanup);
 describe("ForgotPasswordForm", () => {
   beforeEach(() => resetPasswordForEmail.mockReset());
 
-  it("asks Supabase for a reset link that returns to /reset-password", async () => {
+  it("asks Supabase (implicit flow) for a reset link that returns to /auth/recovery", async () => {
     resetPasswordForEmail.mockResolvedValue({ data: {}, error: null });
     await submit("me@school.edu");
     expect(resetPasswordForEmail).toHaveBeenCalledWith("me@school.edu", {
-      redirectTo: `${window.location.origin}/auth/callback?next=/reset-password`,
+      redirectTo: `${window.location.origin}/auth/recovery`,
     });
+    expect(pkceResetPasswordForEmail).not.toHaveBeenCalled();
     expect(await screen.findByRole("status")).toHaveTextContent(en.resetLinkSent);
   });
 

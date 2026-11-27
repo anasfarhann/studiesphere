@@ -5,8 +5,8 @@ import { createServerClient } from "@/lib/supabase/server";
 
 /**
  * PKCE email-link landing: exchanges `code` for a session, then goes to `next` (relative paths only).
- * Works only in the browser that requested the link (the code verifier lives there); cross-device links
- * go through /auth/confirm instead. A successful exchange bound for /reset-password also gets the
+ * Works only in the browser that requested the link (the code verifier lives there). Reset emails are now
+ * requested in implicit flow and land on /auth/recovery (any device); this stays as a fallback. A successful exchange bound for /reset-password also gets the
  * recovery cookie that unlocks the change-password form.
  */
 export async function GET(request: NextRequest) {

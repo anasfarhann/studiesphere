@@ -5,7 +5,7 @@ import type { NextResponse } from "next/server";
 /**
  * Server-issued proof that this browser just followed a password-recovery link. Being signed in is not
  * enough to see /reset-password (an unlocked, signed-in browser must not allow a password change), so
- * /auth/confirm and /auth/callback set this cookie after verifying a recovery link.
+ * /auth/recovery/session, /auth/confirm and /auth/callback set this cookie after verifying a recovery link.
  * Value: `<userId>.<expiry ms>.<HMAC-SHA256 base64url>`.
  */
 export const RECOVERY_COOKIE = "ss_recovery";
@@ -72,12 +72,22 @@ export function recoveryAllowed({
   const sub = claims?.sub;
   if (!sub) return false;
   if (verifyRecoveryCookie(cookie, sub, now, secret)) return true;
-  const amr = Array.isArray(claims?.amr) ? (claims.amr as Amr[]) : [];
+  return isFreshRecovery(claims, now);
+}
+
+/**
+ * Do these (verified) JWT claims come from a recovery link followed in the last 15 minutes? Needs an
+ * `amr` entry with method "recovery" whose timestamp, and the token's `iat`, are within the window
+ * (60 s clock skew allowed into the future).
+ */
+export function isFreshRecovery(claims: RecoveryClaims, now: number): boolean {
+  if (!claims?.sub) return false;
+  const amr = Array.isArray(claims.amr) ? (claims.amr as Amr[]) : [];
   const recovery = amr.find((a) => a?.method === "recovery");
   if (!recovery) return false;
   const nowSec = now / 1000;
   const fresh = (t: number | undefined) => typeof t === "number" && nowSec - t <= RECOVERY_TTL_SECONDS && t <= nowSec + 60;
-  return fresh(recovery.timestamp) && fresh(claims?.iat);
+  return fresh(recovery.timestamp) && fresh(claims.iat);
 }
 
 /** Adds the recovery cookie to a response. Returns false (and sets nothing) when no secret is configured. */
