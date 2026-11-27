@@ -1,7 +1,11 @@
 import { expect, test } from "@playwright/test";
 
-test("landing page shows app name and sign-in link", async ({ page }) => {
+test("the first page is the sign-in screen", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Studiesphere" })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { name: "Welcome back" })).toBeVisible();
+  await expect(page.getByLabel("Email")).toBeVisible();
+  await expect(page.getByLabel("Password")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Create an account" })).toHaveAttribute("href", "/signup");
 });
