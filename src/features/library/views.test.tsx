@@ -130,7 +130,7 @@ describe("SUBJECT_COLORS", () => {
     expect(SUBJECT_COLORS.map((c) => c.hex)).toEqual(PASTELS.map((p) => p.hex));
   });
 
-  it("a page tile shows its real preview when it has one, the placeholder otherwise or when it fails", () => {
+  it("a page tile shows its real preview when it has one, a blank card otherwise or when it fails (no made-up scribble)", () => {
     render(<FolderView folder={folder} pages={pages} audioPageIds={new Set()} folders={folders} previewUrls={{ p2: "https://s/p2.jpg?v=1" }} />);
     const tile = (id: string) => document.querySelector(`a[href="/app/p/${id}"]`)!;
     const img = tile("p2").querySelector("img")!;
@@ -139,9 +139,9 @@ describe("SUBJECT_COLORS", () => {
     expect(img.className).toMatch(/object-left-top/);
     expect(tile("p2").querySelector("svg")).toBeNull();
     expect(tile("p3").querySelector("img")).toBeNull();
-    expect(tile("p3").querySelector("svg")).toBeTruthy();
+    expect(tile("p3").querySelector("svg")).toBeNull();
     fireEvent.error(img);
     expect(tile("p2").querySelector("img")).toBeNull();
-    expect(tile("p2").querySelector("svg")).toBeTruthy();
+    expect(tile("p2").querySelector("svg")).toBeNull();
   });
 });

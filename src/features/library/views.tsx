@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { t } from "@/i18n/en";
 import { Icon } from "@/ui/icons";
-import { PASTELS, toPastel } from "@/ui/pastel";
+import { toPastel } from "@/ui/pastel";
 import { FolderActions } from "./FolderActions";
 import { NewPageForm } from "./NewPageForm";
 import { PageActionsMenu } from "./PageActionsMenu";
@@ -75,22 +75,13 @@ export function FolderView({
         <p className="text-[15px] text-muted">{t("noPages")}</p>
       ) : (
         <section aria-label={t("pagesLabel")} className="grid grid-cols-[repeat(auto-fill,minmax(min(200px,100%),1fr))] gap-[18px]">
-          {pages.map((p, i) => (
+          {pages.map((p) => (
             <div key={p.id} className="relative flex min-w-0 flex-col">
             <Link href={`/app/p/${p.id}`} className="flex min-w-0 flex-col gap-2.5 text-ink no-underline">
               <div className="relative aspect-[3/4] overflow-hidden rounded-[22px] bg-card shadow-[0_1px_0_rgba(27,26,31,0.04),0_8px_24px_rgba(27,26,31,0.06)]">
                 <PagePreview
                   src={previewUrls?.[p.id]}
-                  fallback={
-                    <svg width="100%" height="100%" viewBox="0 0 150 200" fill="none" strokeLinecap="round" aria-hidden="true">
-                      <path d="M18 30c10-6 18 4 28-1s14-3 24 1" stroke="#1B1A1F" strokeOpacity="0.6" strokeWidth="2" />
-                      <path d="M18 54c16-5 24 3 38-1s20 2 34-1" stroke="#1B1A1F" strokeOpacity="0.45" strokeWidth="1.6" />
-                      <path d="M18 72c12-4 20 2 30 0" stroke="#1B1A1F" strokeOpacity="0.45" strokeWidth="1.6" />
-                      <rect x="16" y="92" width="118" height="10" rx="5" fill={PASTELS[i % PASTELS.length].dot} fillOpacity="0.7" stroke="none" />
-                      <circle cx="104" cy="148" r="26" stroke="#1B1A1F" strokeOpacity="0.35" strokeWidth="1.6" />
-                      <circle cx="104" cy="148" r="9" stroke="#1B1A1F" strokeOpacity="0.35" strokeWidth="1.6" />
-                    </svg>
-                  }
+                  fallback={null}
                 />
                 {audioPageIds.has(p.id) && (
                   <span className="absolute bottom-2.5 left-2.5 flex items-center gap-1.5 rounded-full bg-lavender px-2.5 py-[5px] text-xs font-medium">

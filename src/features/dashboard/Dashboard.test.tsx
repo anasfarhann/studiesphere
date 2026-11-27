@@ -169,7 +169,7 @@ describe("Dashboard", () => {
     }
   });
 
-  it("a recent card shows the page's real preview when it has one, the placeholder otherwise or when it fails", () => {
+  it("a recent card shows the page's real preview when it has one, a blank tint otherwise or when it fails (no made-up scribble)", () => {
     const withPreview = [{ ...recent[0], previewUrl: "https://s/p1.jpg?v=1" }, recent[1]];
     render(<Dashboard name="Anas" folders={folders} recent={withPreview} today={today} />);
     const card = (id: string) => document.querySelector(`a[href="/app/p/${id}"]`)!;
@@ -179,9 +179,9 @@ describe("Dashboard", () => {
     expect(img.className).toMatch(/object-cover/);
     expect(card("p1").querySelector("svg")).toBeNull();
     expect(card("p2").querySelector("img")).toBeNull();
-    expect(card("p2").querySelector("svg")).toBeTruthy();
+    expect(card("p2").querySelector("svg")).toBeNull();
     fireEvent.error(img);
     expect(card("p1").querySelector("img")).toBeNull();
-    expect(card("p1").querySelector("svg")).toBeTruthy();
+    expect(card("p1").querySelector("svg")).toBeNull();
   });
 });
